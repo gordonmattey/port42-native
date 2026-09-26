@@ -14,29 +14,28 @@ answers `timed_out` after 30 seconds.
 So the lock screen is presentation. Walking away from an unlocked machine with Port42 "locked"
 protects nothing, and a remote caller with a grant is unaffected by it.
 
-## What a real lock would have to decide
+## The decision
 
-Three questions, in order. The third is the one that makes this work rather than a dialog.
+GM, 2026-09-26: "you can't use the app without unlocking, simple. lock shouldn't stall running work,
+my computer locks but processes still run."
 
-**1. What does unlocking prove?** Options: macOS user authentication (`LocalAuthentication`, which
-gives Touch ID, Apple Watch and the login password through one API and returns a policy evaluation
-rather than a secret); a separate Port42 passphrase; or presence only, where unlocking is a gesture
-and the lock is a privacy screen. The first is the only one that is both familiar and not a second
-credential for the user to manage.
+That is the macOS model and it settles the design:
 
-**2. What is protected while locked?** The lock is worth nothing until something refuses. Candidates,
-increasing in cost:
-   - the UI only, which is today,
-   - plus the bridge for callers that are not already granted,
-   - plus the bridge entirely, which breaks every running agent and is probably wrong,
-   - plus data at rest, which is a different project (see below).
+- **Unlocking requires OS authentication.** `LocalAuthentication` with `.deviceOwnerAuthentication`,
+  so Touch ID, Apple Watch or the login password. No second credential to manage.
+- **The lock gates the human, not the machine.** The UI is inaccessible until authenticated.
+- **The bridge keeps serving.** Agents, companions, `/imagine` teams and terminals run through a lock
+  exactly as processes do through a screen lock. Nothing is queued, nothing stalls, nothing is killed.
 
-**3. What happens to agents?** This is the question that decides the design. A companion mid-task,
-a `/imagine` team, a terminal running a build: locking the screen must not kill them, and must not
-silently queue their calls until a human returns. A lock that stalls work is a lock people disable.
-The likely answer is that a grant made before the lock keeps working and a new consent cannot be
-given while locked, which means a permission request during a lock must fail fast and legibly rather
-than time out, which is a defect already recorded.
+So the boundary is the interface, not the API, and that is a coherent position rather than a
+compromise: a screen lock on any OS stops a person at the keyboard and does not stop `cron`.
+
+**The one case that needs a decision, because it is the only place the two halves meet:** a caller
+asks for a capability it has no grant for while the shell is locked. There is no human to approve.
+Today the card is enqueued with no render site and the gateway answers `timed_out` after 30 seconds,
+which tells the caller nothing true. It should be refused immediately with a distinct reason, so the
+caller can say "that needs someone at the machine" rather than appearing to hang. A grant made before
+the lock is unaffected, which is what keeps running work running.
 
 ## The platform primitive
 
@@ -53,28 +52,25 @@ key", so it authenticates a moment and nothing more. Two consequences worth stat
   that survives someone copying the database file, and it is a materially larger piece of work,
   because everything that reads the database while locked has to stop.
 
-## The honest framing
+## What this is and is not
 
-There are two products here and they should not be confused.
+It gates the interface. Someone at the keyboard cannot use Port42 without authenticating as the
+machine's owner. That is the whole claim, and it should be described that way rather than as
+protecting data.
 
-**A privacy screen** hides the desktop from someone walking past and costs almost nothing: an
-`LAContext` evaluation in front of the existing `unlock()`. It is worth doing, and it should be
-described as what it is.
-
-**A security boundary** means the gateway refuses, the data is at rest, and agents have a defined
-behavior across the transition. That is real work and its first requirement is knowing what it is
-defending against, which is not currently written down.
-
-Doing the first and calling it the second is worse than doing neither, because it produces exactly
-the false assurance the current screen already produces.
+It does not protect data at rest. `LocalAuthentication` returns a policy evaluation in the app's own
+process, not a key, so anything able to modify the app or read the database file is unaffected. A
+process running as the user is already outside the threat model. If data at rest becomes the goal,
+the primitive is different: a Keychain key with `.userPresence` or `.biometryCurrentSet` access
+control, released by the system only after authentication, encrypting the store. That is a separate
+project, and everything that reads the database while locked would have to stop, which conflicts
+directly with the decision above.
 
 ## Open
 
-- **Does the gateway refuse while locked?** This is the decision the rest follows from, and it
-  conflicts with agents running unattended, which is the product's main use.
-- **What does a headless instance do?** A machine running Port42 for its agents has nobody to
-  authenticate, so a lock that gates the bridge makes it unusable.
-- **Does a remote peer see a locked host as unavailable, or as normal?** Either answer leaks
-  something: the first leaks presence, the second contradicts the lock.
-- **What is actually at risk on an unattended unlocked Mac** that the OS screen lock does not already
-  cover. If the answer is nothing, this is a privacy screen and should stay one.
+- **A remote peer's view of a locked host.** Normal, presumably, since the bridge keeps serving.
+  Worth confirming that the lock state is not disclosed, because it says whether someone is present.
+- **Re-lock policy.** On sleep, on a timer, on the OS screen locking, or only by hand.
+- **The failure path.** Authentication cancelled, unavailable (no biometry enrolled, headless), or
+  failing repeatedly. A machine with no way to authenticate must not become a machine that cannot be
+  used.
