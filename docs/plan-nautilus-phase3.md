@@ -121,6 +121,11 @@ config, Codex through `[mcp_servers]` in its per-session config. `whoami`, `chat
 *Gates:* the MCP tool list equals the registry's generated one; a call through it is attributed to
 the companion's client; both CLIs' session configs name the server.
 
+**Future optimization (GM, 2026-09-25): HTML from a shared buffer.** Agents now always write a port's
+HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends
+the HTML through JSON. A write that names a local file or a shared buffer Port42 reads directly
+(`port.update {id, html_file}`) would skip the encoding, the copy and the size limits.
+
 ### 3.5 Scenario 3, extended
 
 The harness's scenario 3 gains: the transform stage as a hidden port; the render port in a resting

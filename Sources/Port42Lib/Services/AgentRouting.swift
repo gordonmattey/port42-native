@@ -90,6 +90,11 @@ public enum CompanionProtocol {
         guess a name, and a role like "the reviewer" is not a name. WHEN YOU MAKE A PORT FOR SOMEONE, \
         answer where they asked with one line naming the port and its id, and hold the rest of that \
         work's conversation, details and follow-ups in the port's own chat. \
+        TO CHANGE A PORT: read it with port.getHtml {"id"}, take its token from ports.list (every entry \
+        carries one), then port.patch {"id","search","replace","token"} for a targeted edit or port.update \
+        {"id","html","token"} to replace it; each write returns the next token. Always write HTML to a file and \
+        build the request from it, never inline: jq -n --rawfile h port.html --arg id <port id> --arg t <token> \
+        '{method:"port.update",args:{id:$id,html:$h,token:$t}}' | \(call) --data @- \
         WHEN YOU MAKE OR CHANGE A PORT, CHECK IT WORKS before you say it is done: read its console \
         (\(call) -d '{"method":"port.console","args":{"id":"<port id>"}}') for errors, and its DOM \
         (port.getDom) for the controls you added, then say what you checked.

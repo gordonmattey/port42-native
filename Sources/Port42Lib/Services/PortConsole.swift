@@ -17,7 +17,7 @@ import Foundation
 /// A ring buffer per port, capped. Not a log: the recent past, so a caller can ask "what just
 /// happened" without anyone deciding in advance to record.
 @MainActor
-public final class PortConsole {
+public final class PortConsole: ObservableObject {
     public static let shared = PortConsole()
 
     /// One line of output.
@@ -42,6 +42,10 @@ public final class PortConsole {
 
     private var lines: [String: [Line]] = [:]
 
+    /// Errors logged per port. Published because the port's chrome shows the count; only an ERROR
+    /// changes it, so a chatty port does not redraw every title bar.
+    @Published public private(set) var errorCounts: [String: Int] = [:]
+
     /// The key a port's console is filed under. **`PortRef.key`'s rule, deliberately duplicated
     /// nowhere else**: writers hold a panel, readers hold a resolved ref, and if the two disagree the
     /// buffer fills up under one name and reads empty under another — which is exactly what happened
@@ -63,6 +67,7 @@ public final class PortConsole {
             existing.removeFirst(existing.count - Self.maxLines)
         }
         lines[portId] = existing
+        if level == "error" { errorCounts[portId, default: 0] += 1 }
     }
 
     /// The most recent `tail` lines, oldest first — reading order, so a caller can paste it straight
@@ -77,6 +82,7 @@ public final class PortConsole {
     /// outlive it.
     public func clear(portId: String) {
         lines.removeValue(forKey: portId)
+        errorCounts.removeValue(forKey: portId)
     }
 
     /// Total lines held, for tests and introspection.

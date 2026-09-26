@@ -363,6 +363,22 @@ struct ShellTile: View {
     @State private var showMore = false
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
+    /// The port's console, opened from its title bar (it used to be a ">" drawn inside the page).
+    @State private var consoleOpen = false
+    /// Errors already seen, so the badge counts only new ones.
+    @State private var seenErrors = 0
+    @ObservedObject private var console = PortConsole.shared
+
+    /// Web and browser ports get a console; a terminal shows its own output.
+    private var consoleKey: String? {
+        guard let p = tile.panel, p.portType != "terminal" else { return nil }
+        return PortConsole.key(udid: p.udid, id: p.id, messageId: p.messageId)
+    }
+    private var consolePanelH: CGFloat {
+        guard consoleOpen, consoleKey != nil, !isPeeking else { return 0 }
+        let body = liveSize.height - headerH - chatPanelH
+        return min(max(110, (liveSize.height - headerH) * 0.3), max(0, body - 60))
+    }
 
     /// The key this port's chat is filed under (`PortRef.key`: the udid).
     private var chatKey: String? { tile.panel?.udid }
@@ -500,10 +516,15 @@ struct ShellTile: View {
                     .frame(width: liveSize.width, height: chatPanelH)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
+            if consolePanelH > 0, let key = consoleKey {
+                PortConsolePanel(key: key, accent: tileAccent)
+                    .frame(width: liveSize.width, height: consolePanelH)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             // The body stays mounted through peek/tile/focus: state changes only resize this
             // SAME view — no placeholder, no second mount, the webview never detaches.
             ShellTileBody(shell: shell, appState: appState, tile: tile)
-            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH - chatPanelH))
+            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH - chatPanelH - consolePanelH))
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
@@ -601,6 +622,27 @@ struct ShellTile: View {
                 }
             }
             .gesture(moveGesture)
+            // The console: new errors counted on the icon; the panel slides down like the chat.
+            if let key = consoleKey {
+                let errors = console.errorCounts[key] ?? 0
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { consoleOpen.toggle() }
+                    seenErrors = errors
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 9))
+                            .foregroundStyle(consoleOpen ? tileAccent : Port42Theme.textSecondary)
+                        if errors > seenErrors {
+                            Text("\(errors - seenErrors)").font(Port42Theme.monoBold(8)).foregroundStyle(.white)
+                                .padding(.horizontal, 4).padding(.vertical, 1).background(Color.red, in: Capsule())
+                        }
+                    }
+                    .frame(height: 22).padding(.horizontal, 4).contentShape(Rectangle())
+                    .background(consoleOpen ? Port42Theme.bgHover : .clear, in: Capsule())
+                }
+                .buttonStyle(.plain).help(consoleOpen ? "Close console" : "Console")
+                .onChange(of: errors) { _, n in if consoleOpen { seenErrors = n } }
+            }
             // The companion bar: who is in this port's chat, and what you have not read.
             if let key = chatKey {
                 PortChatBar(chats: appState.chats, key: key, me: appState.currentUser?.id,

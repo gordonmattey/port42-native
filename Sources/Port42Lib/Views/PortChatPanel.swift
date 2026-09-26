@@ -174,3 +174,55 @@ struct AppKitLayer<Content: View>: NSViewRepresentable {
     func makeNSView(context: Context) -> NSHostingView<Content> { NSHostingView(rootView: content) }
     func updateNSView(_ view: NSHostingView<Content>, context: Context) { view.rootView = content }
 }
+
+/// A port's console in its chrome: what the page logged, newest at the bottom. It re-reads the
+/// buffer twice a second while open, rather than redrawing on every line a port prints.
+struct PortConsolePanel: View {
+    let key: String
+    let accent: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            let lines = PortConsole.shared.recent(portId: key, tail: 300)
+            VStack(spacing: 0) {
+                HStack {
+                    Text("console").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Button("clear") { PortConsole.shared.clear(portId: key) }
+                        .buttonStyle(.plain).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            if lines.isEmpty {
+                                Text("Nothing logged.").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                            }
+                            ForEach(Array(lines.enumerated()), id: \.offset) { i, l in
+                                Text((l.level == "log" ? "" : l.level + ": ") + l.text)
+                                    .font(Port42Theme.mono(10))
+                                    .foregroundStyle(Self.color(l.level))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(i)
+                            }
+                        }
+                        .padding(.horizontal, 10).padding(.bottom, 6)
+                    }
+                    .onAppear { proxy.scrollTo(lines.count - 1, anchor: .bottom) }
+                    .onChange(of: lines.count) { _, n in proxy.scrollTo(n - 1, anchor: .bottom) }
+                }
+            }
+            .background(Port42Theme.bgPrimary)
+            .overlay(alignment: .bottom) { Rectangle().fill(accent.opacity(0.35)).frame(height: 1) }
+        }
+    }
+
+    static func color(_ level: String) -> Color {
+        switch level {
+        case "error": return .red.opacity(0.9)
+        case "warn": return .orange
+        default: return Port42Theme.textSecondary
+        }
+    }
+}
