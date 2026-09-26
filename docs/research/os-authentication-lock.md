@@ -30,12 +30,37 @@ That is the macOS model and it settles the design:
 So the boundary is the interface, not the API, and that is a coherent position rather than a
 compromise: a screen lock on any OS stops a person at the keyboard and does not stop `cron`.
 
-**The one case that needs a decision, because it is the only place the two halves meet:** a caller
-asks for a capability it has no grant for while the shell is locked. There is no human to approve.
-Today the card is enqueued with no render site and the gateway answers `timed_out` after 30 seconds,
-which tells the caller nothing true. It should be refused immediately with a distinct reason, so the
-caller can say "that needs someone at the machine" rather than appearing to hang. A grant made before
-the lock is unaffected, which is what keeps running work running.
+**The one case where the two halves meet:** a caller asks for a capability it has no grant for while
+the shell is locked. There is nobody to approve. Today the card is enqueued with no render site and
+the gateway answers `timed_out` after 30 seconds, which tells the caller nothing true.
+
+**A queue, and the call does not block on it** (GM, 2026-09-26). Those are two decisions and the
+second is what makes the first work.
+
+Refusing outright loses overnight work: an agent that needs a capability at 2am fails, and the run is
+dead by morning. Blocking until someone unlocks is worse: the caller hangs for hours, holds whatever
+it holds, and every timeout in the chain fires anyway.
+
+So the request is **persisted and the call returns immediately** with a distinct pending result
+naming the request. The caller decides what to do: wait and poll, continue without that capability, or
+park itself. When the shell unlocks, the queue is presented. A decision wakes the caller, which is the
+same mechanism Phase 3 uses to wake a rested subscriber.
+
+What that needs:
+
+- **A distinct outcome.** Not `timed_out`, not `permission_denied`. Something a caller can act on,
+  meaning approval is pending and nobody is at the machine.
+- **Persistence and expiry.** The request survives a restart, and it ages out. A request from three
+  days ago should not be approvable without being re-raised, because nobody remembers what it was.
+- **Context at decision time.** Who asked, what for, what they were doing, and when. Approving a
+  prompt you cannot place is how people learn to approve everything.
+- **Bounds and coalescing.** `PermissionCoordinator` already coalesces on `(principal, permission)`.
+  The queue needs the same, plus a cap, or one looping agent fills it overnight.
+- **Batch decisions.** Forty items reviewed one dialog at a time is a queue that gets cleared rather
+  than read.
+
+The failure mode to design against is not a missed prompt. It is waking to a long queue and
+approving it wholesale, which grants more than any single prompt ever would.
 
 ## The platform primitive
 
