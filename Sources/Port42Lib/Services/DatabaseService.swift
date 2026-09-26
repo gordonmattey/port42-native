@@ -859,6 +859,20 @@ public final class DatabaseService {
             try db.alter(table: "agents") { t in t.add(column: "runsHidden", .boolean).notNull().defaults(to: false) }
         }
 
+        migrator.registerMigration("v55-imagine-teams") { db in
+            // /imagine (docs/plan-imagine.md): the team a space was imagined with, for stop and the budget.
+            try db.create(table: "imagine_teams") { t in
+                t.column("spaceId", .text).primaryKey()
+                t.column("lead", .text).notNull()
+                t.column("eng1", .text).notNull()
+                t.column("eng2", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("versions", .integer).notNull()
+                t.column("startedAt", .datetime).notNull()
+                t.column("stoppedAt", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1547,6 +1561,27 @@ public final class DatabaseService {
     }
 
     /// Delete a port for good: its row, its versions and its chat.
+    // MARK: - Imagine teams (docs/plan-imagine.md)
+
+    public func saveImagineTeam(_ t: ImagineTeam) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO imagine_teams (spaceId, lead, eng1, eng2, title, versions, startedAt, stoppedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [t.spaceId, t.lead, t.eng1, t.eng2, t.title, t.versions, t.startedAt, t.stoppedAt])
+        }
+    }
+
+    public func imagineTeam(spaceId: String) throws -> ImagineTeam? {
+        try dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM imagine_teams WHERE spaceId = ?", arguments: [spaceId]).map {
+                ImagineTeam(spaceId: $0["spaceId"], lead: $0["lead"], eng1: $0["eng1"], eng2: $0["eng2"],
+                            title: $0["title"], versions: $0["versions"], startedAt: $0["startedAt"],
+                            stoppedAt: $0["stoppedAt"])
+            }
+        }
+    }
+
     // MARK: - Companion watches (nautilus Phase 3.3)
 
     public func saveCompanionWatch(_ w: CompanionWatch) throws {

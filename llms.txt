@@ -258,6 +258,13 @@ Generated from the live method registry: every entry below is served exactly as 
   whoami()
       Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. Call it first.
 
+### imagine
+
+  imagine.start(line, versions)  [permission: terminal]
+      Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
+        line (string, required): What to make, in the person's words.
+        versions (integer): The version budget (default 5, at most 20).
+
 ### notify
 
   notify.send(title, body, options)  [permission: notification]

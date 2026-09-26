@@ -419,6 +419,26 @@
     "name" : "help"
   },
   {
+    "description" : "Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
+    "input_schema" : {
+      "properties" : {
+        "line" : {
+          "description" : "What to make, in the person's words.",
+          "type" : "string"
+        },
+        "versions" : {
+          "description" : "The version budget (default 5, at most 20).",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "line"
+      ],
+      "type" : "object"
+    },
+    "name" : "imagine_start"
+  },
+  {
     "description" : "Send a macOS system notification",
     "input_schema" : {
       "properties" : {

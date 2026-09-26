@@ -1,8 +1,10 @@
 # /imagine: one line to a briefed team
 
 Detailed plan for `/imagine`, moved from the roadmap into the release's scope (GM, 2026-09-26). Draft
-for GM's review, written against `nautilus` at `0ce34a5`. Nothing here is built. Product idea; whether
-people want it is unvalidated.
+for GM's review, written against `nautilus` at `0ce34a5`; approved by GM with the recommended defaults.
+Product idea; whether people want it is unvalidated.
+
+**Status:** I.1 and I.2 done. I.3 to I.5 to build.
 
 ## Goal
 
@@ -102,6 +104,10 @@ then the brief to the lead. Returns the space, the names and the budget.
 
 *Gates:* the space and the three companions exist and belong to it; without Codex installed the team
 is Claude only; the first post is the person's line; the lead is asked once.
+
+*Done.* `AppState.startImagine` (Imagine.swift) and `imagine.start`, homed in the `port42-team` skill.
+The brief is posted as the person, so the space's first post carries their line verbatim and asks the
+lead once. The team is saved in `imagine_teams` (migration v55) for stop and the budget.
 
 ### I.3 Stop a team, and the budget
 

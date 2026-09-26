@@ -46,4 +46,29 @@ struct ImagineTests {
         let e = Imagine.engineerRole(lead: "swift-pika")
         #expect(e.contains("led by @swift-pika") && e.contains("to @swift-pika"))
     }
+
+    @Test("start: a space from the line, three agents in it with their roles, the team recorded, the brief posted as the person")
+    @MainActor
+    func start() async throws {
+        let w = try makeParityWorld()
+        let person = try #require(w.state.currentUser)
+        let team = try await w.state.startImagine(line: "a clock made of light", versions: 3, person: person,
+                                                  testCommand: "true")
+        let space = try #require(w.state.spaces.first { $0.id == team.spaceId } ?? (try w.state.db.getAllSpaces()).first { $0.id == team.spaceId })
+        #expect(space.name == "a-clock-made-of-light")
+        let members = Set(try w.state.db.getAgentsForSpace(spaceId: team.spaceId).map(\.displayName))
+        #expect(members == Set(team.members), "the team is not in its space: \(members)")
+        #expect(Set(team.members).count == 3, "codenames collided")
+        let byName = Dictionary(uniqueKeysWithValues: w.state.companions.map { ($0.displayName, $0) })
+        #expect(byName[team.lead]?.systemPrompt == Imagine.leadRole())
+        #expect(byName[team.eng1]?.systemPrompt == Imagine.engineerRole(lead: team.lead))
+        #expect(byName[team.eng2]?.systemPrompt == Imagine.engineerRole(lead: team.lead))
+        let stored = try #require(try w.state.db.imagineTeam(spaceId: team.spaceId))
+        #expect(stored.members == team.members && stored.title == team.title && stored.versions == 3)
+        #expect(abs(stored.startedAt.timeIntervalSince(team.startedAt)) < 1)
+        let first = try #require(try w.state.db.chatEntries(chat: team.spaceId, after: 0, limit: 10).first)
+        #expect(first.fromName == person.displayName, "the brief must come from the person who imagined it")
+        #expect(first.text.hasPrefix("@\(team.lead) /imagine from \(person.displayName): \"a clock made of light\""))
+        #expect(first.text.contains("in at most 3 versions"))
+    }
 }

@@ -50,3 +50,14 @@ List watches: yours, another companion's (`companion`), or every one (`companion
         companion (string): A name or id, or "*" for all (default: you).
 
     port42 companions.watches companion=…
+
+## imagine.start
+
+_needs the terminal permission_
+
+Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
+
+        line (string, required): What to make, in the person's words.
+        versions (integer): The version budget (default 5, at most 20).
+
+    port42 imagine.start line=… versions=…
