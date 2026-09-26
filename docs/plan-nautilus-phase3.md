@@ -129,7 +129,10 @@ starts carries its own instance's port in that variable, and each instance's Cod
 AGENTS.md (the user's file plus the block) instead of a link to the user's. The Settings install
 buttons are gone: Port42's sessions get what they need per session, and an already-installed block
 is still refreshed at launch, now identical from every instance. Gates in
-`MultiInstanceInstructionsTests`, each calibrated by removing its fix.
+`MultiInstanceInstructionsTests`, each calibrated by removing its fix. Verified live 2026-09-26 with prod
+(4242), Dev3 (4245) and Dev4 (4246) running: Dev4's launch left both global files byte-identical,
+Dev4's Codex home holds its own AGENTS.md, and a Codex session in Dev4 answered `whoami` through the
+file's curl as its own companion in its own space.
 
 **Future optimization (GM, 2026-09-25): HTML from a shared buffer.** Agents now always write a port's
 HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends
