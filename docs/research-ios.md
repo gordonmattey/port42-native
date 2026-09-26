@@ -133,31 +133,12 @@ closed on purpose.
 Ten stray `ngrok` references survive the deletion, in `AppState.swift`, `GatewayProcess.swift` and
 `gateway/main.go`. Cleanup, not a defect.
 
-## The peer is a host in your own mesh, not a peer on the internet
+## The mesh is a separate question
 
-GM, 2026-09-26: a phone is "a peer, but it is your virtual network of hosts, which has some sort of
-privileged access control to be able to pool together in that way."
-
-That is a different primitive from the one Phase 4 currently describes, and it is worth naming before
-either is built. Today's design has two grant shapes: a client enrolled on one instance, and D10's
-per-port invite. A mesh of your own devices is neither. It says **this host is me**, and the ports of
-every host in the mesh pool into one namespace.
-
-What that implies, all of it unbuilt:
-
-- **A principal class above "client".** Grants key on a caller and a port object. A mesh needs "this
-  peer id is the same person as me", which is a membership fact, not a per-port grant. Enrolling a
-  device is then one act, not one invite per port.
-- **A namespace that spans hosts.** `port42://<peerID>/space/<id>/<portId>` addresses a port on a
-  named machine. Pooling means the phone sees the Mac's ports as ports, with the host as an attribute
-  rather than as a prefix you must know.
-- **A revocation story per device.** Losing a phone should remove one host from the mesh without
-  touching any port grant.
-- **The App Store rule fits this better than it fits the alternative.** 4.2.7(a) requires "a
-  user-owned host device" on a LAN. A mesh of your own machines is exactly user-owned hosts. The LAN
-  clause still bites once Circuit Relay carries traffic off the network, which is an argument for
-  making LAN the first-class case (mDNS, milestone B) and treating relay as the fallback it already
-  is in the plan.
+A phone joining "your virtual network of hosts" is not an iOS feature. The same primitive serves a
+desk and a laptop, a machine at home and one in a cloud network. Written up separately in
+`docs/research-host-mesh.md`, which also audits what survives of the invite mechanism and why the
+guest page cannot be reached today.
 
 ## Recommendation
 
