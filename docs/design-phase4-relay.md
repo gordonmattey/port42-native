@@ -165,15 +165,13 @@ New, in Go, beside the door it already is:
 - **The page never acts on load.** It reads the coupon, clears it from the address bar
   (`history.replaceState`), and offers "Open in Port42" (`port42://invite#<coupon>`) or "Open here".
   Link previews and mail scanners that run scripts therefore redeem nothing.
-- **Redeeming is a waiting room.** The page shows who shared what, a name field and Join. After
-  Join: connect to a relay, open a session to the host, handshake, then send
-  `invite.redeem {nonce, name}` as the first call, and show "Waiting for <host> to let you in". The
-  host checks the nonce is live and raises a request (a peek, and a notification when the app is in
-  the background): "<name> wants to open '<port>' (<rights>), from <browser and device>", Allow or
-  Deny. Allow burns the nonce, creates a `peer` client row for the guest's key under that name if
-  there is none, grants that port with those rights, and answers the call; the page then loads the
-  port. Deny answers with `refused`. An unanswered request waits while the guest's session is open and
-  the invite is unexpired. A guest who already holds a grant reconnects without a nonce.
+- **Redeeming is one click.** The page shows who shared what, a name field and Join (and a code
+  field when the invite requires one). After Join: connect to a relay, open a session to the host,
+  handshake, then send `invite.redeem {nonce, name, code?}` as the first call. The host checks the
+  nonce is live (and the code, if required; five wrong codes kill the invite), burns the nonce, creates
+  a `peer` client row for the guest's key under that name if there is none, grants that port with
+  those rights, and notifies the host ("<name> joined '<port>'", with Remove). The page then loads the
+  port. A guest who already holds a grant reconnects without a nonce.
 - **The Port42 lane.** `port42://invite#…` opens a card in the guest's Port42 naming the host, the
   port and the rights; accepting runs the same redemption from the guest instance's gateway and places
   a remote tile.
@@ -200,7 +198,7 @@ New, in Go, beside the door it already is:
 | The relay cannot read or alter traffic | Noise end to end; the relay forwards ciphertext |
 | The guest's identity is authenticated | Noise remote static converts from the claimed Ed25519 key |
 | The app never trusts an unverified peer field | HMAC attestation with a stdin-only per-spawn secret; the fields stripped from local doors |
-| A forwarded or previewed link grants nothing by itself | no redemption without the guest's Join and the host's Allow; the nonce burns on first use |
+| A previewed link grants nothing; a forwarded one grants once, visibly | no redemption without the guest's Join; the nonce burns on first use; the host is notified with Remove; "require a code" makes a forwarded link useless without it |
 | A guest reaches one port | deny by default in the dispatcher; rights per port; no machine methods |
 | Neither side learns the other's IP | only the relay connects to both |
 | Nothing on the Mac is exposed | no listening socket beyond loopback |

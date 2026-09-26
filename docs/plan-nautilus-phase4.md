@@ -23,9 +23,10 @@ relay carries only ciphertext, and a guest that asks for anything beyond its gra
   installed, the port appears as a tile on the other person's desktop. Opened anywhere else, it runs
   in the browser tab. Both people drive it, both driver chips agree, and a stale write is refused
   with `current`. It works from any network, including cafés, offices and phones.
-- **You let people in, like a waiting room.** The first time someone opens the link they type their
-  name and press Join; you see "Ada wants to open 'chart'" with Allow and Deny. A forwarded or
-  previewed link lets nobody in on its own.
+- **Opening a link is one click.** The guest types a name and presses Join, and is in; you get a
+  notification with a one-tap Remove. For a sensitive share, tick "require a code" and send the
+  six-digit code another way. Link previews and mail scanners, which load pages but press nothing,
+  get nothing.
 - **Access lists who has what.** Each person or browser you shared with appears in Settings → Access
   with the ports they hold and the rights on each, and revoking takes effect on their next call.
 - **Agents on both machines can work together.** A companion on the other machine drives the shared
@@ -67,18 +68,18 @@ All decided with Gordon on 2026-09-26 except where marked open.
    - **The page never acts on load**, because link previews (iMessage on the sender's own phone,
      LinkedIn, Instagram) and mail scanners are reported to run a page's scripts. It clears the
      fragment and offers "Open in Port42" or "Open here".
-   - **Redeeming is a waiting room.** The page shows "Gordon shared 'chart' with you", a name field
-     and Join. After Join, the page (or the guest's Port42) opens a session to the host through the
-     relay, presents the nonce and the typed name, and shows "Waiting for Gordon to let you in". The
-     host gets a request in Port42 (a peek, and a notification if the app is in the background):
-     "Ada wants to open 'chart' (see, use), from Safari on iPhone", with Allow and Deny. Allow burns
-     the nonce, enrols the guest's key as a `peer` client under that name and grants the port with
-     those rights; the guest's page loads the port. Deny tells the guest. While the host has not
-     answered, the request waits as long as the guest's page is open and the invite has not expired.
-     A guest who already holds a grant reconnects straight in. The name is a claim, which is why the
-     host sees it before deciding. **Open for Gordon: always ask** (recommended; needs the host to
-     answer) **or let the first opener in** (works with the host away; a previewed or forwarded link
-     can then take the grant).
+   - **Redeeming is one click (Gordon).** The page shows "Gordon shared 'chart' with you", a name
+     field and Join. After Join, the page (or the guest's Port42) opens a session to the host through
+     the relay and presents the nonce and the typed name. The host checks the nonce is live, burns
+     it, enrols the guest's key as a `peer` client under that name, grants the port with those rights,
+     and notifies: "Ada joined 'chart'", with Remove. Nothing waits on the host. What remains is a
+     forwarded link used before the intended guest: the host sees it and removes them, and the used
+     link refuses everyone after.
+   - **"Require a code", per invite (Gordon).** The invite dialog shows a six-digit code beside the
+     link, to send another way. The guest types it before Join. The host's gateway checks it, never
+     the relay; five wrong tries and the invite is dead. A forwarded link without the code grants
+     nothing.
+   - A guest who already holds a grant reconnects straight in.
    - **A browser guest keeps its key** in that browser, so a refresh is the same guest. Safari clears
      it after seven days without a visit; the guest then needs a new invite. Guests unused for a
      period Gordon sets are reaped from Access.
@@ -265,18 +266,20 @@ next call after revoke with no restart. Then the same through the deployed relay
 
 ### 4.5 The per-port invite
 
-- `invite.create {port, rights, expires}` returns the link; `invite.list`, `invite.revoke`. Refused
-  for port 0 and a space.
-- `invite.redeem`, the approval card with the matching code, enrolment and the grant.
+- `invite.create {port, rights, expires, requireCode}` returns the link (and the code when
+  required); `invite.list`, `invite.revoke`. Refused for port 0 and a space. The dialog discloses what
+  the port can do on this machine.
+- `invite.redeem {nonce, name, code?}`: enrolment, the grant, and the "joined" notification with
+  Remove.
 - Settings → Access shows peers with their ports and rights and the invites outstanding, each
   revocable, and the relays in use with a place to add one.
 - The deep link accepts `port42://invite#…`, ⌘K accepts a pasted invite link, and the gateway's
   `/invite` channel page is deleted.
 
-*Gates:* no redemption without approval; the codes on both sides match and a different session gives
-a different code; a link redeems once and a second redemption is refused with a reason; an expired
-link is refused; port 0 and a space cannot be invited; revoking one grant leaves the peer's others.
-Calibrated by removing the burn and the approval.
+*Gates:* a link redeems once and a second redemption is refused with a reason; an expired link is
+refused; a required code is enforced, a wrong one refused, and the fifth wrong one kills the invite;
+redemption notifies the host and Remove revokes; port 0 and a space cannot be invited; revoking one
+grant leaves the peer's others. Calibrated by removing the burn and the code check.
 
 ### 4.6 The Port42 lane: a shared port on the other desktop
 
@@ -317,7 +320,7 @@ its grant is refused. The relay's round trip from each network is recorded.
 | 4.2 | remote address round trip with a foreign peer; own peer local; key only on stdin (scan) | peer id stable across a restart | nothing |
 | 4.3 | door over the fake transport; chunking and the size cap; spike E's refusals both sides; `/ws` cannot claim a peer | none | nothing |
 | 4.4 | relay and Noise in process: call, subscription, bad `hello`, unregistered key, tampered frame, each limit | test peer through local then deployed relay: read, refuse, subscribe, revoke | nothing |
-| 4.5 | approval and matching codes, burn, expiry, no port 0 or space, revoke one of several | invite created, approved and redeemed by the test peer | approves a guest; reads Access |
+| 4.5 | burn, expiry, required code and its try limit, notify and Remove, no port 0 or space, revoke one of several | invite created and redeemed by the test peer, with and without a code | opens an invite from a phone; removes a guest from the notification; reads Access |
 | 4.6 | forwarding never resolves locally; outbound over the fake transport | Dev2 to Dev6: scenario 4 in Port42; companions messaging across | the shared tile on a second instance |
 | 4.7 | no key in the iframe; refresh keeps the guest; nothing before the click | none | scenario 4 from a browser and a phone on cellular |
 | all | suite and Go suites green | five of five, scenario 4 extended | the verify below |
