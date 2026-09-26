@@ -61,7 +61,8 @@ public enum CompanionProtocol {
     your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply \
     via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another \
     companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ \
-    (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name \
+    (@<their name>, written as whoami's mentions give it: any character but a letter, digit or - is \
+    %-escaped, so a space is %20). That @mention is the ONLY thing that delivers your message to them — a bare name \
     is just text they never receive. So end a hand-off with the @mention, e.g. "Built the login form, \
     @<their name> please review."
     """
@@ -86,7 +87,9 @@ public enum CompanionProtocol {
     /// proved to have changed nothing. Extracting shared prose is a refactor; a refactor that
     /// quietly reworded a live system prompt would be a behaviour change wearing a refactor's
     /// clothes. `CompanionProtocolTests` compares `rules` against this, character for character.
-    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @<their name> please review.\""
+    /// Updated deliberately on 2026-09-26 (GM): mentions escape every character a mention cannot
+    /// carry, so the rules say how.
+    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ (@<their name>, written as whoami's mentions give it: any character but a letter, digit or - is %-escaped, so a space is %20). That @mention is the ONLY thing that delivers your message to them — a bare name is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @<their name> please review.\""
 
     /// The sentence fragments a surface must carry to count as stating the protocol. Used by the
     /// anti-drift test rather than comparing whole strings, so wording can be improved in one place

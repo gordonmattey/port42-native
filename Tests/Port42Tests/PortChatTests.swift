@@ -223,6 +223,8 @@ struct PortChatTests {
         #expect(ChatRouting.terminalLine(sender: "gordon", source: "#genesis", text: "hi")
                 == "[@gordon in #genesis]: hi\r")
         #expect(ChatRouting.terminalLine(sender: "gordon", source: nil, text: "hi") == "[@gordon]: hi\r")
+        #expect(ChatRouting.terminalLine(sender: "app dev", source: nil, text: "hi") == "[@app%20dev]: hi\r",
+                "the sender is written as a mention an agent can copy to reply")
         #expect(ChatRouting.sourceLabel(space: "genesis") == "#genesis")
         #expect(ChatRouting.sourceLabel(port: "shader", ownTerminal: true) == "your terminal's chat")
         #expect(ChatRouting.sourceLabel(port: "shader") == "the chat of port 'shader'")

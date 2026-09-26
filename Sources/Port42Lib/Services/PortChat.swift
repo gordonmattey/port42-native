@@ -165,9 +165,14 @@ extension AppState {
 public enum ChatRouting {
     /// The line a companion's terminal receives: who said it, where, and what. A companion reads
     /// which chat a message came from here, and its reply goes back to that chat.
+    ///
+    /// The sender is written as its mention (`CompanionName.mention`), so an agent that copies it to
+    /// reply writes a mention that arrives: "app dev" is `[@app%20dev]`, not `[@app dev]`, which would
+    /// be read as a mention of `app`.
     public static func terminalLine(sender: String, source: String?, text: String) -> String {
-        guard let source, !source.isEmpty else { return "[@\(sender)]: \(text)\r" }
-        return "[@\(sender) in \(source)]: \(text)\r"
+        let who = CompanionName.mention(sender)
+        guard let source, !source.isEmpty else { return "[\(who)]: \(text)\r" }
+        return "[\(who) in \(source)]: \(text)\r"
     }
 
     /// A port's chat names the port's id as well as its title, so a companion can post there
