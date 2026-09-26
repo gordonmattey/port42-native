@@ -110,8 +110,8 @@ a provider tolerating that use at scale.
 | D2 | The native chat tile goes with the `messages` table. No bridge period. |
 | D3 | Storage stays. It is unused because authors cannot tell it survives remount, eviction and restart where browser storage does not. |
 | D4 | The ceremony stays. Heartbeats are separate and return only if a command companion can take a timed mention. |
-| D5 | Remote callers arrive over libp2p. ngrok goes. The local door stays on loopback. |
-| D6 | The transport is a pluggable seam, so Iroh can replace libp2p. |
+| D5 | Remote callers arrive over WebRTC, pion in the gateway (Gordon, 2026-09-26). ngrok goes. The local door stays on loopback. |
+| D6 | The transport is a pluggable seam (listen, dial, peer id, stream). |
 | D7 | `ai.complete` goes with the engine. No backward compatibility for ports that call it; a thin capability returns only if needed. |
 | D8 | Milestone M3 (Sync) in `CLAUDE.md` is superseded. What it reached for arrives as scenario 4. |
 | D9 | Port42 never calls a model provider. It reads no provider credential and holds no API key. A CLI agent talks to its own provider through its own client, under its own sign-in. |
@@ -268,44 +268,22 @@ mention, and the middle stage running as an invisible port. The `ls | grep | wc`
 
 ### Phase 4 · The remote pipe (4)
 
-**Detailed plan:** `plan-nautilus-phase4.md` (written 2026-09-26, for Gordon's review; nothing built).
-It settles or puts to Gordon each open question below; the blocker is who runs the relay.
+**Detailed plan:** `plan-nautilus-phase4.md`, reviewed with Gordon 2026-09-26; nothing built. Its
+decisions, in short:
 
-`port42://<peerID>/space/<id>/<portId>` resolves over libp2p to the Phase 0 door. The Noise handshake
-authenticates the remote peer id, so grants key on the peer and no token crosses the internet.
-Reachability is mDNS on a LAN, then Circuit Relay v2 with DCUtR hole punching, as designed in
-`membrane/slice-02-cross-instance.md` milestones B and C. Spike F measured go-libp2p in the signed
-bundle: +22 MB, 4 ms start, sub-millisecond stream round trip. The browser guest dials in over
-WebRTC-direct or WebTransport. Access links burn on use. A shared chat port needs nothing extra.
-
-**Invites: one per port** (GM, 2026-09-24, superseding the peer invite of 2026-07-31). An invite
-names a port and grants access to that port. Port 0 is never invitable. Sharing a whole space is
-deferred (future roadmap); this phase shares single ports.
-
-The same invite serves both lanes. Opened in Port42, accepting it enrols the other instance as a named
-client (the connection is a side effect, not the thing granted) and records the grant on that one
-port. Opened in a browser with no Port42, it is the guest link: a one-time credential in place of
-today's query-string token, burned on use. Sharing a second port is a second invite. Revoking one
-removes that grant and leaves the others.
-
-**The transport is a seam.** The door sees an authenticated byte stream from a named peer: listen,
-dial, peer id, stream. The address carries the peer id, never a transport. Iroh is Rust and the
-gateway is Go, so an Iroh implementation runs as a sidecar speaking the same seam over a local socket.
-
-**Open, settled before this phase starts:** the address grammar. The built form is
-`port42://space/<spaceId>/<portId>`; the remote form needs the peer id; and with every scope a port,
-the space segment may reduce to a port id.
-
-**Open (GM, 2026-09-25): the Signal Protocol for what is stored and forwarded.** Signal's protocol
-gives per-message forward secrecy and works when the other side is offline; Signal's network is not
-peer-to-peer (every message goes through its servers). The transport here, libp2p or Iroh, already
-encrypts end to end between two live peers (Noise, or QUIC with TLS), so live port traffic does not
-need it. Where it could fit is a chat message or invite held for an offline peer by a relay that
-cannot read it. To evaluate with this phase's relay design; not a replacement for the transport.
-
-**Open:** libp2p's reported hole-punch rate is about 70% against Iroh's 90%, and "p2p is viable" needs
-about 80% direct; milestone C measures it on real networks. Where the guest page is served from once
-the gateway is not publicly reachable.
+- **Address** `port42://<peer>/<portId>`, the peer being the instance's Ed25519 public key in
+  lowercase base32. No space segment.
+- **Transport** WebRTC, pion in the gateway, behind a four-verb seam. Data channels carry the door's
+  frames; no gossipsub. A peer is authenticated by its key signing the DTLS fingerprints.
+- **Relay service** run by Port42: signaling to introduce peers, TURN when no direct path forms.
+  Stateless, sees no content. Where it is hosted is open and is the phase's blocker.
+- **Invites: one per port** (D10). The link is `port42.ai/invite.html#<coupon>`, opening in Port42 or
+  in the browser, burned on first redemption, which enrols the redeemer's key as a `peer` client
+  with a grant on that one port. Port 0 and spaces are never invitable.
+- **Remote callers denied by default**, with rights per port (`see`, `use`, `edit`, `wake agents`);
+  local callers unchanged this phase. Named secrets get a per-caller grant.
+- **The Signal Protocol is not in this phase**: nothing is stored and forwarded yet, and DTLS
+  already encrypts end to end.
 
 **Reads must be scoped before anything is remote.** Today any caller can list every port across
 every space; during the July security fix a page on example.com did exactly that. Locally that is a
