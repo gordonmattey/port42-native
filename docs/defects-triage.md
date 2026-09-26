@@ -39,8 +39,8 @@ this is measured beyond the observations cited.
 | # | Defect | Impact | Fix | v1 |
 |---|---|---|---|---|
 | 1 | A companion's terminal is found by display name | Reproduced: after a rename, a mention opened a second terminal | Terminals match by `companionId`; a rename reaches the live terminal (current name from the id, tile title and client name updated); a rename onto an existing name is refused | Done |
-| 2 | Every terminal name mints a companion; nothing reaps them | Roster clutter, every stray name addressable, the same inflation on the grantee side. GM hit it | Decision first: a companion made by a deliberate act and removed with its last port. Minimum: reap an auto-registered companion when its terminal closes | Decide, minimum fix |
-| 3 | No recovery after a WebContent process crash | A port goes blank for good, silently; more likely with dozens of live webviews | Handle `webViewWebContentProcessDidTerminate` by reloading the port's HTML | Fix |
+| 2 | Every terminal name mints a companion; nothing reaps them | Roster clutter, every stray name addressable, the same inflation on the grantee side. GM hit it | Decision first: a companion made by a deliberate act and removed with its last port. Minimum: reap an auto-registered companion when its terminal closes | By design (GM, 2026-09-26): a named terminal is a companion. Not a defect |
+| 3 | No recovery after a WebContent process crash | A port goes blank for good, silently; more likely with dozens of live webviews | Handle `webViewWebContentProcessDidTerminate` by reloading the port's HTML | Cleared (GM): never observed on nautilus; a resilience item, not a root cause |
 | 4 | The startup-prompt test is flaky | Test hygiene, not a product defect | Gone with the detector it tested | Done |
 | 5 | A Claude slower than 30s to start is called stuck | A false notice in the space, every run | The detector is removed (GM, 2026-09-26) | Done |
 | 6 | Messages typed into a starting Claude not submitted | The brief can sit unsent and the agent idles. Seen in /imagine run 2, not in run 3; run 2 also queued three Port42 notices, now gone | Re-observe in the I.5 runs before changing code | Watch |
@@ -51,6 +51,14 @@ this is measured beyond the observations cited.
 
 Not ranked: the child environment carrying provider keys is a decision about D9, not a defect; the
 guest page's full re-render and the `ngrok-skip-browser-warning` headers belong to Phase 4.
+
+## Seen in the /imagine runs, not yet ranked
+
+- **A Codex companion speaks first, unprompted**, when its terminal starts (runs 4, 5, 6): it posts
+  "ready" before anyone asks it anything. Harmless in a team; noise in a space.
+- **A hung CLI turn goes unnoticed.** A Claude engineer sat on one command for 28 minutes (run 3)
+  with nothing in the space to say so. Port42 could post a notice when a turn shows no transcript
+  activity for a few minutes. Idea; not built.
 
 ## Structural (from the list, unchanged)
 
