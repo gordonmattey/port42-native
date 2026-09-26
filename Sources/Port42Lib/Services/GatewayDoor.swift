@@ -59,6 +59,12 @@ enum JSONValue: Codable {
     }
 }
 
+/// What the gateway says about a call from another machine: who, and its proof it said so.
+public struct RemoteClaim: Equatable {
+    public let peer: String
+    public let attestation: String
+}
+
 /// The door's wire format: the envelope fields the call path uses and nothing else. The gateway's
 /// envelope has more (channel, presence, nonce), and a decoder ignores what it does not name.
 struct DoorEnvelope: Codable {
@@ -78,6 +84,9 @@ struct DoorEnvelope: Codable {
     var code: String?
     /// This instance's peer id, in the gateway's `welcome` to the host (nautilus Phase 4, 4.2).
     var selfPeer: String?
+    /// A remote caller's authenticated peer id and the gateway's HMAC over it (4.3).
+    var remotePeer: String?
+    var remoteAttest: String?
 
     var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
 
@@ -99,6 +108,8 @@ struct DoorEnvelope: Codable {
         case error
         case code
         case selfPeer = "self_peer"
+        case remotePeer = "remote_peer"
+        case remoteAttest = "remote_attest"
     }
 }
 
@@ -114,17 +125,23 @@ struct DoorPayload: Codable {
 public final class GatewayDoor: NSObject, ObservableObject {
     @Published public private(set) var isConnected = false
 
+    /// The gateway told us this instance's peer id (derived from the key we handed it).
+    public var onSelfPeer: (@MainActor (String) -> Void)?
+
     /// The app's answer to a call: `(senderId, callId, method, input, credential, emit)`.
     ///
     /// `senderId` addresses and never authorizes; the CREDENTIAL decides who is calling, and the app
     /// both mints and verifies it. `emit` is how a streaming method sends a frame before it
     /// finishes; nil when the caller's door cannot carry mid-call frames (HTTP), so the method can
     /// refuse rather than emit into nothing.
-    /// The gateway told us this instance's peer id (derived from the key we handed it).
-    public var onSelfPeer: (@MainActor (String) -> Void)?
-
     public var onCallReceived: (@MainActor (String, String, String, [String: Any], String?,
                                             (@MainActor (Any) -> Void)?) async -> Any)?
+
+    /// A call from ANOTHER MACHINE (nautilus Phase 4, 4.3): the gateway's remote door stamped the
+    /// peer id its transport authenticated and an HMAC over it. It carries no credential, and it never
+    /// reaches `onCallReceived`. With no handler installed it is refused.
+    public var onRemoteCallReceived: (@MainActor (RemoteClaim, String, [String: Any],
+                                                  (@MainActor (Any) -> Void)?) async -> Any)?
 
     private var url: URL?
     private var senderId: String?
@@ -238,7 +255,15 @@ public final class GatewayDoor: NSObject, ObservableObject {
                 }
             }
             let result: Any
-            if let handler = onCallReceived {
+            if let peer = envelope.remotePeer, !peer.isEmpty {
+                let claim = RemoteClaim(peer: peer, attestation: envelope.remoteAttest ?? "")
+                if let handler = onRemoteCallReceived {
+                    result = await handler(claim, method, envelope.argsAsAny, emit)
+                } else {
+                    result = ["error": "this instance takes no remote callers",
+                              "code": BridgeErrorCode.notGranted.wire]
+                }
+            } else if let handler = onCallReceived {
                 result = await handler(senderId, callId, method, envelope.argsAsAny, envelope.credential, emit)
             } else {
                 result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire]

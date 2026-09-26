@@ -298,3 +298,32 @@ func TestIdentifyCredentialIsStampedOnEveryCall(t *testing.T) {
 		t.Fatalf("an envelope credential must not override the connection's, got %q", got.Credential)
 	}
 }
+
+func TestTheHostIsNotRateLimited(t *testing.T) {
+	gw := NewGateway()
+	cred, _ := ReadHostCredential(strings.NewReader("the-host\n"))
+	gw.SetHostCredential(cred)
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	host, _ := dialAndRead(t, ctx, wsURL)
+	defer host.CloseNow()
+	sendEnvelope(t, ctx, host, Envelope{Type: "identify", SenderID: "the-app", IsHost: true, HostCredential: "the-host"})
+	readEnvelope(t, ctx, host) // welcome
+	sub := identified(t, ctx, wsURL, "subscriber", false)
+	defer sub.CloseNow()
+
+	// A subscription's events arrive as a burst: twice the per-caller limit, from the host.
+	const burst = 2 * rateLimitPerSec
+	for i := 0; i < burst; i++ {
+		sendEnvelope(t, ctx, host, Envelope{Type: "stream", TargetID: "subscriber", CallID: "s1",
+			Payload: json.RawMessage(fmt.Sprintf(`{"n":%d}`, i))})
+	}
+	for i := 0; i < burst; i++ {
+		if env := readEnvelope(t, ctx, sub); env.Type != "stream" {
+			t.Fatalf("event %d of %d: got %q, the host's frames were dropped", i, burst, env.Type)
+		}
+	}
+}

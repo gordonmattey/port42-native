@@ -107,6 +107,10 @@ func main() {
 				gw.SetPeerIdentity(peer)
 				log.Printf("[gateway] peer id %s", peer.ID())
 			}
+			// The third line: the key that signs a remote caller's peer id (4.3). Never logged.
+			if key := ReadAttestKey(rest); key != "" {
+				gw.SetAttestKey(key)
+			}
 			io.Copy(io.Discard, rest)
 			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
 			done <- syscall.SIGTERM

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import GRDB
 import Combine
 import GhosttyKit
@@ -449,6 +450,18 @@ public final class AppState: ObservableObject {
         portWindows.appState = self
         // The gateway names this instance's peer id in its welcome (nautilus Phase 4, 4.2).
         door.onSelfPeer = { [weak self] peer in self?.localPeerID = peer }
+        // A caller on another machine (4.3): verified here, then run as a remote principal.
+        door.onRemoteCallReceived = { [weak self] claim, method, input, emit in
+            guard let self else { return ["error": "app state deallocated"] }
+            let principal: Principal
+            do { principal = try self.resolveRemoteCaller(claim) } catch let e as BridgeError {
+                return e.toJSONObject()
+            } catch { return ["error": error.localizedDescription] }
+            let key = "remote:" + principal.id
+            let executor = self.remoteExecutors[key] ?? RemoteToolExecutor(appState: self, principal: principal)
+            self.remoteExecutors[key] = executor
+            return await executor.execute(method: method, input: input, emit: emit)
+        }
         // Every Notify carries the emitting port's activity token, and the BUS resolves it rather
         // than each publish site attaching one (slice-02 OUTPUT seam). A site that had to remember
         // would be a to-do list; resolved here, an emitter added tomorrow carries a token by
@@ -646,6 +659,42 @@ public final class AppState: ObservableObject {
         clientTouchedAt[clientId] = now
         Task.detached { [db] in try? db.touchClient(id: clientId) }
         return true
+    }
+
+    /// The key the gateway signs remote peer ids with. Replaced in tests.
+    var remoteAttestKey: () -> String? = { GatewayProcess.shared.attestKey }
+
+    /// **The second verifier: a caller from another machine** (nautilus Phase 4, 4.3).
+    ///
+    /// The peer id is trusted only with the gateway's HMAC over it, made with a key this app handed
+    /// over on stdin for this spawn and never sent on a socket. Then the peer must be enrolled (by
+    /// redeeming an invite) and not revoked. What comes back is a `.remote` principal keyed on the
+    /// peer id, which the dispatcher confines to the ports that peer holds rights on.
+    func resolveRemoteCaller(_ claim: RemoteClaim) throws -> Principal {
+        guard let key = remoteAttestKey(), !key.isEmpty,
+              ClientRegistry.constantTimeEquals(Self.attest(key: key, peer: claim.peer), claim.attestation) else {
+            throw BridgeError(code: .authRequired,
+                              message: "This instance cannot verify who you are on the remote door.")
+        }
+        guard let client = try? db.client(peerKey: claim.peer), client.kind == .peer else {
+            throw BridgeError(code: .authRequired,
+                              message: "\(Self.refusingInstanceLabel()) does not know you. Ask its "
+                                     + "owner for an invite to the port you want.")
+        }
+        guard client.isActive else {
+            throw BridgeError(code: .authRevoked,
+                              message: "'\(client.name)' was removed by the owner of \(Self.refusingInstanceLabel()). "
+                                     + "Ask them for a new invite.")
+        }
+        try? db.touchClient(id: client.id)
+        return .remote(peer: claim.peer, displayName: client.name)
+    }
+
+    /// The gateway's attestation, computed the same way (`gateway/remote.go`, `Attest`).
+    nonisolated static func attest(key: String, peer: String) -> String {
+        let code = HMAC<SHA256>.authenticationCode(for: Data(("port42-remote-v1|" + peer).utf8),
+                                                   using: SymmetricKey(data: Data(key.utf8)))
+        return Data(code).base64EncodedString()
     }
 
     /// Which instance refused, and on which port (D1).

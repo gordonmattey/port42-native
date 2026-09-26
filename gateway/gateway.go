@@ -75,6 +75,12 @@ type Envelope struct {
 	// else (nautilus Phase 4, 4.2). The gateway derives it from the key handed over on stdin, so the
 	// app never implements the encoding.
 	SelfPeer string `json:"self_peer,omitempty"`
+
+	// RemotePeer and RemoteAttest mark a call from another machine (nautilus Phase 4, 4.3): the peer
+	// id the transport authenticated, and an HMAC over it with the stdin-only attestation key. Set only
+	// by `routeRemoteCall`, and stripped from anything that arrives on `/ws` or `/call`.
+	RemotePeer   string `json:"remote_peer,omitempty"`
+	RemoteAttest string `json:"remote_attest,omitempty"`
 }
 
 // Peer is one WebSocket connection: the app's host connection, or a caller.
@@ -140,6 +146,11 @@ type Gateway struct {
 	// peer is the instance's peer identity, handed over on stdin after the host credential. Zero
 	// value = none, and then the host's welcome carries no peer id.
 	peer PeerIdentity
+	// attestKey signs the peer id on a remote caller's calls, handed over on stdin as the third line.
+	// Empty = no remote caller is served.
+	attestKey string
+	// remotes are the live remote sessions, by the id the host replies to.
+	remotes map[string]*remoteConn
 }
 
 // SetHostCredential is called once, from the watch-parent goroutine, before any peer can identify.
@@ -276,7 +287,10 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		if !peer.rateOK() {
+		// The limit is for CALLERS. The proven host is the app answering them: a burst of replies or
+		// stream frames past 30 a second was dropped here without a word, so a subscriber missed
+		// events and a waiting caller timed out (found live on Dev2, 2026-09-26).
+		if !provenHost && !peer.rateOK() {
 			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
 			log.Printf("[gateway] peer %s rate limited", peer.ID[:min(8, len(peer.ID))])
 			continue
@@ -292,6 +306,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		log.Printf("[gateway] %s from %s", env.Type, peer.ID[:min(8, len(peer.ID))])
 
 		env.PeerID = peer.ID
+		// Only the remote door may say a call came from another machine.
+		env.RemotePeer, env.RemoteAttest = "", ""
 		if env.Timestamp == 0 {
 			env.Timestamp = time.Now().UnixMilli()
 		}
@@ -512,6 +528,7 @@ func (g *Gateway) routeStream(ctx context.Context, sender *Peer, env Envelope) {
 	// A subscriber that went away is not an error: the call is torn down by the disconnect, and the
 	// producer stops when its task is cancelled. Dropping quietly is correct.
 	if !online {
+		g.deliverRemote(ctx, env.TargetID, env)
 		return
 	}
 	if err := targetPeer.Send(ctx, env); err != nil {
@@ -543,7 +560,9 @@ func (g *Gateway) routeResponse(ctx context.Context, sender *Peer, env Envelope)
 	g.mu.RUnlock()
 
 	if !online {
-		log.Printf("[gateway] response target %s is offline", env.TargetID)
+		if !g.deliverRemote(ctx, env.TargetID, env) {
+			log.Printf("[gateway] response target %s is offline", env.TargetID)
+		}
 		return
 	}
 

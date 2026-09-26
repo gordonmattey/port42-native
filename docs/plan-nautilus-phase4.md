@@ -293,6 +293,29 @@ reassembles, and an 8 MiB-plus message is refused; spike E's refusals as a Go an
 a key this app never issued, a MAC replayed onto another peer, a revoked peer, a local caller claiming
 a peer). Calibrated on both sides.
 
+**Built 2026-09-26.** `gateway/transport.go` is the seam (`Accept`, `Dial`, `PeerID`, and a
+`Session` of whole messages) with an in-memory network for tests; `gateway/chunk.go` splits a message
+into frames with a one-byte header and refuses one past 8 MiB; `gateway/remote.go` serves sessions.
+A remote call reaches the host as a `/ws` call does, addressed to its session, with no credential,
+the transport's peer id in `remote_peer` and an HMAC over it in `remote_attest`. The attestation key
+is a third stdin line, fresh per spawn (`GatewayProcess.attestKey`); with none, no remote caller is
+served. `/ws` frames have both fields stripped. In the app, a call carrying `remote_peer` goes only
+to `GatewayDoor.onRemoteCallReceived`, and `AppState.resolveRemoteCaller` checks the HMAC in
+constant time, then the `peer` client row and its revocation, before forming `Principal.remote`
+keyed on the peer id; `RemoteToolExecutor` runs as that principal.
+
+**Found and fixed on the way:** the gateway rate-limited the app's own host connection, so a burst
+of more than 30 replies or stream frames a second was dropped without a word. It happened in the
+4.2 harness run on Dev2 ("peer AADCB05E rate limited"). The proven host is now exempt; callers are
+still limited (`TestTheHostIsNotRateLimited`, calibrated).
+
+Gates: `remote_test.go` (7, including one HMAC vector computed outside both languages and checked by
+both) and `RemoteCallerTests` (6). Calibrated: the `/ws` strip removed, the guest's own peer claim
+believed, no key check, a credential let through, no size cap, replies not routed back, the app's
+HMAC check removed, revocation ignored, remote calls sent to the local handler, the executor
+dropping the remote principal, the HMAC label drifted. Each failed its own test. Suite 1276 green,
+Go green. Harness five of five on Dev2.
+
 ### 4.4 The relay and Noise
 
 - `relay/`: the protocol and limits of the spec, a Dockerfile, a self-hosting note.

@@ -22,7 +22,7 @@ struct InstanceIdentityTests {
 
     @Test("the handover is the host credential, then the seed, one per line")
     func handoverShape() {
-        #expect(GatewayProcess.handover(host: "HOST", peerSeed: "SEED") == "HOST\nSEED\n",
+        #expect(GatewayProcess.handover(host: "HOST", peerSeed: "SEED", attestKey: "ATTEST") == "HOST\nSEED\nATTEST\n",
                 "the gateway reads the credential from line one and the key from line two")
     }
 

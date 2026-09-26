@@ -131,13 +131,18 @@ public final class ToolExecutor {
 @MainActor
 public final class RemoteToolExecutor: ObservableObject {
     private weak var appState: AppState?
-    private let senderId: String
-    private let senderName: String
-    
+    /// Who is calling: a local client (`.peer`) or a caller on another machine (`.remote`).
+    private let principal: Principal
+
     public init(appState: AppState, senderId: String, senderName: String) {
         self.appState = appState
-        self.senderId = senderId
-        self.senderName = senderName
+        self.principal = .peer(id: senderId, displayName: senderName)
+    }
+
+    /// A caller whose principal is already formed (a remote one, nautilus Phase 4).
+    public init(appState: AppState, principal: Principal) {
+        self.appState = appState
+        self.principal = principal
     }
 
     /// `emit` is how a STREAMING method reaches this caller before it finishes. nil means the
@@ -168,7 +173,6 @@ public final class RemoteToolExecutor: ObservableObject {
         // JS / tool-use / gateway. Anything not yet extracted (the live-only families) falls through
         // to the old switch below, unchanged.
         if let appState, appState.bridgeHandles(canonical) {
-            let principal = Principal.peer(id: senderId, displayName: senderName)
             #if DEBUG
             // The `local-http` counter is GONE with the bucket it measured (5b). It existed to size
             // how much traffic rode the shared principal before deciding what to do about it; the
@@ -199,7 +203,6 @@ public final class RemoteToolExecutor: ObservableObject {
         // as the behavior of the FINAL value. Both are true at once: a caller gets each event as it
         // happens and still gets a result when the call ends.
         if let appState, appState.bridgeStreamHandles(canonical) {
-            let principal = Principal.peer(id: senderId, displayName: senderName)
             #if DEBUG
             ActorProbe.minted(id: principal.id, surface: "gateway-stream", rung: "verified-client")
             #endif

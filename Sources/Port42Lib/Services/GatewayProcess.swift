@@ -33,6 +33,12 @@ public final class GatewayProcess: ObservableObject {
     /// written anywhere, and replaced on every spawn (D2). Readable so the host side can present it.
     public private(set) var hostCredential: String?
 
+    /// The key the gateway signs a remote caller's peer id with (nautilus Phase 4, 4.3). Fresh every
+    /// spawn, handed over on stdin only and never sent on a socket, which is what separates it from
+    /// the host credential: the app presents that one in `identify`, so a process squatting the
+    /// gateway's port would learn it.
+    public private(set) var attestKey: String?
+
     /// 32 random bytes. Not a token in the `p42_` format — the gateway does not parse it, it only
     /// compares against it, which is exactly why no format needs to exist in two languages.
     static func freshHostCredential() -> String {
@@ -41,11 +47,11 @@ public final class GatewayProcess: ObservableObject {
         return Data(bytes).base64EncodedString()
     }
 
-    /// What the gateway reads from stdin at spawn: the host credential, then the instance's peer key
-    /// seed (nautilus Phase 4, 4.2), one per line. The only way either reaches the gateway: never the
-    /// environment, which `ps -E` publishes, and never the arguments.
-    nonisolated static func handover(host: String, peerSeed: String) -> String {
-        host + "\n" + peerSeed + "\n"
+    /// What the gateway reads from stdin at spawn, one per line: the host credential, the instance's
+    /// peer key seed (nautilus Phase 4, 4.2), and the attestation key (4.3). The only way any of them
+    /// reaches the gateway: never the environment, which `ps -E` publishes, and never the arguments.
+    nonisolated static func handover(host: String, peerSeed: String, attestKey: String) -> String {
+        host + "\n" + peerSeed + "\n" + attestKey + "\n"
     }
 
     public static let shared = GatewayProcess()
@@ -132,6 +138,8 @@ public final class GatewayProcess: ObservableObject {
         // simply believed, and whoever makes it becomes the peer every `/call` is routed to.
         let host = GatewayProcess.freshHostCredential()
         self.hostCredential = host
+        let attest = GatewayProcess.freshHostCredential()
+        self.attestKey = attest
 
         // Log gateway output
         pipe.fileHandleForReading.readabilityHandler = { handle in
@@ -173,7 +181,8 @@ public final class GatewayProcess: ObservableObject {
             // already pulled in (spike C's carried detail, pinned by a Go test).
             //
             // Never logged, here or there (NFR2).
-            if let data = Self.handover(host: host, peerSeed: InstanceKey.seed()).data(using: .utf8) {
+            if let data = Self.handover(host: host, peerSeed: InstanceKey.seed(),
+                                        attestKey: attest).data(using: .utf8) {
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
             }
 
