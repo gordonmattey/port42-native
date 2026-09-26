@@ -202,7 +202,7 @@ only. Settled by reading `ProcessInfo.processInfo.environment` from a Finder-lau
 
 ## 4 · How it is gated. The load-bearing part
 
-`security-bridge-authorization.md:18` measured 41 of 69 registry methods ungated, and `:19-20` that
+`../security-audit-nautilus-spec.md:18` measured 41 of 69 registry methods ungated, and `:19-20` that
 `BridgeDispatcher` hardcodes the object as `.machine` at `BridgeDispatcher.swift:112` and `:117`. An
 ungated `ai.complete` would be defect number 42.
 
@@ -250,7 +250,7 @@ Two further requirements whatever is chosen, both from the security note:
 2. The pregrant. `PortBridge.init` unions in the creating principal's machine grants
    (`PortBridge.swift:67-75`, passed as `pregrant` at `:414`), so a grant given once to an agent
    reaches every port that agent ever writes, including later ones
-   (`security-bridge-authorization.md:48-53`). A `.terminal` grant given for a terminal would silently
+   (`../security-audit-nautilus-spec.md:48-53`). A `.terminal` grant given for a terminal would silently
    authorize an `ai.complete` in an unrelated port. **This alone is a reason to defer any new
    `.terminal`-class capability until fix 3 in that note lands.**
 
@@ -315,7 +315,7 @@ untrusted-directory refusal arrived as plain text, so its error path needs a raw
 installed but not signed in; model unavailable; timed out; cancelled; the CLI refused (trust, sandbox,
 permission mode); the CLI crashed. `BridgeErrorCode` has `ai_error` and `ai_timeout`
 (`BridgeErrorCode.swift:97-98`), which is two of seven. The security note already flags that a denial
-and a failure are indistinguishable today (`security-bridge-authorization.md:68-72`); adding a
+and a failure are indistinguishable today (`../security-audit-nautilus-spec.md:68-72`); adding a
 capability with a five-way-collapsed error code repeats it. Claude's `--output-format json` result
 carries `is_error`, `terminal_reason`, `api_error_status` and a human `result` string, all measured, so
 the information is available. Forwarding it is a choice, not a limitation.
@@ -373,4 +373,4 @@ dead-code hygiene and would be one commit.
 
 Every CLI figure is from `claude --help`, `codex --help`, `codex exec --help`, or a run on this
 machine on 2026-09-26 with `claude` 2.1.283 and `codex-cli` 0.156.1. Code claims are file:line in this
-worktree. `security-bridge-authorization.md` and `plan-shell-only.md` are cited by line.
+worktree. the security audit spec (`docs/security-audit-nautilus-spec.md`) and `plan-shell-only.md` are cited by line.

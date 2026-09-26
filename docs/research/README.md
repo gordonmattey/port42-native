@@ -9,11 +9,11 @@ commit it names. None is an approved decision.
 | [windows-port.md](windows-port.md) | What would a Windows version take? | 30 files and 3,869 lines of kernel already compile on Windows and Linux; the rest is blocked by the seam list, not the platform. The Go side ports with one ten-line change. GRDB does not build on Windows. |
 | [libghostty-windows.md](libghostty-windows.md) | Can libghostty back a Windows terminal? | **No.** The cross-platform libghostty is a different library, there is no Windows renderer, and `PlatformTag` is macOS and iOS only. Use ConPTY plus a JS terminal. Also found that Port42 runs on a Ghostty fork, not upstream. |
 | [iphone.md](iphone.md) | Can Port42 run on an iPhone? | It can render and drive ports; it cannot host agents, because iOS has no processes and an agent is a process. Web ports and GRDB port cleanly; `gomobile bind` makes the Go door linkable. App Store 4.2.7 is the constraint, not 2.5.2. |
-| [host-mesh.md](host-mesh.md) | What is "my virtual network of hosts"? | A primitive the model lacks: membership ("this host is me") rather than a per-port grant. Also audits the invite mechanism, whose door survived Phase 1 and whose payload did not. |
+| [host-mesh.md](host-mesh.md) **SOLVED in Phase 4** | What is "my virtual network of hosts"? | A primitive the model lacks: membership ("this host is me") rather than a per-port grant. Also audits the invite mechanism, whose door survived Phase 1 and whose payload did not. |
 | [port-shape.md](port-shape.md) | Why does every port get the same tile? | Ports should declare a shape intent (`columns`, `aspect`, `reading`, `dense`, `free`) the way they declare capabilities. An OS window manager arranges rectangles because rectangles are all it has; Port42 can arrange meaning. |
-| [invite-over-libp2p.md](invite-over-libp2p.md) | How does the invite change under libp2p? | It stops being a credential and becomes an enrolment coupon that binds a peer id. One payload type, since a space is a port. Replication is the open work, and it is three problems, not one. |
+| [invite-over-libp2p.md](invite-over-libp2p.md) **SOLVED in Phase 4** | How does the invite change under libp2p? | It stops being a credential and becomes an enrolment coupon that binds a peer id. One payload type, since a space is a port. Replication is the open work, and it is three problems, not one. |
 
-**Two notes are not roadmap items.** `security-bridge-authorization.md` consolidates what two
+**Two notes are not roadmap items.** the security audit spec (`docs/security-audit-nautilus-spec.md`) consolidates what two
 spikes found independently about the bridge authorizing callers against capabilities but never
 against objects. `defects-found.md` lists the concrete bugs found while scoping, none of which was
 the thing being scoped.

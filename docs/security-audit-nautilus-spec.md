@@ -155,23 +155,103 @@ reported as "not present" rather than tested.
 
 ## Known findings: verify, do not rediscover
 
-`docs/research/security-bridge-authorization.md` and `docs/research/defects-found.md` already record
-these. The audit confirms each is still true, records if fixed, and rates severity against the threat
-model above. Time spent rediscovering them is time not spent looking elsewhere.
+Established before this audit and recorded here so it is not re-found. The audit confirms each is
+still true, records it if fixed, and rates severity against the threat model above.
 
-1. 41 of 69 registry methods ungated; the dispatcher hardcodes the object as `.machine`.
-2. `port.push` types into any live terminal; `port.subscribe` streams any terminal's output;
-   `ports.list` enumerates every port in every space. All ungated.
-3. `port.exec` runs under the victim's principal.
-4. `PortBridge.init` unions the creator's port 0 grants into a new port as a pregrant.
-5. Revoking a `child` client is undone by the next launch (`upsertClient` clears `revokedAt`).
-6. The guest page carries a full client token in a query string.
-7. No cap on tool results on the live path; `port.console` can return 400,000 characters.
-8. A child process inherits the parent's environment; `claude` authenticates from an inherited
-   `ANTHROPIC_API_KEY`.
-9. The shipped `port42` CLI is not Developer ID signed (`build.sh:383` versus `:326`).
-10. `LOCAL_PEERCRED` on a TCP socket fails open and reports uid 0.
-11. Identity is keyed on mutable display names; companions and grantees both inflate without bound.
+### The core defect: no object-level authorization
+
+Port42 authenticates callers and does not authorize them against objects. A caller is checked for
+which machine capability it may use (`terminal`, `screen`, `camera`) and never for which port it may
+act on, so the port model's own boundary, that one port cannot touch another, is enforced nowhere.
+
+Two facts produce it: every `port.*`, `ports.*`, `space.*`, `messages.*`, `bus.*` and `storage.*`
+method declares `permission: nil`, **41 of 69 registry methods ungated**; and `BridgeDispatcher`
+hardcodes the object as `.machine` at both the read and write sites (`:112`, `:117`), so every grant
+in production is a port 0 grant. `PortObject.port` exists and nothing local fills it
+(`PortObject.swift:24-29`, `:61-63`).
+
+What an enrolled client holding zero grants can do, each needing no permission card:
+
+| Action | Method | Evidence |
+|---|---|---|
+| Enumerate every port in every space | `ports.list` | `BridgeMethods.swift:1342`, `:1424`, `:1465`; `resolvePortRef` applies no caller scoping, `AppState.swift:1945-1957` |
+| Read any port's source | `port.getHtml`, `port.history` | ungated |
+| Read the rendered DOM of any port | `port.getDom` | ungated |
+| Run arbitrary JS inside any port | `port.exec` | ungated |
+| Type raw keystrokes into a live terminal | `port.push` | `BridgeMethods.swift:180` |
+| Stream a live terminal's output | `port.subscribe` | `BridgeMethods.swift:46-47`; published at `AppState.swift:1503-1506` |
+| Overwrite or close another port | `port.update`, `port.close` | ungated |
+| Read any space's chat | `messages.recent` takes `space_id` | `BridgeMethods.swift:1117-1119` |
+
+The terminal rows are the sharpest: find every terminal on the machine, read everything it prints,
+and type into it, with no grant. Terminals are where the CLI agents live, so that is read and write
+access to every agent session.
+
+### Two escalations
+
+**`port.exec` runs under the victim's principal.** A caller with no grants executes JS inside a port
+that has grants, and the calls that JS makes are attributed to the host port. Grants are borrowed
+rather than checked. Unverified end to end: the code path says it works, it was not run. **T6 settles
+it.**
+
+**A port inherits its creator's machine grants at construction.** `PortBridge.init` unions in
+everything the creating principal holds on port 0 in that zone (`:67-75`) and passes it as `pregrant`
+(`:414`), which skips the card. A grant given once to an agent reaches every port that agent ever
+writes, including ports written afterwards. The same values persist on the port row
+(`DatabaseService.swift:1859-1860`) and restore into the bridge at launch
+(`PortWindowManager.swift:233-235`). **T7 settles it.**
+
+### Consent integrity
+
+- Revoking a `child` client is undone by the next launch: `upsertClient` clears `revokedAt`
+  (`DatabaseService.swift:838-841`) and a spawned terminal re-registers unconditionally on restore
+  (`AppState.swift:1441`). Unverified. **T4.**
+- The grantee fragments, so grants and revocations scatter. A spawned terminal's client id keys on
+  the port's session id (`ClientRegistry.swift:240`); Dev3 minted 25 grantees in 12 hours, six under
+  one name.
+- A card raised while the shell is locked has no render site (`ShellView.swift:205-210`), so the call
+  waits and the gateway answers `timed_out` at 30 seconds (`gateway/gateway.go:419-423`). **T15, T25.**
+- A denial is not distinguishable from a failure: teardown resolves `false`, so `cancelRequests` and
+  `denyAll` look identical to a click on Deny (`PermissionCoordinator.swift:130-150`). The Port42 and
+  macOS TCC layers share one `permission_denied` code; an Apple Events refusal carries no code at all
+  (`AutomationBridge.swift:35-37`); the screen path detects TCC denial by string-matching
+  `localizedDescription` (`ScreenBridge.swift:322-327`).
+- Declared capabilities are a label, not a control: `port.setCapabilities` is ungated and
+  self-asserted (`BridgeMethods.swift:1654-1663`).
+- Zone is inconsistent across surfaces: a port's JS carries its space (`Principal.swift:136-151`), a
+  gateway caller carries `"global"` (`:87-89`), a child's space sits inside its client id
+  (`ClientRegistry.swift:218-219`). One companion asks twice for the same capability.
+- The narrow grant is the one that does not persist: `fs.pick` sits behind the broad `.filesystem`
+  grant (`BridgeMethods.swift:1003`) while the per-path store it fills is session-only
+  (`AppState.swift:309-321`).
+
+### The rest
+
+1. No cap on tool results on the live path: `ToolExecutor.maxToolResultBytes` guards the deleted
+   in-app path and both `capForModel` callers are dead code, so `port.console` at its documented
+   defaults can return 400,000 characters. **T12.**
+2. A child process inherits the parent's environment; `claude` authenticates from an inherited
+   `ANTHROPIC_API_KEY`, and the terminal path runs `/bin/zsh -lc`, which sources the user's profile.
+   **T9.**
+3. The shipped `port42` CLI is not Developer ID signed: `build.sh:383` signs `$MACOS/port42` while
+   `:326` bundles it as `port42-cli`. **T16.**
+4. `LOCAL_PEERCRED` on a TCP socket fails open and reports uid 0, because `SOL_LOCAL` is `0` (meaning
+   `IPPROTO_IP` on `AF_INET`) and the `LOCAL_PEER*` constants collide with `IP_OPTIONS` onward. Five
+   of six options return success with garbage, and a zero-filled `xucred` has `cr_version` equal to
+   `XUCRED_VERSION`, so both sanity checks pass. Recorded because
+   `plan-caller-identity-fixes.md:79-80` names kernel peer credentials as a deferred fix.
+5. The guest page carries a full client token in a query string (`gateway/guestpage.go:50`, `:174`).
+   **T11.**
+6. Identity is keyed on mutable display names, so companions and grantees both inflate without bound
+   and a rename orphans a running terminal.
+
+### Exposure, before Phase 4
+
+The gateway binds loopback (`GatewayProcess.swift:90`) and the tunnel was deleted, so an attacker
+must already be a process on the machine, an enrolled client, or a port the user opened. That bounds
+severity and does not reduce the defect. **Phase 4 removes the bound**, which is why the audit is
+timed here: a remote caller reaching the same ungated verbs enumerates and reads the user's whole
+desktop. **CR19 and T18 are where these local findings become remote ones.**
 
 ## Test scenarios
 

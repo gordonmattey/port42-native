@@ -1,7 +1,7 @@
 # Defects found while scoping
 
 Found during the September 2026 research, none of them the thing being researched. Security items are
-not here; they are in `security-bridge-authorization.md`. Measured against `nautilus` at `0369388`
+not here; they are in the security audit spec (`docs/security-audit-nautilus-spec.md`). Measured against `nautilus` at `0369388`
 unless stated.
 
 ## Live, in shipped code
@@ -137,7 +137,7 @@ named `growth-editor-critic` that outlives it.
 
 This is the roster half of the identity inflation the permission work already measured on the grantee
 half: `ClientRegistry.swift:240` keys a spawned terminal's client id on the port's session id, and
-Dev3 minted 25 grantees in 12 hours, six sharing one name (`security-bridge-authorization.md`). Two
+Dev3 minted 25 grantees in 12 hours, six sharing one name (the security audit spec (`docs/security-audit-nautilus-spec.md`)). Two
 registries, the same cause, so a fix for one should be designed with the other in view.
 
 Worth deciding rather than patching: a companion is currently created as a side effect of naming a
