@@ -2,7 +2,7 @@
 
 Detailed plan for Phase 5 of `plan-shell-only.md`. Scenario served: 2 (an agent in a terminal drives a
 port it can see, as itself). Written 2026-09-26 against `nautilus` at `409fc70`, with Phases 1 to 3
-built and the harness at five of five. Decisions 1, 3 and 4 settled by GM; 2 open. Nothing here is built.
+built and the harness at five of five. All four decisions settled by GM. Nothing here is built.
 
 ## Goal
 
@@ -33,7 +33,7 @@ generated from the registry, so a skill cannot describe a method that no longer 
    moved in with `port42 teleport` launches through the same shim. For sessions outside Port42,
    `port42 skills install` copies the skills into `~/.claude/skills` and `~/.codex/skills` (and
    again to update): opt-in, never at launch.
-2. **The brief keeps six every-turn rules (recommended, open).** Who it is (name and space); a
+2. **The brief keeps six every-turn rules (decided, GM 2026-09-26).** Who it is (name and space); a
    message arrives as `[@sender in <where>]: text` and the prefix is never copied into a reply; a
    reply is delivered to the chat it came from automatically, so it is not also posted; an @mention
    of an exact name is the only way to reach another agent; Port42 is called with the `port42`
