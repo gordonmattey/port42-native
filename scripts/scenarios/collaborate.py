@@ -33,10 +33,11 @@ window.addEventListener('port42:data', e => {
 
 
 class Run:
-    def __init__(self, c):
+    def __init__(self, c, title="harness: collaborate"):
         self.c = c
         self.t0 = time.time()
-        self.monitor = c.call("port.create", {"type": "web", "title": "harness: collaborate", "html": MONITOR,
+        self.monitor = c.call("port.create", {"type": "web", "title": title,
+                                              "html": MONITOR.replace("harness: collaborate", title),
                                               "space_id": c.call("space.current")["id"]})
         self.results = []
 

@@ -121,6 +121,11 @@ config, Codex through `[mcp_servers]` in its per-session config. `whoami`, `chat
 *Gates:* the MCP tool list equals the registry's generated one; a call through it is attributed to
 the companion's client; both CLIs' session configs name the server.
 
+**Open defect: instances share Codex's instruction file.** Port42's Codex home links `AGENTS.md` to the
+user's global `~/.codex/AGENTS.md`, and every instance rewrites its block there at launch, so the last
+instance launched wins, gateway port included (Dev3's 4245 reached prod's Codex sessions). Each
+instance should keep its own AGENTS.md in its own Codex home.
+
 **Future optimization (GM, 2026-09-25): HTML from a shared buffer.** Agents now always write a port's
 HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends
 the HTML through JSON. A write that names a local file or a shared buffer Port42 reads directly
