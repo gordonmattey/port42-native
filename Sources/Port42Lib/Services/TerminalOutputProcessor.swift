@@ -23,14 +23,30 @@ final class TerminalOutputProcessor {
     /// are not lost to the startup discard.
     var onP42Output: (([String]) -> Void)?
 
-    init(onFlush: @escaping @MainActor (String) -> Void) {
+    /// Whether anyone uses the cleaned output. A hooks-capable terminal (claude, codex) posts its
+    /// replies from its Stop hook and discards `onFlush`, so cleaning its output (ANSI strip, noise
+    /// collapse, several regexes per line) was main-thread work for nothing, on the terminals that
+    /// print the most. Without it a flush only extracts `<p42>` tags.
+    private let wantsCleanedOutput: Bool
+
+    init(wantsCleanedOutput: Bool = true, onFlush: @escaping @MainActor (String) -> Void) {
+        self.wantsCleanedOutput = wantsCleanedOutput
         self.onFlush = onFlush
     }
+
+    /// How much of the buffer's end the prompt check reads. The prompt is the LAST line, so the
+    /// check never needs more; it used to strip and split the whole buffer (up to 8,000 characters)
+    /// on every chunk, and with several agents' TUIs redrawing at once that re-scan took the main
+    /// thread (sampled on Dev4, 2026-09-26: gateway calls waited 30 s behind it).
+    static let promptTail = 512
+
+    /// What the prompt check reads: the end of the buffer, never more than `promptTail`.
+    static func promptWindow(of buffer: String) -> String { String(buffer.suffix(promptTail)) }
 
     func receive(_ raw: String) {
         buffer += raw
         // Prompt detection: flush immediately when CLI tool returns to its ready state
-        if TerminalOutputProcessor.endsWithPrompt(buffer) {
+        if TerminalOutputProcessor.endsWithPrompt(Self.promptWindow(of: buffer)) {
             if warmingUp {
                 // First prompt = startup complete. Extract any <p42> tags emitted
                 // during startup BEFORE discarding (gap #9), then discard the dump.
@@ -38,24 +54,40 @@ final class TerminalOutputProcessor {
                 warmingUp = false
                 buffer = ""
                 flushTimer?.invalidate()
+                flushTimer = nil
                 return
             }
             flush()
             return
         }
-        // Fallback debounce: flush after 3s of quiet
-        flushTimer?.invalidate()
-        flushTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.flush() }
-        }
+        // Fallback debounce: flush after 3s of quiet. ONE timer that checks when output last came,
+        // not a timer torn down and rebuilt on every chunk (that churn was most of the remaining
+        // per-chunk cost once the prompt check read only the tail).
+        lastReceive = Date()
+        if flushTimer == nil { armQuietFlush(after: Self.quietFlush) }
         // Force flush if buffer gets large
-        if buffer.count > 8000 {
+        if buffer.utf8.count > 8000 {
             flush()
+        }
+    }
+
+    private var lastReceive = Date.distantPast
+    static let quietFlush: TimeInterval = 3
+
+    private func armQuietFlush(after wait: TimeInterval) {
+        flushTimer = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.flushTimer = nil
+                let quiet = Date().timeIntervalSince(self.lastReceive)
+                if quiet >= Self.quietFlush { self.flush() } else { self.armQuietFlush(after: Self.quietFlush - quiet) }
+            }
         }
     }
 
     func flush() {
         flushTimer?.invalidate()
+        flushTimer = nil
         guard !buffer.isEmpty else {
             buffer = ""
             return
@@ -64,6 +96,7 @@ final class TerminalOutputProcessor {
         // Extract <p42> tags from the raw buffer BEFORE collapse/dedup — both would
         // shred or drop tags. Independent of the onFlush signal path below.
         emitP42Tags(in: buffer)
+        guard wantsCleanedOutput else { buffer = ""; return }
 
         let cleaned = TerminalOutputProcessor.stripANSI(buffer)
         buffer = ""
@@ -92,11 +125,12 @@ final class TerminalOutputProcessor {
     /// ANSI-stripped first so color codes / CR around the tag don't break the match.
     /// `[\s\S]*?` spans newlines (terminal-wrapped payloads). Tolerates a stray `\`
     /// before the closing slash, matching the legacy xterm extractor.
+    private static let p42Regex = try? NSRegularExpression(
+        pattern: "<p42>([\\s\\S]*?)<\\\\?/p42>", options: .caseInsensitive)
+
     static func extractP42Tags(from text: String) -> [String] {
         let stripped = stripANSI(text)
-        guard let regex = try? NSRegularExpression(
-            pattern: "<p42>([\\s\\S]*?)<\\\\?/p42>", options: .caseInsensitive
-        ) else { return [] }
+        guard let regex = p42Regex else { return [] }
         let range = NSRange(stripped.startIndex..., in: stripped)
         return regex.matches(in: stripped, range: range).compactMap { m in
             guard let r = Range(m.range(at: 1), in: stripped) else { return nil }
@@ -123,12 +157,15 @@ final class TerminalOutputProcessor {
     }
 
     /// Strip ANSI escape sequences for clean text.
+    /// Compiled once. It was compiled on every call, and this runs on every chunk of every
+    /// terminal's output, on the main thread.
+    private static let ansiRegex = try? NSRegularExpression(
+        pattern: "\\x1b(?:\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])",
+        options: [])
+
     static func stripANSI(_ str: String) -> String {
         // ECMA-48 comprehensive strip: CSI sequences, OSC sequences, 2-byte Fe sequences
-        guard let regex = try? NSRegularExpression(
-            pattern: "\\x1b(?:\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])",
-            options: []
-        ) else { return str }
+        guard let regex = ansiRegex else { return str }
         let range = NSRange(str.startIndex..., in: str)
         var result = regex.stringByReplacingMatches(in: str, range: range, withTemplate: "")
         result = result.replacingOccurrences(of: "\r", with: "")

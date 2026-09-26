@@ -223,7 +223,7 @@ final class GhosttyTerminalController {
         // for non-hooks tools (claude/gemini stream via turnComplete; teeing a TUI is redraw garbage —
         // the same coarse guard, no alt-screen probe).
         // Capture the param + a computed flag, NOT self (self.processor is mid-init here).
-        self.processor = TerminalOutputProcessor { [onOutput, hc = Self.isHooksCapable(config.startupCommand)] out in
+        self.processor = TerminalOutputProcessor(wantsCleanedOutput: !Self.isHooksCapable(config.startupCommand)) { [onOutput, hc = Self.isHooksCapable(config.startupCommand)] out in
             guard !hc, !out.isEmpty else { return }
             onOutput(out)
         }
