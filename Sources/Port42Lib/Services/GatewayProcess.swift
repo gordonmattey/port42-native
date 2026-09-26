@@ -90,8 +90,9 @@ public final class GatewayProcess: ObservableObject {
         // LOOPBACK, not `:port` (GM 2026-07-24). `:port` bound every interface, so anything that
         // could route to this Mac reached /call — which proxies straight into the bridge registry
         // (files, clipboard, screen, terminal) and authenticates nobody. Sharing is unaffected:
-        // ngrok forwards to a bare port, i.e. localhost. A deliberately-hosted relay still opts in
-        // by launching the binary itself with -addr :port. See docs/plan-gateway-auth-tls.md P0.
+        // a proxy in front forwards to a bare port, i.e. localhost. A deliberately-hosted relay
+        // still opts in by launching the binary itself with -addr :port. See
+        // docs/plan-gateway-auth-tls.md P0.
         proc.arguments = ["-addr", "127.0.0.1:\(port)", "-watch-parent"]
 
         let pipe = Pipe()
