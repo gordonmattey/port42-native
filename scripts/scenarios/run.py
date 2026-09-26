@@ -142,6 +142,77 @@ def scenario3(c):
            f"render received {len(values)} transformed events in 6s ({values[:3]}…), produce→render {lag}")
 
 
+def scenario3_offscreen(c):
+    """Phase 3: the middle stage has no tile (hidden) and the receiver is not on screen (another
+    space). Off screen a port still receives every event, and a hidden port's timers are unclamped."""
+    here = c.call("space.current")["id"]
+    elsewhere = next((s["id"] for s in c.call("space.list") if s.get("name") == "harness-elsewhere"), None) \
+        or c.call("space.create", {"name": "harness-elsewhere"})["id"]
+    a = made(c.call("port.create", {"type": "web", "title": "harness: s3h produce", "space_id": here, "html": page(
+        "<h1>produce</h1>",
+        "var n=0; setInterval(function(){ n++; port42.port.publish('state',{n:n, at:Date.now()}); }, 500);")}))
+    t = made(c.call("port.create", {"type": "web", "title": "harness: s3h transform", "space_id": here,
+                                    "presentation": "hidden", "html": page(
+        "<h1>transform</h1>",
+        "port42.port.subscribe('%s', function(ev){ if(ev.kind.indexOf('state')<0) return;"
+        " port42.port.publish('state',{v:ev.payload.n*10, at:ev.payload.at}); });" % a["id"])}))
+    r = made(c.call("port.create", {"type": "web", "title": "harness: s3h render", "space_id": elsewhere, "html": page(
+        "<h1>render</h1><pre id=log></pre>",
+        "port42.port.subscribe('%s', function(ev){ if(ev.kind.indexOf('state')<0) return;"
+        " document.getElementById('log').textContent += ev.payload.v+' '+(Date.now()-ev.payload.at)+'ms\\n'; });"
+        % t["id"])}))
+    status = next((q.get("status") for q in c.call("ports.list") if q["id"] == t["id"]), None)
+    time.sleep(6)
+    rows = [ln.split() for ln in dom_text(c, r["id"]).splitlines() if ln.strip()]
+    values = [int(x[0]) for x in rows]
+    ok = status == "hidden" and len(values) >= 5 and all(v % 10 == 0 for v in values) and values == sorted(values)
+    record(3, "Compose things (hidden, off screen)", ok,
+           f"transform listed '{status}', render in another space received {len(values)} in 6s ({values[:3]}…)")
+
+
+def scenario3_watch(c):
+    """Phase 3: the receiver is a companion. A hidden agent watching a port answers one event in the
+    port's chat, and a burst during its turn arrives as one more turn, not five."""
+    t = made(c.call("port.create", {"type": "terminal", "command": "claude", "presentation": "hidden"}, timeout=300))
+    name = t["title"]
+    deadline = time.time() + 120
+    while time.time() < deadline and not any(
+            (x.get("name") or x.get("displayName")) == name for x in c.call("companions.list", {"space_id": "*"})):
+        time.sleep(3)
+    p = made(c.call("port.create", {"type": "web", "title": "harness: s3w alarm", "html":
+                                    "<title>harness: s3w alarm</title><script>window.fire=n=>port42.port.publish("
+                                    "'alert',{n:n})</script>"}))
+    time.sleep(2)
+    c.call("companions.watch", {"port": p["id"], "companion": name})
+
+    def fire(n):
+        tok = next(x["token"] for x in c.call("ports.list") if x["id"] == p["id"])
+        c.call("port.exec", {"id": p["id"], "js": f"fire({n}); return 1", "token": tok})
+
+    def replies():
+        return [e for e in c.call("chat.read", {"port": p["id"], "limit": 50})["entries"] if e["from"]["name"] == name]
+
+    t0 = time.time()
+    fire(1)
+    while time.time() < t0 + 240 and not replies():
+        time.sleep(3)
+    first = time.time() - t0
+    fire(2)
+    time.sleep(4)
+    for n in range(3, 8):
+        fire(n)
+    t1 = time.time()
+    while time.time() < t1 + 300 and len(replies()) < 3:
+        time.sleep(5)
+    time.sleep(45)                                     # anything more would show up here
+    got = len(replies())
+    record(3, "Compose things (a watching agent)", got == 3,
+           f"hidden @{name}: first event answered in {first:.0f}s; 1 + 5 events during its turn gave "
+           f"{got - 1} more replies (want 2)")
+
+
+
+
 # ---------------------------------------------------------------------------------------------- 4
 async def _scenario4(c):
     import urllib.request
@@ -272,7 +343,8 @@ def main():
     c = Client(a.port, os.environ.get("P42_TOKEN_FILE"))
     if not c.host_up():
         sys.exit(f"no Port42 answering on {a.port}")
-    runs = {1: lambda: scenario1(c, a.agent, a.cli), 2: lambda: scenario2(c), 3: lambda: scenario3(c),
+    runs = {1: lambda: scenario1(c, a.agent, a.cli), 2: lambda: scenario2(c),
+            3: lambda: (scenario3(c), scenario3_offscreen(c), scenario3_watch(c)),
             4: lambda: scenario4(c), 5: lambda: scenario5(c, not a.no_restart)}
     names = {1: "Make a thing", 2: "Drive a thing", 3: "Compose things", 4: "Share a thing (local half)",
              5: "Arrange things"}

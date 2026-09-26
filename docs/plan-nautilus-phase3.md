@@ -298,6 +298,13 @@ The harness's scenario 3 gains, in its own space:
 - a burst of five events while it is answering, which arrives as one batched turn, so the render
   port's chat holds two replies, not six.
 
+**Built 2026-09-26.** Scenario 3 reports three rows: the original pipe; "hidden, off screen" (the
+transform stage created hidden, the render port in another space, `harness-elsewhere`); and "a
+watching agent" (a hidden Claude companion watching an alarm port: one event answered in its chat,
+then one event and a burst of five during its turn giving exactly two more replies). First run on
+Dev4: all three PASS; 8 events in 6 s at 4 ms median, the same 8 off screen, the watcher answering
+in 15 s and the burst arriving as one turn. The watching row costs about three agent turns.
+
 ### 3.6 Port42 as a command, not curl (built 2026-09-26)
 
 Companions reached Port42 by curl, so every call was a quoted shell line (and HTML went through jq),
