@@ -110,7 +110,7 @@ a provider tolerating that use at scale.
 | D2 | The native chat tile goes with the `messages` table. No bridge period. |
 | D3 | Storage stays. It is unused because authors cannot tell it survives remount, eviction and restart where browser storage does not. |
 | D4 | The ceremony stays. Heartbeats are separate and return only if a command companion can take a timed mention. |
-| D5 | Remote callers arrive over WebRTC, pion in the gateway (Gordon, 2026-09-26). ngrok goes. The local door stays on loopback. |
+| D5 | Remote callers arrive through a relay, end to end encrypted with Noise (Gordon, 2026-09-26). ngrok goes. The local door stays on loopback; nothing else listens. |
 | D6 | The transport is a pluggable seam (listen, dial, peer id, stream). |
 | D7 | `ai.complete` goes with the engine. No backward compatibility for ports that call it; a thin capability returns only if needed. |
 | D8 | Milestone M3 (Sync) in `CLAUDE.md` is superseded. What it reached for arrives as scenario 4. |
@@ -273,16 +273,17 @@ decisions, in short:
 
 - **Address** `port42://<peer>/<portId>`, the peer being the instance's Ed25519 public key in
   lowercase base32. No space segment.
-- **Transport** WebRTC, pion in the gateway, behind a four-verb seam. Data channels carry the door's
-  frames; no gossipsub. A peer is authenticated by its key signing the DTLS fingerprints.
-- **Relay service** run by Port42: signaling to introduce peers, TURN when no direct path forms.
-  Stateless, sees no content. Where it is hosted is open and is the phase's blocker.
+- **Relay first.** Every remote connection goes through a relay over a secure WebSocket, end to end
+  encrypted with Noise IK between the instances' keys. Port42 runs a default relay; anyone can run
+  their own. A direct path is a later upgrade behind the same seam. Architecture in
+  `design-phase4-relay.md`; the peer-to-peer research in `research-phase4-transport.md`.
 - **Invites: one per port** (D10). The link is `port42.ai/invite.html#<coupon>`, opening in Port42 or
-  in the browser, burned on first redemption, which enrols the redeemer's key as a `peer` client
-  with a grant on that one port. Port 0 and spaces are never invitable.
+  in the browser. Nothing happens until the guest clicks and the host approves a matching code; that
+  burns the one-time nonce, enrols the guest's key as a `peer` client and grants that one port. Port 0
+  and spaces are never invitable.
 - **Remote callers denied by default**, with rights per port (`see`, `use`, `edit`, `wake agents`);
   local callers unchanged this phase. Named secrets get a per-caller grant.
-- **The Signal Protocol is not in this phase**: nothing is stored and forwarded yet, and DTLS
+- **The Signal Protocol is not in this phase**: nothing is stored and forwarded yet, and Noise
   already encrypts end to end.
 
 **Reads must be scoped before anything is remote.** Today any caller can list every port across
