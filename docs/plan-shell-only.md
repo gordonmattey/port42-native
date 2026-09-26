@@ -370,6 +370,8 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
+  focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
 - **`/imagine`** (GM, 2026-09-25). Type one line ("a shader that reacts to music") and Port42 writes
   the brief, opens a new space with a lead and two engineers, and briefs the lead; the team builds and
   improves the port in its chat by rounds and reports DONE. The pieces exist and ran live
