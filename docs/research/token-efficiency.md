@@ -53,7 +53,7 @@ grep -rn "generatedToolDefinitions" Sources Tests
 # Tests/Port42Tests/BridgeSchemaParityTests.swift:68, :142
 ```
 
-The in-app model was deleted in nautilus Phase 1 step 3 (`docs/release-no-llm-in-port42.md`), and
+The in-app model was deleted in nautilus Phase 1 step 3, and
 with it the only path that sent these schemas to an LLM. Their remaining job is to be the vocabulary
 against which `ManualAccuracyTests` checks that the manuals teach only real tool names. The 11,380
 tokens they would cost are a liability if a consumer returns, not a current bill.
@@ -428,7 +428,7 @@ cannot do the thing. Unrecoverable within the turn.
 **C2, semantic or embedding selection.** Same cache invalidation as C1, plus two Port42-specific
 costs. There is no embeddings endpoint in the Anthropic API reference, so this requires a second
 provider. Port42 deleted every provider credential on this branch and `Port42AuthStore` actively
-reaps the old Keychain entries (`docs/release-no-llm-in-port42.md`). Reintroducing a provider
+reaps the old Keychain entries. Reintroducing a provider
 credential to pick tool schemas would undo the branch's most deliberate simplification to solve a
 problem that does not currently exist. Same failure mode as C1, with a worse story about why a
 capability vanished.
