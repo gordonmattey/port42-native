@@ -47,7 +47,7 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | 9 | The membrane interprets | | Five docs already in `docs/membrane/`. |
 | 10 | Add Antigravity as a first-run path | GM, 2026-09-26: "add antigravity should be the thing, later" | Setup detects which CLI agent is installed and runs Echo on it (Claude Code and Codex today). The item is Antigravity specifically, not agents in general, and it stays late. |
 | 11a | Headless CLI `ai.complete` | **scoped, recommendation is do not build it**, [headless-cli-ai.md](headless-cli-ai.md) | A port already has a model: `chat.post` wakes a companion and the reply returns as a chat event. A subprocess call costs 264 MB and 2.3 to 7.7 seconds, and default flags cost 45x the tokens of the same answer. |
-| 11 | Expand the CLI | **replaces "MCP as a port capability"** | GM, 2026-09-26: "i really dont like it, i think we could expand the cli instead." MCP moves down and the framing changes: the CLI is the surface to grow, not a second protocol to adopt. |
+| 11 | Expand the CLI, and MCP without the cruft | **both live**, [mcp-without-the-cruft.md](mcp-without-the-cruft.md) | GM first rejected MCP ("i really dont like it, i think we could expand the cli instead"), then, 2026-09-26: "MCP without the cruft is my vision." Not a contradiction: what was rejected was the 11,380-token manifest, not the protocol. D9 does not close MCP, it closes Port42 calling a provider. Two surfaces, not yet chosen between. |
 | 12 | Computer use | GM: "kinda a bad smell" | Has `plan-computer-use.md`. Demote rather than delete. |
 | 13 | Windows and Linux | **scoped** | `windows-port.md`, `kernel-boundary.md`, `libghostty-windows.md`. |
 
