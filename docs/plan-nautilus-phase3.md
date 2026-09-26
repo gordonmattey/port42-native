@@ -134,6 +134,15 @@ is still refreshed at launch, now identical from every instance. Gates in
 Dev4's Codex home holds its own AGENTS.md, and a Codex session in Dev4 answered `whoami` through the
 file's curl as its own companion in its own space.
 
+**Done 2026-09-26: a write reloads a port only when it must.** `port.update`, `port.patch` and
+`port.restore` all reloaded, even for identical HTML, throwing away a paused animation or a drawn
+canvas. Now identical HTML does nothing (no reload, no version); a change confined to `<style>` is
+applied in place; any other change is sent to the page as a cancelable `port42:update` event with
+the new HTML, and a page that applies it itself (`preventDefault()`) keeps its state; otherwise it
+reloads. Each write returns `applied` (unchanged, styles, handledByPage, reloaded), and the port
+manual teaches the event. Gates in `PortLiveUpdateTests`, in a real web view, calibrated both ways
+(every write reloading, no write reloading).
+
 **Future optimization (GM, 2026-09-25): HTML from a shared buffer.** Agents now always write a port's
 HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends
 the HTML through JSON. A write that names a local file or a shared buffer Port42 reads directly

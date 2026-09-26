@@ -1459,7 +1459,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
     }
 
     r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"], writesTarget: "id", replacesState: true,
-        description: "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
+        description: "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized. The page is reloaded only when it has to be: a change confined to <style> is applied in place, and any other change is first offered to the page as a cancelable 'port42:update' event (detail.html is the new HTML), which the page may apply itself by calling preventDefault(), keeping its state. Returns applied: unchanged, styles, handledByPage or reloaded.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1471,14 +1471,14 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let html = try args.requireString("html")
         let target = appState.resolvePortRef(id)?.udid ?? id
-        guard await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
-        return .object(["ok": .bool(true)])
+        return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
     }
 
     r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"], writesTarget: "id", replacesState: true,
-        description: "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
+        description: "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update, and reaches the page the same way (reloading only when it has to; see port_update).",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1499,10 +1499,10 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.badArg("search string not found in port '\(id)' — read the current HTML with port.getHtml and copy the exact string")
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
-        guard await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
             throw BridgeError.notFound("port '\(id)'")
         }
-        return .object(["ok": .bool(true)])
+        return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
     }
 
     r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"], writesTarget: "id", replacesState: true,
@@ -1521,10 +1521,10 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
-        guard await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
-        return .object(["ok": .bool(true)])
+        return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
     }
 
     r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"], writesTarget: "id", replacesState: true,

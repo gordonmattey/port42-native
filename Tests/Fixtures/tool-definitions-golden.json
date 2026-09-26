@@ -557,7 +557,7 @@
     "name" : "port_move"
   },
   {
-    "description" : "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
+    "description" : "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update, and reaches the page the same way (reloading only when it has to; see port_update).",
     "input_schema" : {
       "properties" : {
         "id" : {
@@ -700,7 +700,7 @@
     "name" : "port_restore"
   },
   {
-    "description" : "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
+    "description" : "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized. The page is reloaded only when it has to be: a change confined to <style> is applied in place, and any other change is first offered to the page as a cancelable 'port42:update' event (detail.html is the new HTML), which the page may apply itself by calling preventDefault(), keeping its state. Returns applied: unchanged, styles, handledByPage or reloaded.",
     "input_schema" : {
       "properties" : {
         "html" : {

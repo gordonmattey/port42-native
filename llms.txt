@@ -300,7 +300,7 @@ Generated from the live method registry: every entry below is served exactly as 
         x (number, required): Horizontal position in desktop points
         y (number, required): Vertical position in desktop points
   port.patch(id, search, replace, token)
-      Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.
+      Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update, and reaches the page the same way (reloading only when it has to; see port_update).
         id (string, required): The port's UDID (from ports_list)
         replace (string, required): The string to replace it with.
         search (string, required): The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.
@@ -337,7 +337,7 @@ Generated from the live method registry: every entry below is served exactly as 
       Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.
         id (string, required): The port to observe (id / udid / title).
   port.update(id, html, token)
-      Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.
+      Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized. The page is reloaded only when it has to be: a change confined to <style> is applied in place, and any other change is first offered to the page as a cancelable 'port42:update' event (detail.html is the new HTML), which the page may apply itself by calling preventDefault(), keeping its state. Returns applied: unchanged, styles, handledByPage or reloaded.
         html (string, required): The new HTML content for the port (full HTML, not a diff)
         id (string, required): The port's UDID or title to identify which port to update
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.

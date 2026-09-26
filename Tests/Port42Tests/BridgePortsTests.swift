@@ -67,7 +67,7 @@ struct BridgePortsTests {
     func update() async throws {
         let w = try makeParityWorld()
         let id = try makePort(w)
-        #expect(try await call(w, "port.update", ["id": id, "html": "<div>changed</div>"]) == .object(["ok": .bool(true)]))
+        #expect(try await call(w, "port.update", ["id": id, "html": "<div>changed</div>"]) == .object(["ok": .bool(true), "applied": .string("reloaded")]))
         #expect(try await call(w, "port.getHtml", ["id": id]) == .string("<div>changed</div>"))
         await #expect(throws: BridgeError.self) { _ = try await call(w, "port.update", ["id": "nope", "html": "x"]) }
     }
@@ -78,7 +78,7 @@ struct BridgePortsTests {
         let w = try makeParityWorld()
         let id = try makePort(w)
         _ = try await call(w, "port.update", ["id": id, "html": "<div>hello world</div>"])
-        #expect(try await call(w, "port.patch", ["id": id, "search": "world", "replace": "port42"]) == .object(["ok": .bool(true)]))
+        #expect(try await call(w, "port.patch", ["id": id, "search": "world", "replace": "port42"]) == .object(["ok": .bool(true), "applied": .string("reloaded")]))
         #expect(try await call(w, "port.getHtml", ["id": id]) == .string("<div>hello port42</div>"))
         await #expect(throws: BridgeError.self) {
             _ = try await call(w, "port.patch", ["id": id, "search": "absent", "replace": "x"])

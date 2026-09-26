@@ -886,24 +886,36 @@ public final class PortWindowManager: ObservableObject {
     /// the surface: a fourth document-replacing verb added tomorrow inherits the wait instead of
     /// depending on its author having remembered.
     @discardableResult
-    public func updatePort(idOrTitle: String, html: String, skipVersionSnapshot: Bool = false) async -> Bool {
+    public func updatePort(idOrTitle: String, html: String,
+                           skipVersionSnapshot: Bool = false) async -> PortLiveUpdate.Outcome? {
         guard let idx = panels.firstIndex(where: { $0.udid == idOrTitle }) ??
               panels.firstIndex(where: {
                   let l = idOrTitle.lowercased()
                   return $0.title.lowercased() == l || $0.title.lowercased().contains(l)
               }) else {
-            return false
+            return nil
         }
 
         let panelId = panels[idx].id
         let newTitle = PortPanel.extractTitle(from: html)
+        let old = panels[idx].html
+        let plan = PortLiveUpdate.plan(old: old, new: html)
+        if plan == .unchanged { return .unchanged }   // nothing to show, store or version
         panels[idx].html = html
 
-        // Update the webview if it exists
+        // NOT EVERY WRITE RELOADS (GM, 2026-09-26). A reload throws away the page's live state: a
+        // paused animation, a drawn canvas, a half-filled form. So a write replaces the document
+        // only when nothing less will do: a change confined to <style> is applied in place, and
+        // any other change is first offered to the page, which may apply it itself.
+        var outcome = PortLiveUpdate.Outcome.reloaded
         if let webView = webViews[panelId] {
-            let wrappedHTML = PortWebViewFactory.wrapHTML(html)
-            webView.loadHTMLString(wrappedHTML, baseURL: URL(string: "http://port42.local/"))
-            NSLog("[Port42] Port updated (webview reloaded): %@ (%@)", newTitle, panelId)
+            if !webView.isLoading, await applyLive(plan, html: html, to: webView) {
+                outcome = plan == .offer ? .handledByPage : .styles
+                NSLog("[Port42] Port updated live (%@): %@ (%@)", outcome.rawValue, newTitle, panelId)
+            } else {
+                webView.loadHTMLString(PortWebViewFactory.wrapHTML(html), baseURL: URL(string: "http://port42.local/"))
+                NSLog("[Port42] Port updated (webview reloaded): %@ (%@)", newTitle, panelId)
+            }
         } else {
             NSLog("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
         }
@@ -921,8 +933,25 @@ public final class PortWindowManager: ObservableObject {
 
         // The document is being replaced right now. Answering before it lands is what made
         // patch-then-read return the OLD document.
-        await awaitDocument(panelId)
-        return true
+        if outcome == .reloaded { await awaitDocument(panelId) }
+        return outcome
+    }
+
+    /// Apply a planned update inside the running page. False means it could not be applied there
+    /// and the caller reloads, so a page that does not match what was planned is never half-updated.
+    private func applyLive(_ plan: PortLiveUpdate.Plan, html: String, to webView: WKWebView) async -> Bool {
+        let result: Any?
+        switch plan {
+        case .unchanged:
+            return true
+        case .styles(let css):
+            result = try? await webView.callAsyncJavaScript(PortLiveUpdate.stylesJS, arguments: ["css": css],
+                                                            in: nil, contentWorld: .page)
+        case .offer:
+            result = try? await webView.callAsyncJavaScript(PortLiveUpdate.offerJS, arguments: ["html": html],
+                                                            in: nil, contentWorld: .page)
+        }
+        return (result as? Bool) == true
     }
 
     /// List all ports (for ports_list tool).
@@ -1214,7 +1243,7 @@ enum PortWebViewFactory {
             console.warn('[port42] Blocked by content security policy: ' + (e.effectiveDirective || e.violatedDirective) + ' -> ' + (e.blockedURI || '(inline)') + '. Ports are self-contained: inline your scripts/styles/assets (no CDN, no remote images), and use port42.rest.call for network. See ports-context.');
         });
         </script>
-        <style>
+        <style data-port42>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
                 background: #111;
