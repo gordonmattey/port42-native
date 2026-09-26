@@ -312,8 +312,15 @@ port) on Dev4 found and fixed, each with a calibrated test:
 Result: all eight combinations PASS. Open: with the disk busy (Dropbox's file provider at 112% CPU
 while this repo was being committed and built), the harness's own polling still saw one 30 s call,
 sampled as the main thread blocked in a synchronous write to its log file. The app still logs and
-commits to SQLite on the main thread; moving that I/O off it is the remaining fix, recorded here and
-not yet done.
+commits to SQLite on the main thread; moving that I/O off it is the remaining fix.
+
+**Fixed the same day.** The database runs in WAL mode with `synchronous = NORMAL`, so a commit is a
+sequential append rather than a rollback journal and two syncs; every log line goes through
+`p42log`, formatted where it is logged and written in order by a background queue (all 158 `NSLog`
+calls in the library). Gates in `MainThreadIOTests` (journal mode, a slow log sink not blocking its
+caller, no `NSLog` left), calibrated. Re-run on Dev4: all eight combinations PASS, every companion
+answering within 16 s of the ask, and the slowest call of the run 0.11 s where calls had timed out
+at 30 s.
 
 **Antigravity spike (2026-09-26).** `agy` (installed at `~/.local/bin/agy`) is an interactive terminal
 agent with a print mode (`-p`), resume (`--conversation`, `--continue`) and plugins. It has lifecycle
