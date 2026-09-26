@@ -36,7 +36,7 @@ is not on screen, and when the receiver is a companion rather than a port.
    ("5 events on port 'x' since your last turn", then each). The first event of a quiet period waits
    one second before waking the agent, so a burst that arrives together is one turn, not one turn and
    then a batch.
-3. **A watch has no default floor, and a ceiling against runaway (recommended, open).** There is no
+3. **A watch has no default floor, and a ceiling against runaway (decided, GM 2026-09-26: start at 60 wakes an hour).** There is no
    right minimum gap between wakes in general: "review every edit" wants each one, "tell me when the
    scraper finds something" does not care. So the watch sets its own floor (`every`, seconds) and has
    none by default; decision 2 already keeps it to one turn at a time. The ceiling guards the one
@@ -131,8 +131,8 @@ second port subscribed to it, 10 s per row):
 | Where | Published/s | Received/s | Latency median | Frames/s (producer / consumer) |
 |---|---|---|---|---|
 | Both visible | 10 | 10 | 1 ms | 59 / 59 |
-| Producer parked | 1 | 1 | 2 ms | 0 / 31 to 60 |
-| Consumer parked | 10 | 10 | 1 ms | 59 / 0 |
+| Producer docked (hidden) | 1 | 1 | 2 ms | 0 / 31 to 60 |
+| Consumer docked (hidden) | 10 | 10 | 1 ms | 59 / 0 |
 | Both in a resting space | 1 | 1 | 2 ms | 0 / 0 |
 | Both in a resting space, after 3 min | 1 | not remeasured after the fix | | 0 / 0 |
 | Back on screen | 10 | 10 | 1 ms | 59 / 59 |
@@ -150,11 +150,13 @@ second port subscribed to it, 10 s per row):
   after it had been parked once, even back on screen. Parking now stops only finite streams;
   closing still stops all (`ParkedSubscriptionTests`, a real web view, calibrated).
 
-**Open for GM: timers in hidden ports.** Off-screen throttling suits a parked chart (its drawing
-stops, its CPU falls). A hidden port (3.2) exists to do background work, so a 1 Hz ceiling on its
-timers is a limit it did not ask for. Recommended: hidden ports opt out of WebKit's hidden-page timer
-throttling (a WebKit preference, set only if the running WebKit has it), while animation frames stay
-stopped; parked and resting ports keep today's behavior. To measure again with 3.2.
+**Decided and built 2026-09-26: hidden ports run their timers at full rate.** A hidden port opts out
+of WebKit's clamp on unseen pages (its own `_setHiddenPageDOMTimerThrottlingEnabled` and process
+suppression preferences, set only when the running WebKit has them); animation frames still stop;
+parked and resting ports keep the clamp. `HiddenTimerTests` in a real web view: a 50 ms timer ticked
+at most 6 times in 2 s clamped and 23 hidden, and the clamp returns when the port is shown
+(calibrated by not setting the preference). The port manual now says when to make a port hidden and
+what runs off screen.
 
 ### 3.1 Errors reach port JS: already true
 
@@ -187,6 +189,19 @@ subscriber receives a visible producer's; show then hide round-trips its present
 it survives a restart and a close and reopen hidden; `ports.list` reports it hidden; a hidden
 terminal companion answers a mention in its chat; a refused write from a port carries `code` and
 `current` (3.1).
+
+**Built 2026-09-26.** A hidden port already existed as "docked" (`isBackground`, from `port.manage
+minimize`): running, persisted, on no desktop and in no rail, and listed by no view, so it ran where
+nobody could find it. It is now the hidden port. `port.create` takes `presentation: "hidden"` for
+every type (terminal and browser ignored `presentation` before); `port.manage` takes `hide` and `show`
+(the old names still work); `ports.list` says `hidden`; a hidden port reports the state `hidden` to
+its page (it reported `background`, the wallpaper's state). ⌘K lists hidden ports after spaces,
+searchable, and selecting one shows it on its home desktop; the chrome shows "N hidden" as a menu
+when the current space has any. Gates in `HiddenPortTests` (created hidden, hide and show through
+the API keeping the spot, persisted, and a source scan that fails any tile filter letting a hidden
+port through), each calibrated; `PortPresentationTests` covers the new state. Verified live on Dev4:
+a `claude` terminal created hidden registered as `witty-fox`, was listed hidden, and answered a
+mention in its space's chat as itself. Open: the timer decision in 3.0.
 
 ### 3.3 Companions watch ports
 
