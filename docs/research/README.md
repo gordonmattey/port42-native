@@ -33,7 +33,7 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 |---|---|---|---|
 | 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
 | 2 | The chrome is ports too | **scoped**, [chrome-as-ports.md](chrome-as-ports.md) | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
-| 3 | One guided permission flow | scoping | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
+| 3 | One guided permission flow | **scoped**, [permission-flow.md](permission-flow.md) | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
 | 4 | Share, and fork what you were shared | **scoped**, [share-a-ports-code.md](share-a-ports-code.md) | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
 | 5 | Share a whole space | **moved up by GM** | Was 12. A space is a port, so this is the cascade question in `invite-over-libp2p.md`, not a separate mechanism. |
 | 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
@@ -102,6 +102,23 @@ site (`BridgeDispatcher.swift:112`, `:117`). With no grant at all, a port can:
 
 The `PortObject` slot for object-scoped grants is built and empty. Closing this is a re-consent
 rather than a migration, because absence of a restriction is currently permission.
+
+**Independently corroborated by the permission-flow spike**, which found the same hole at two more
+doors: `port.push` types raw keystrokes into a live terminal with `permission: nil`
+(`BridgeMethods.swift:180`), `port.subscribe` streams that terminal's output ungated (`:46-47`), and
+`ports.list` enumerates every port in every space (`:1342`). An enrolled client holding zero grants
+can therefore find every terminal, read everything it prints, and type into it. That is the same
+defect `port.create`'s own gate was added to close, at two other doors.
+
+Measured consent state, 2026-09-26: Dev3 holds 2 grants across 25 enrolled grantees, production holds
+4 across 25, and three of those four belong to `local-http`, an identity deleted from the code. The
+prompt count is low because **41 of 69 registry methods are ungated**, not because consent is well
+designed.
+
+Two more, both derived from code paths rather than executed: revoking a `child` client is undone by
+the next launch, because `upsertClient` clears `revokedAt` and a spawned terminal re-registers
+unconditionally on restore; and a gated call while the shell is locked enqueues a card with no render
+site, so the gateway answers `timed_out` after 30 seconds.
 
 Unverified: the cross-port `port.exec` escalation from a web guest. It should work on the code path
 (`guestpage.go:95-99` forwards any method name) but was not executed. Testing it needs a dev instance
