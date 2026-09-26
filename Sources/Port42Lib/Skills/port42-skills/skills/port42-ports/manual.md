@@ -448,7 +448,9 @@ BRIDGE API REFERENCE:
       CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
                              session limit reached — stop or close one, then call again)
       ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a
-                             path they never picked: they pick a file)
+                             path they never picked: they pick a file) · budget_spent (an
+                             imagine team's version budget: the lead posts DONE, or the person
+                             raises it)
       ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                              client in Settings -> Access and you send it as `Authorization:
                              Bearer <token>`) · auth_revoked (it knew you and the user withdrew

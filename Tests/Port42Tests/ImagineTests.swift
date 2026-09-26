@@ -12,6 +12,7 @@ struct ImagineTests {
         #expect(Imagine.parse("  /imagine --versions 3 a clock  ") == .start(line: "a clock", versions: 3))
         #expect(Imagine.parse("/imagine --versions 99 x") == .start(line: "x", versions: Imagine.maxVersions))
         #expect(Imagine.parse("/imagine stop") == .stop)
+        #expect(Imagine.parse("/imagine --versions 8") == .budget(versions: 8), "no line: the budget of this space's team")
         #expect(Imagine.parse("/imagine") == nil, "no line, nothing to build")
         #expect(Imagine.parse("/imagine --versions nope x") == nil)
         #expect(Imagine.parse("/imagined world") == nil, "only the command, not a word that starts with it")
@@ -70,5 +71,120 @@ struct ImagineTests {
         #expect(first.fromName == person.displayName, "the brief must come from the person who imagined it")
         #expect(first.text.hasPrefix("@\(team.lead) /imagine from \(person.displayName): \"a clock made of light\""))
         #expect(first.text.contains("in at most 3 versions"))
+    }
+
+    @Test("the budget binds only a running team's own writes, once the port has that many versions")
+    func overBudget() {
+        var t = ImagineTeam(spaceId: "s", lead: "Lead-A", eng1: "eng-b", eng2: "eng-c", title: "t", versions: 3,
+                            startedAt: Date(), stoppedAt: nil)
+        #expect(!Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 2))
+        #expect(Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 3))
+        #expect(Imagine.overBudget(team: t, writer: "lead-a", versionsSoFar: 3), "names match as the gateway spells them")
+        #expect(!Imagine.overBudget(team: t, writer: "gordon", versionsSoFar: 9), "not the team's write")
+        t.stoppedAt = Date()
+        #expect(!Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 9), "a stopped team has no budget")
+    }
+
+    // MARK: - Stop and the budget, through the dispatcher
+
+    @MainActor
+    struct Run {
+        let w: ParityWorld
+        let team: ImagineTeam
+        let udid: String
+        func versions() throws -> Int { try w.state.db.fetchPortVersions(portUdid: udid).count }
+        func write(as name: String, _ html: String) async throws {
+            let p: Principal = .peer(id: "child-\(name)", displayName: name, spaceId: team.spaceId)
+            _ = try await w.state.runBridgeMethod("port.update", principal: p, args: BridgeArgs(
+                ["id": udid, "html": "<title>\(team.title)</title>\(html)", "token": w.state.portInput.token(for: udid)]))
+        }
+        func person(_ method: String, _ args: [String: Any]) async throws -> BridgeValue {
+            let u = w.state.currentUser!
+            return try await w.state.runBridgeMethod(method, principal: .human(id: u.id, displayName: u.displayName, spaceId: team.spaceId),
+                                                     args: BridgeArgs(args))
+        }
+    }
+
+    @MainActor
+    func run(versions: Int) async throws -> Run {
+        let w = try makeParityWorld()
+        let team = try await w.state.startImagine(line: "a clock made of light", versions: versions,
+                                                  person: w.state.currentUser!, testCommand: "true")
+        w.state.portWindows.registerTiledPort(id: "p", html: "<title>\(team.title)</title>v1", spaceId: team.spaceId,
+                                              createdBy: team.eng1, title: team.title, position: CGPoint(x: 40, y: 40))
+        let udid = w.state.portWindows.panels.first { $0.id == "p" }!.udid
+        return Run(w: w, team: team, udid: udid)
+    }
+
+    @Test("past the budget the team's write is refused with budget_spent and nothing lands; the lead is told once, the person is never refused")
+    @MainActor
+    func budgetRefuses() async throws {
+        let r = try await run(versions: 3)
+        var n = 2
+        while try r.versions() < 3 { try await r.write(as: r.team.eng1, "v\(n)"); n += 1 }
+        let told = try r.w.state.db.chatEntries(chat: r.w.state.resolvePortRef(r.udid)!.key!, after: 0, limit: 50)
+            .filter { $0.fromName == "port42" }
+        #expect(told.count == 1 && told[0].text.hasPrefix("@\(r.team.lead) that was version 3 of 3"),
+                "the lead is told when the budget is reached: \(told.map(\.text))")
+        let before = try r.versions()
+        let tokenBefore = r.w.state.portInput.token(for: r.udid)
+        do {
+            try await r.write(as: r.team.eng2, "one more")
+            Issue.record("a write past the budget landed")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.budgetSpent.wire, "refused with \(e.code)")
+            #expect(e.message.contains("@\(r.team.lead)"))
+        }
+        #expect(try r.versions() == before, "a refused write made a version")
+        #expect(r.w.state.portInput.token(for: r.udid) == tokenBefore, "a refused write moved the token")
+        _ = try await r.person("port.update", ["id": r.udid, "html": "<title>x</title>mine",
+                                               "token": r.w.state.portInput.token(for: r.udid)])
+        #expect(try r.versions() == before + 1, "the person is not bound by the team's budget")
+    }
+
+    @Test("imagine.budget raises a spent budget; /imagine --versions sets it")
+    @MainActor
+    func budgetRaised() async throws {
+        let r = try await run(versions: 1)
+        await #expect(throws: BridgeError.self) { try await r.write(as: r.team.lead, "v2") }
+        _ = try await r.person("imagine.budget", ["space": r.team.spaceId, "versions": 2])
+        try await r.write(as: r.team.lead, "v2")
+        #expect(try r.versions() == 2)
+        #expect(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 2)
+    }
+
+    @Test("stop: the team leaves the space and its terminals close; the port and the chats stay; the budget is lifted")
+    @MainActor
+    func stop() async throws {
+        let r = try await run(versions: 1)
+        // Headless, the team's terminals are not spawned; stand one in for each member.
+        for name in r.team.members {
+            let config = TerminalPortConfig(command: "/bin/zsh", args: [], startupCommand: "claude", cwd: "/tmp",
+                                            spaceId: r.team.spaceId, spaceName: r.team.title, companionName: name,
+                                            companionId: "", createdBy: "", companionPrompt: "", env: [:], initialInput: "")
+            var panel = PortPanel(id: "t-\(name)", udid: "t-\(name)", html: String(decoding: try JSONEncoder().encode(config), as: UTF8.self),
+                                  bridge: PortBridge(appState: r.w.state, spaceId: r.team.spaceId, messageId: "t-\(name)"),
+                                  spaceId: r.team.spaceId, createdBy: nil, messageId: "t-\(name)", size: CGSize(width: 400, height: 300))
+            panel.portType = "terminal"
+            r.w.state.portWindows.panels.append(panel)
+        }
+        let key = r.w.state.resolvePortRef(r.udid)!.key!
+        _ = try r.w.state.postToChat(key: key, text: "working", from: .peer(id: "x", displayName: r.team.eng1, spaceId: r.team.spaceId))
+        let v = try await r.person("imagine.stop", ["space": r.team.spaceId])
+        guard case .object(let o) = v, case .array(let gone)? = o["stopped"] else { Issue.record("no stopped list"); return }
+        #expect(gone.count == 3)
+        #expect(try r.w.state.db.getAgentsForSpace(spaceId: r.team.spaceId).isEmpty, "the team is still in its space")
+        let terminals = r.w.state.portWindows.panels.filter { p in
+            r.team.members.contains { $0.caseInsensitiveCompare(p.terminalConfig?.companionName ?? "") == .orderedSame }
+        }
+        #expect(terminals.isEmpty, "a team terminal is still open")
+        #expect(r.w.state.portWindows.panels.contains { $0.udid == r.udid }, "stop closed the port")
+        #expect(try r.w.state.db.chatEntries(chat: key, after: 0, limit: 10).contains { $0.text == "working" })
+        let last = try #require(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).last)
+        #expect(last.text == Imagine.stopped(try #require(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId))))
+        #expect(!last.text.contains("@"), "the stop notice must not wake the team")
+        try await r.write(as: r.team.eng1, "after stop")
+        #expect(try r.versions() == 2, "a stopped team is not bound by its budget")
+        await #expect(throws: BridgeError.self) { _ = try await r.person("imagine.stop", ["space": r.team.spaceId]) }
     }
 }

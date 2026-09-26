@@ -419,6 +419,27 @@
     "name" : "help"
   },
   {
+    "description" : "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing \/imagine --versions N in that space's chat.",
+    "input_schema" : {
+      "properties" : {
+        "space" : {
+          "description" : "The space the team was imagined in.",
+          "type" : "string"
+        },
+        "versions" : {
+          "description" : "The new budget, in versions of the port (at most 20).",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "space",
+        "versions"
+      ],
+      "type" : "object"
+    },
+    "name" : "imagine_budget"
+  },
+  {
     "description" : "Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
     "input_schema" : {
       "properties" : {
@@ -437,6 +458,22 @@
       "type" : "object"
     },
     "name" : "imagine_start"
+  },
+  {
+    "description" : "Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing \/imagine stop in that space's chat.",
+    "input_schema" : {
+      "properties" : {
+        "space" : {
+          "description" : "The space the team was imagined in (imagine_start returns it).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "space"
+      ],
+      "type" : "object"
+    },
+    "name" : "imagine_stop"
   },
   {
     "description" : "Send a macOS system notification",

@@ -136,7 +136,8 @@ struct BridgeSchemaParityTests {
         // + companions_watch, companions_unwatch, companions_watches (Phase 3.3). = 57.
         // + companions_create (the new-companion card as an API, Phase 3.7). = 58.
         // + imagine_start (/imagine, docs/plan-imagine.md). = 59.
-        #expect(checked == 59, "expected 59 parity-set methods, checked \(checked)")
+        // + imagine_stop, imagine_budget (/imagine I.3). = 61.
+        #expect(checked == 61, "expected 61 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

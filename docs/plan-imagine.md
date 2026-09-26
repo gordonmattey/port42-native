@@ -4,7 +4,7 @@ Detailed plan for `/imagine`, moved from the roadmap into the release's scope (G
 for GM's review, written against `nautilus` at `0ce34a5`; approved by GM with the recommended defaults.
 Product idea; whether people want it is unvalidated.
 
-**Status:** I.1 and I.2 done. I.3 to I.5 to build.
+**Status:** I.1 to I.3 done. I.4 and I.5 to build.
 
 ## Goal
 
@@ -117,6 +117,21 @@ budget is spent and the team's further writes to the port are refused with a cle
 
 *Gates:* stop leaves the port and chats and no running terminals; a write past the budget is refused
 with its own code; the lead's DONE is posted.
+
+*Done.* `imagine.stop {space}` closes the team's terminals, drops its watches and takes it out of the
+space; the companions are not deleted, because deleting one also closes the ports it made. The stop
+notice names the team without @, so it wakes nobody. The budget counts versions of the port being
+written: a `port.update` or `port.patch` by a member of a running team, to a port in its space that
+already has `versions` versions, is refused with `budget_spent` before its token moves. When the
+team's write that reaches the budget lands, Port42 tells the lead in the port's chat. The person's
+own writes are never refused, and a stopped team has no budget.
+
+Added beyond the plan: `imagine.budget {space, versions}` (and `/imagine --versions N` with no line),
+because decision 5 keeps the team for later changes and a spent budget would otherwise refuse them.
+
+Known flake, not from this step: "stuck: the person is told..." (StartupPromptTests) failed once in
+three full-suite runs (the stuck notice never came in 20s) and passed in isolation and alongside the
+delivery tests six times. Not root-caused yet.
 
 ### I.4 ⌘I and the slash command
 

@@ -89,7 +89,8 @@ never on the message text — messages change. The set is closed:
   CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
                          session limit reached — stop or close one, then call again)
   ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a path
-                         they never picked: they pick a file)
+                         they never picked: they pick a file) · budget_spent (an imagine team's
+                         version budget: the lead posts DONE, or the person raises it)
   ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                          client in Settings -> Access and you send it as `Authorization: Bearer
                          <token>`) · auth_revoked (it knew you and the user withdrew it; ask
@@ -260,10 +261,17 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### imagine
 
+  imagine.budget(space, versions)
+      Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing /imagine --versions N in that space's chat.
+        space (string, required): The space the team was imagined in.
+        versions (integer, required): The new budget, in versions of the port (at most 20).
   imagine.start(line, versions)  [permission: terminal]
       Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
         line (string, required): What to make, in the person's words.
         versions (integer): The version budget (default 5, at most 20).
+  imagine.stop(space)
+      Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing /imagine stop in that space's chat.
+        space (string, required): The space the team was imagined in (imagine_start returns it).
 
 ### notify
 

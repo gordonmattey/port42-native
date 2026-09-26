@@ -14,11 +14,13 @@ public enum Imagine {
     /// What a person typed, understood.
     public enum Command: Equatable {
         case start(line: String, versions: Int)
+        /// `/imagine --versions N` with no line: set the budget of the team in this space.
+        case budget(versions: Int)
         case stop
     }
 
-    /// `/imagine <line>`, `/imagine --versions N <line>` or `/imagine stop`. Nil for anything else,
-    /// which is posted as text.
+    /// `/imagine <line>`, `/imagine --versions N <line>`, `/imagine --versions N` or `/imagine stop`.
+    /// Nil for anything else, which is posted as text.
     public static func parse(_ input: String) -> Command? {
         let t = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard t.lowercased() == "/imagine" || t.lowercased().hasPrefix("/imagine ") else { return nil }
@@ -30,6 +32,7 @@ public enum Imagine {
             guard parts.count >= 2, let n = Int(parts[1]), n >= 1 else { return nil }
             versions = min(n, maxVersions)
             rest = parts.count == 3 ? String(parts[2]) : ""
+            if rest.trimmingCharacters(in: .whitespaces).isEmpty { return .budget(versions: versions) }
         }
         let line = rest.trimmingCharacters(in: .whitespaces)
         return line.isEmpty ? nil : .start(line: line, versions: versions)
@@ -81,6 +84,25 @@ public enum Imagine {
         with DONE and says what the port now is, and one line here.
         """
     }
+
+    /// The writes that make a version of a port, and so spend the budget.
+    public static let versionWrites: Set<String> = ["port.update", "port.patch"]
+
+    /// Is this write past the team's budget? Only the team's own writes count against it, only while
+    /// the team runs, and only once the port already has `versions` versions.
+    public static func overBudget(team: ImagineTeam, writer: String, versionsSoFar: Int) -> Bool {
+        team.stoppedAt == nil && team.isMember(writer) && versionsSoFar >= team.versions
+    }
+
+    /// Told to the lead when the team's write that reaches the budget lands.
+    public static func budgetSpent(lead: String, versions: Int) -> String {
+        "@\(lead) that was version \(versions) of \(versions), the budget for this port. Further writes by the team are refused. Check the port and post DONE."
+    }
+
+    /// Posted in the space when a team stops. Bare names, so it wakes nobody.
+    public static func stopped(_ team: ImagineTeam) -> String {
+        "The imagine team (\(team.members.joined(separator: ", "))) has stopped and left this space. The port and its chats stay."
+    }
 }
 
 /// The team a space was imagined with: for stop and the version budget.
@@ -90,11 +112,15 @@ public struct ImagineTeam: Equatable {
     public let eng1: String
     public let eng2: String
     public let title: String
-    public let versions: Int
+    public var versions: Int
     public let startedAt: Date
     public var stoppedAt: Date?
 
     public var members: [String] { [lead, eng1, eng2] }
+
+    public func isMember(_ name: String) -> Bool {
+        members.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
 }
 
 @MainActor
@@ -145,6 +171,80 @@ extension AppState {
                                       args: BridgeArgs(["port": space.id, "text": brief]))
         return team
     }
+
+    /// Stop the team imagined in a space: close its terminals, drop its watches and take it out of
+    /// the space. The port and the chats stay. The companions are not deleted, since deleting one
+    /// also closes the ports it made.
+    @discardableResult
+    func stopImagine(spaceId: String) throws -> ImagineTeam {
+        guard var team = try db.imagineTeam(spaceId: spaceId) else {
+            throw BridgeError(code: .notFound, message: "no imagine team in space '\(spaceId)'", details: ["space": spaceId])
+        }
+        guard team.stoppedAt == nil else {
+            throw BridgeError(code: .wrongState, message: "the imagine team in this space has already stopped", details: ["space": spaceId])
+        }
+        for name in team.members {
+            for panel in portWindows.panels
+            where panel.terminalConfig?.companionName.caseInsensitiveCompare(name) == .orderedSame {
+                portWindows.close(panel.id)
+            }
+            guard let c = companions.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+            companionWatches.removeAll(companionId: c.id)
+            leaveCompanionFromSpace(c, spaceId: spaceId)
+        }
+        team.stoppedAt = Date()
+        try db.saveImagineTeam(team)
+        _ = try postToChat(key: spaceId, text: Imagine.stopped(team),
+                           from: .peer(id: "port42", displayName: "port42", spaceId: spaceId))
+        return team
+    }
+
+    /// Set the version budget of the team imagined in a space (it may be raised after it is spent).
+    @discardableResult
+    func setImagineBudget(spaceId: String, versions: Int) throws -> ImagineTeam {
+        guard var team = try db.imagineTeam(spaceId: spaceId) else {
+            throw BridgeError(code: .notFound, message: "no imagine team in space '\(spaceId)'", details: ["space": spaceId])
+        }
+        team.versions = min(max(versions, 1), Imagine.maxVersions)
+        try db.saveImagineTeam(team)
+        return team
+    }
+
+    /// The team whose budget a write would spend: a version-making write, by a member, to a port in
+    /// the team's space. Nil for every other write, which is nearly all of them.
+    func imagineBudgetTarget(method: String, args: BridgeArgs, principal: Principal) -> (ImagineTeam, PortRef)? {
+        guard Imagine.versionWrites.contains(method), principal.kind != .human, principal.kind != .port,
+              let raw = args.string("id"), let ref = resolvePortRef(raw),
+              let space = portWindows.panels.first(where: { $0.id == ref.id || ($0.udid == ref.udid && ref.udid != nil) })?.spaceId,
+              let team = try? db.imagineTeam(spaceId: space), team.isMember(principal.displayName)
+        else { return nil }
+        return (team, ref)
+    }
+
+    func imagineVersionCount(_ ref: PortRef) -> Int {
+        guard let udid = ref.udid else { return 0 }
+        return (try? db.fetchPortVersions(portUdid: udid).count) ?? 0
+    }
+
+    /// Before a write: refuse it past the budget, with its own code, before its token moves.
+    func imagineBudgetGate(method: String, args: BridgeArgs, principal: Principal) throws {
+        guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal) else { return }
+        let n = imagineVersionCount(ref)
+        guard Imagine.overBudget(team: team, writer: principal.displayName, versionsSoFar: n) else { return }
+        throw BridgeError(
+            code: .budgetSpent,
+            message: "This port has \(n) versions, the imagine team's budget of \(team.versions) is spent. "
+                   + "Tell @\(team.lead); the lead posts DONE, or asks the person to raise it (/imagine --versions N in the space).",
+            details: ["versions": String(n), "budget": String(team.versions), "lead": team.lead])
+    }
+
+    /// After a write landed: when it was the version that reached the budget, tell the lead.
+    func imagineBudgetNotice(method: String, args: BridgeArgs, principal: Principal) {
+        guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal),
+              team.stoppedAt == nil, imagineVersionCount(ref) == team.versions, let key = PortRef.key(ref) else { return }
+        _ = try? postToChat(key: key, text: Imagine.budgetSpent(lead: team.lead, versions: team.versions),
+                            from: .peer(id: "port42", displayName: "port42", spaceId: team.spaceId))
+    }
 }
 
 @MainActor
@@ -166,5 +266,31 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
                                                    person: person)
         return .object(["space": .string(team.spaceId), "lead": .string(team.lead), "eng1": .string(team.eng1),
                         "eng2": .string(team.eng2), "title": .string(team.title), "versions": .int(team.versions)])
+    }
+
+    r["imagine.stop"] = BridgeMethod(permission: nil, paramNames: ["space"],
+        description: "Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing /imagine stop in that space's chat.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["space": ["type": "string", "description": "The space the team was imagined in (imagine_start returns it)."]],
+            "required": ["space"],
+        ]) { _, args in
+        let team = try appState.stopImagine(spaceId: try args.requireString("space"))
+        return .object(["space": .string(team.spaceId), "stopped": .array(team.members.map { .string($0) })])
+    }
+
+    r["imagine.budget"] = BridgeMethod(permission: nil, paramNames: ["space", "versions"],
+        description: "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing /imagine --versions N in that space's chat.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space": ["type": "string", "description": "The space the team was imagined in."],
+                "versions": ["type": "integer", "description": "The new budget, in versions of the port (at most \(Imagine.maxVersions))."],
+            ],
+            "required": ["space", "versions"],
+        ]) { _, args in
+        guard let n = args.int("versions") else { throw BridgeError.missingArg("versions") }
+        let team = try appState.setImagineBudget(spaceId: try args.requireString("space"), versions: n)
+        return .object(["space": .string(team.spaceId), "versions": .int(team.versions)])
     }
 }

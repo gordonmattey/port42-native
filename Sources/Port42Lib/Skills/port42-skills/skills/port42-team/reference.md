@@ -51,6 +51,15 @@ List watches: yours, another companion's (`companion`), or every one (`companion
 
     port42 companions.watches companion=…
 
+## imagine.budget
+
+Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing /imagine --versions N in that space's chat.
+
+        space (string, required): The space the team was imagined in.
+        versions (integer, required): The new budget, in versions of the port (at most 20).
+
+    port42 imagine.budget space=… versions=…
+
 ## imagine.start
 
 _needs the terminal permission_
@@ -61,3 +70,11 @@ Start an imagine team: from one line, a new space with a lead and two engineers 
         versions (integer): The version budget (default 5, at most 20).
 
     port42 imagine.start line=… versions=…
+
+## imagine.stop
+
+Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing /imagine stop in that space's chat.
+
+        space (string, required): The space the team was imagined in (imagine_start returns it).
+
+    port42 imagine.stop space=…
