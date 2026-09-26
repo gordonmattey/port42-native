@@ -115,6 +115,16 @@ to fix with 5.3, since skills in the home change what Codex sees at startup.
 *Gates:* every registry method maps to exactly one skill (calibrated by adding an unmapped method);
 the generated references equal the committed ones; each `SKILL.md` is under its budget.
 
+**Built 2026-09-26.** `SkillCatalog` maps every method to one of the five skills and renders each
+skill's `reference.md` (what the method does, its arguments, its permission, and a `port42` command
+example; streaming methods get none, since a stream cannot come back through the command). The
+plugin is `Sources/Port42Lib/Skills/port42-skills` (`.claude-plugin/plugin.json`, `skills/<name>/`),
+declared with `.copy` so its tree arrives intact in the bundle (checked, hidden folder included).
+Gates in `SkillCatalogTests`: every method has exactly one skill (calibrated by dropping a
+namespace), the committed references equal the generated ones (`PORT42_REGEN_SKILLS=1`), each
+`SKILL.md` opens with its name. The `SKILL.md` files are placeholders until 5.2; the size budget
+lands with them.
+
 ### 5.2 Write the skills
 
 - The five `SKILL.md` files, from the current brief, the port manual, the July gotchas and what the
