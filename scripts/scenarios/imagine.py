@@ -2,13 +2,14 @@
 """/imagine, live: one line becomes a team that builds a port to DONE within its version budget.
 
     P42_TOKEN_FILE=~/.port42/port42dev4/tokens/nautilus-prime \
-        scripts/scenarios/imagine.py --port 4246 [--versions 3]
+        scripts/scenarios/imagine.py --port 4246 [--versions 10]
 
 The harness does what ⌘I and a chat's /imagine do: it calls imagine.start with a fixed line. From
 there Port42 makes the space, the three agents (visible, with their roles) and the brief, and the
 agents run themselves. The harness watches: the port appears under the title taken from the line,
 it never goes past the budget, every agent speaks, the lead answers in the space's chat and posts
-DONE in the port's chat, and the console is clean. The team is left running: /imagine is a
+DONE (the team coordinates in the space's chat and works together in the port's), nobody posts into
+another's terminal chat, and the console is clean. The team is left running: /imagine is a
 bootstrap, and nothing closes its terminals.
 
 Needs the `terminal` grant for the harness client. A live monitor port, "harness: imagine", shows
@@ -26,7 +27,7 @@ LINE = "({tag}) a starfield you can steer with the mouse, with a speed control" 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=4246)
-    ap.add_argument("--versions", type=int, default=3)
+    ap.add_argument("--versions", type=int, default=10, help="the budget; 10 is what a person gets")
     ap.add_argument("--timeout", type=int, default=2400, help="seconds for the whole run")
     a = ap.parse_args()
     if a.port == 4242:
@@ -65,11 +66,13 @@ def main():
             if n > most:
                 most = n
                 run.say("wait", f"version {n} of {a.versions} after {time.time() - started:.0f}s")
-            for e in c.call("chat.read", {"port": pid, "limit": 200})["entries"]:
+        # The team coordinates in the space's chat and works together in the port's (GM, 2026-09-26).
+        for key, where in [(space, "the space's chat")] + [(pid, "the port's chat") for pid in mine()]:
+            for e in c.call("chat.read", {"port": key, "limit": 200})["entries"]:
                 who = e["from"]["name"]
                 if who in members and who not in seen:
                     seen.add(who)
-                    run.say("wait", f"@{who} is talking in the port's chat")
+                    run.say("wait", f"@{who} is talking in {where}")
                 if who == lead and e["text"].lstrip().upper().startswith("DONE"):
                     done = e
     elapsed = time.time() - started
@@ -79,7 +82,8 @@ def main():
     run.say("pass" if 1 <= most <= a.versions else "fail", f"{most} version(s), budget {a.versions}")
     for name in members:
         run.say("pass" if name in seen else "fail",
-                f"@{name} worked in the port's chat" if name in seen else f"@{name} never spoke in the port's chat")
+                f"@{name} spoke in the space's or the port's chat" if name in seen
+                else f"@{name} never spoke in the space's or the port's chat")
     run.say("pass" if done else "fail",
             f"@{lead} posted DONE after {elapsed:.0f}s: {done['text'][:140]!r}" if done
             else f"@{lead} did not post DONE within {a.timeout}s")
@@ -88,8 +92,15 @@ def main():
             "final version: no console errors" if not errs else f"final version logged {len(errs)} error(s): {errs[0].get('message', '')[:80]}")
     replies = chat_after(c, space, first["seq"] if first else 0, lead)
     run.say("pass" if replies else "fail",
-            f"the lead answered in the space's chat: {replies[0]['text'][:100]!r}" if replies
-            else "the lead never answered in the space's chat")
+            f"the lead coordinated in the space's chat: {replies[0]['text'][:100]!r}" if replies
+            else "the lead never posted in the space's chat")
+    # No team talk in terminal chats: the person follows the space's and the port's chats.
+    term = [p["id"] for p in c.call("ports.list") if p.get("title") in members]
+    stray = [e for t in term for e in c.call("chat.read", {"port": t, "limit": 200})["entries"]
+             if e["from"]["name"] in members and e["from"]["name"] != next((p["title"] for p in c.call("ports.list") if p["id"] == t), None)]
+    run.say("pass" if not stray else "fail",
+            "no teammate posted into another's terminal chat" if not stray
+            else f"{len(stray)} post(s) in another companion's terminal chat, e.g. {stray[0]['from']['name']}: {stray[0]['text'][:80]!r}")
 
     # /imagine is a bootstrap: the team is ordinary companions now, and is always left running.
     run.say("wait", f"the team stays in space {space} ('{title}')")

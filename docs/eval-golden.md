@@ -32,7 +32,7 @@ input.
 | watch-fix | one | watch a port, fix it when it breaks | watching, console clean after the break, content intact |
 | duo-review | claude maker, codex reviewer | v1 and exactly one improvement | 2 or 3 versions, console clean, both spoke in the port's chat |
 | team-three | claude lead, claude and codex engineers | exactly three versions | 3 or 4 versions, console clean, all three spoke, one port |
-| imagine | the team `imagine.start` makes | a fixed line, budget of three versions | 1 to 3 versions, console clean, all three spoke, one port |
+| imagine | the team `imagine.start` makes | a fixed line, the default budget of ten versions | 1 to 10 versions, console clean, all three spoke in the space's or the port's chat, one port |
 
 Solo tasks run once per CLI (claude and codex); mixed ones as written: 13 variants in all. Agents are
 made hidden with `companions.create` in a space of their own, and asked in the space's chat as a person

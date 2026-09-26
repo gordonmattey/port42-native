@@ -70,6 +70,8 @@ class Run:
         return None
 
     def entries(self, where, after=0):
+        if isinstance(where, list):                              # several chats, read together
+            return [e for w in where for e in self.entries(w, after if w == "space" else 0)]
         key = self.chat_key(where)
         if not key:
             return []
@@ -78,8 +80,7 @@ class Run:
     def condition(self, cond):
         who = self.names.get(cond.get("reply_from") or cond.get("from"))
         where = cond["in"]
-        after = self.ask_seq if where == "space" else 0
-        for e in self.entries(where, after):
+        for e in self.entries(where, self.ask_seq):
             if e["from"]["name"] != who:
                 continue
             if "message_starts" in cond and not e["text"].lstrip().upper().startswith(cond["message_starts"]):

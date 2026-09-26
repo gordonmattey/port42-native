@@ -43,7 +43,7 @@ versions where the baseline stopped at 4).
 2. **The team: a lead and two engineers, one of them Codex when Codex is installed (recommended).**
    Lead Claude, engineer Claude, engineer Codex, as in every team run so far; Claude alone when Codex
    is not installed. Named with codenames, like any companion.
-3. **A version budget, not rounds (recommended: 5).** Rounds let a lead decide how much a round holds;
+3. **A version budget, not rounds (5, raised to 10 by GM on 2026-09-26).** Rounds let a lead decide how much a round holds;
    a budget of versions bounds the work, and so the tokens, whatever the lead decides. The lead is told
    the number and reports DONE by it. `/imagine` takes an optional `--versions N`.
 4. **The agents run visible (decided, GM 2026-09-26).** Three terminals on the new space's desktop,
@@ -177,8 +177,18 @@ The run tag goes first in the fixed line, since the title keeps 60 characters.
 - The lock screen's video froze the app at a switch between clips (`bfb1053`).
 - The app went deaf to every call after a NaN was serialized on the main thread (`2afbe1c`).
 
-Seen and not yet fixed: a Claude CLI slower than 30s to start is reported as stuck at a startup
-prompt, and messages typed into a starting Claude were not submitted after three Enters.
+Run 4 reached DONE in 372 s within its budget of 3, with the lead checking pixels, and exposed three
+things, all addressed (GM, 2026-09-26):
+
+- The team talked in the lead's terminal chat: the Codex engineer spoke first, unasked, by posting
+  into the lead's terminal chat, and a reply goes to the chat that asked last. The skill, the roles
+  and the brief now say to coordinate in the space's chat, use a port's chat when working on it
+  together, and never post into another companion's terminal chat; the test script fails a run that
+  does.
+- Versions count writes, so v1 and two engineers' patches spent a budget of 3. The default is now 10.
+- The startup-stuck detector fired for every slow-starting CLI, quoting spinner garbage. Removed.
+
+Still to watch: messages typed into a starting Claude not submitted after three Enters (run 2 only).
 
 ## Test plan
 

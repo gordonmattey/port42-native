@@ -13,7 +13,9 @@ import Foundation
 /// from it, and the version budget. Turning the line into a vision is the lead's first job.
 public enum Imagine {
 
-    public static let defaultVersions = 5
+    /// Versions, not rounds: a round is not something Port42 can see. 10 (GM, 2026-09-26) lets a team of
+    /// three land about three rounds, since each engineer's patch is a version.
+    public static let defaultVersions = 10
     public static let maxVersions = 20
 
     /// What a person typed, understood.
@@ -67,8 +69,9 @@ public enum Imagine {
         version works, and decide the next step. Check what a person would see: the console, and for \
         anything drawn, its pixels (count the lit pixels of the canvas with port_exec); a clean console \
         and a full DOM can still be a black screen. If an engineer has not reported back, ask them \
-        where they are. Work in the port's chat; answer the person in the space's chat in one line. \
-        Stop at DONE.
+        where they are. Coordinate in the space's chat, where the person follows the team: hand-offs, \
+        reports and decisions. When you work on the port together with an engineer, talk about it in \
+        the port's chat. Never post into another companion's terminal chat. Stop at DONE.
         """
     }
 
@@ -78,8 +81,9 @@ public enum Imagine {
         You are an engineer on an imagine team led by @\(lead). Build what the lead gives you in the \
         port, only your part. Check it works as a person would see it (for anything drawn, its pixels, \
         not only the console) before you say so. End every turn with a message to @\(lead) in the \
-        port's chat, even when the work is not done: what you changed, what you checked, what is left. \
-        A turn that ends without one leaves the team waiting.
+        space's chat (or the port's chat, when you are working on the port together), even when the \
+        work is not done: what you changed, what you checked, what is left. A turn that ends without \
+        one leaves the team waiting. Never post into another companion's terminal chat.
         """
     }
 
@@ -93,13 +97,13 @@ public enum Imagine {
         """
         @\(lead) /imagine from \(person): "\(line)"
         You lead two engineers, \(eng1) and \(eng2) (hand them work with @ and their name). Make one web \
-        port titled '\(title)' that realizes this, in at most \(versions) versions.
-        1. Reply here in one line saying what you are going for, then write the vision in 3 to 5 lines \
-        in the port's chat.
+        port titled '\(title)' that realizes this, in at most \(versions) versions. Coordinate here in \
+        the space's chat; when you work on the port together, talk about it in the port's chat.
+        1. Reply here with the vision, in 3 to 5 lines.
         2. Have \(eng1) make v1. For each later version, give both engineers concrete, non-overlapping \
         next steps toward the vision, check the result, and push further.
-        3. When the vision is met or the budget is spent, post in the port's chat a message that starts \
-        with DONE and says what the port now is, and one line here.
+        3. When the vision is met or the budget is spent, post here a message that starts with DONE and \
+        says what the port now is.
         """
     }
 

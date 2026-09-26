@@ -8,7 +8,7 @@ struct ImagineTests {
 
     @Test("the parser: a line, a budget; anything else, and a bare stop, is text")
     func parse() {
-        #expect(Imagine.parse("/imagine a shader that reacts to music") == .start(line: "a shader that reacts to music", versions: 5))
+        #expect(Imagine.parse("/imagine a shader that reacts to music") == .start(line: "a shader that reacts to music", versions: Imagine.defaultVersions))
         #expect(Imagine.parse("  /imagine --versions 3 a clock  ") == .start(line: "a clock", versions: 3))
         #expect(Imagine.parse("/imagine --versions 99 x") == .start(line: "x", versions: Imagine.maxVersions))
         #expect(Imagine.parse("/imagine stop") == nil, "there is no stop, and it must not start a team building \"stop\"")
@@ -39,6 +39,8 @@ struct ImagineTests {
         #expect(b.contains("in at most 5 versions"))
         #expect(b.contains("Have merry-wren make v1"))
         #expect(b.contains("starts with DONE"))
+        #expect(b.contains("Coordinate here in the space's chat") && !b.contains("post in the port's chat a message that starts"),
+                "the team starts and reports in the space's chat (GM)")
         #expect(!b.contains("{"), "an unfilled variable")
     }
 
@@ -49,6 +51,9 @@ struct ImagineTests {
         #expect(Imagine.leadRole().contains("pixels") && Imagine.leadRole().contains("black screen"),
                 "the lead must check what a person sees, not only the console and DOM")
         #expect(Imagine.leadRole().contains("ask them where they are"))
+        for role in [Imagine.leadRole(), Imagine.engineerRole(lead: "swift-pika")] {
+            #expect(role.contains("space's chat") && role.contains("Never post into another companion's terminal chat"))
+        }
         let e = Imagine.engineerRole(lead: "swift-pika")
         #expect(e.contains("led by @swift-pika") && e.contains("to @swift-pika"))
     }
