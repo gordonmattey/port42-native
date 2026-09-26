@@ -1604,20 +1604,6 @@ public final class AppState: ObservableObject {
                                                            spaceId: config.spaceId,
                                                            title: config.companionName,
                                                            reason: reason)
-                                                   },
-                                                   onStartupStuck: { [weak self] screen in
-                                                       guard let self else { return }
-                                                       // Said where the person talks to it: a hidden
-                                                       // or current-space terminal gets no peek.
-                                                       self.shell?.handleNeedsAttention(
-                                                           id: panel.id, spaceId: config.spaceId,
-                                                           title: config.companionName,
-                                                           reason: "waiting at a startup prompt")
-                                                       let says = screen.isEmpty ? "" : " It says: \"\(screen)\"."
-                                                       _ = try? self.postToChat(
-                                                           key: config.spaceId,
-                                                           text: "\(config.companionName) is waiting at a startup prompt in its terminal.\(says) Open it to answer (⌘K finds it if it is hidden); messages to it are held until then.",
-                                                           from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
                                                    })
         terminalControllers[panel.id] = controller
         return controller

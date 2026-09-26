@@ -434,9 +434,8 @@ port's event in that port's chat, finds the hidden ports in ⌘K, and shows then
   bridge is next touched).
 - Retiring the NDJSON headless companion. Once a hidden terminal companion covers headless agents
   (3.2), the separate stdio protocol serves no scenario and is a candidate for removal.
-- **Fixed 2026-09-26: a CLI stuck at a startup prompt.** A restarted Codex waited at a dialog and every
-  message to it was typed in and lost. Now a CLI that has not reported SessionStart 30 s after its
-  terminal came up is treated as stuck: the last line on its screen is logged, the person is told in
-  the space's chat (and by a peek from another space), held messages are not typed into the prompt,
-  and they go in once it is answered (the CLI draws, then settles), whether or not SessionStart comes.
-  `StartupPromptTests`, calibrated; the dialog's own text will be in the log the next time it happens.
+- The Codex risk dialog after a rebuild: a restarted Codex companion waits on it and swallows every
+  message until someone accepts. A detector (a CLI with no SessionStart 30 s after launch is "stuck at a
+  startup prompt") was built on 2026-09-26 and **removed the same day (GM)**: on Dev4 it fired for every
+  slow-starting CLI in every /imagine run, quoting a spinner's garbage as "the prompt", and its test was
+  flaky in the build gate. Held messages again go in at SessionStart, or after the 60 s fallback.
