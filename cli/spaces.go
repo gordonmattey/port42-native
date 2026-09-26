@@ -8,8 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
-	"unsafe"
+
+	"golang.org/x/term"
 )
 
 // Space is one Port42 space the port can be created in.
@@ -98,16 +98,12 @@ func formatSpaces(spaces []Space) string {
 // This asks the kernel for the terminal attributes rather than testing os.ModeCharDevice, which
 // is the usual shorthand and is wrong here: /dev/null is itself a character device, so the
 // common `cmd < /dev/null` idiom would be mistaken for a human at a keyboard.
+// x/term asks the kernel the same question this used to ask by hand (on Unix it IS that ioctl;
+// on Windows it is GetConsoleMode), so the /dev/null case above still answers false. The hand-rolled
+// version was Unix-only: syscall.Termios and TIOCGETA do not exist on Windows, and this one function
+// was the ONLY thing stopping the whole CLI from cross-compiling (measured 2026-09-25).
 func isInteractive() bool {
-	var termios syscall.Termios
-	_, _, errno := syscall.Syscall6(
-		syscall.SYS_IOCTL,
-		os.Stdin.Fd(),
-		syscall.TIOCGETA,
-		uintptr(unsafe.Pointer(&termios)),
-		0, 0, 0,
-	)
-	return errno == 0
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // ChooseSpace prompts for a space, defaulting to the current one on an empty answer. The menu
