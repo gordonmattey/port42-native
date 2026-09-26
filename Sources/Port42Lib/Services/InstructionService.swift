@@ -71,8 +71,36 @@ public final class InstructionService: ObservableObject {
         "\(blockStart)\n\(markdown(toolName: toolName, companionProtocol: companionProtocol))\n\(blockEnd)"
     }
 
-    /// `existing` with the port42 block replaced in place, or appended after a blank line.
-    /// Content outside the block is the user's and is kept exactly.
+    /// True when the file carries Port42 call instructions that predate the markers, so this service
+    /// cannot manage or update them.
+    ///
+    /// Port42 wrote instruction blocks before `<!-- port42:start -->` existed. Those survive every
+    /// refresh, and they are now wrong in ways that fail silently: they name a fixed loopback port
+    /// rather than `$PORT42_GATEWAY_PORT`, they carry no `Authorization` header, and they point at a
+    /// Settings section that no longer exists. Measured on this machine: `~/.gemini/GEMINI.md`
+    /// carried a hardcoded `127.0.0.1:4242` and no header above a correct managed block, so an agent
+    /// reading top to bottom follows the broken one and is refused with `auth_required`, which names
+    /// the wrong problem.
+    nonisolated static func hasUnmanagedCallInstructions(_ existing: String) -> Bool {
+        let outside: String
+        if let startRange = existing.range(of: blockStart),
+           let endRange = existing.range(of: blockEnd),
+           startRange.lowerBound <= endRange.upperBound {
+            outside = existing.replacingCharacters(in: startRange.lowerBound..<endRange.upperBound, with: "")
+        } else {
+            outside = existing
+        }
+        return outside.contains("127.0.0.1:") && outside.contains("/call")
+    }
+
+    /// `existing` with the port42 block replaced in place, or added with the user's content kept
+    /// exactly as it is.
+    ///
+    /// Placement is the whole point of the legacy case. A block is normally appended, which is the
+    /// polite position in a file the user owns. When the file also holds unmanaged Port42 call
+    /// instructions, appending puts the authoritative block BELOW the stale one, and an agent reads
+    /// top to bottom. So in that case the block goes first. Nothing is deleted: the user's content,
+    /// including whatever wrote those older instructions, is preserved untouched.
     nonisolated static func merged(existing: String, block: String) -> String {
         if let startRange = existing.range(of: blockStart),
            let endRange = existing.range(of: blockEnd),
@@ -81,6 +109,10 @@ public final class InstructionService: ObservableObject {
         }
         if existing.isEmpty { return block }
         let separator = existing.hasSuffix("\n\n") ? "" : existing.hasSuffix("\n") ? "\n" : "\n\n"
+        if hasUnmanagedCallInstructions(existing) {
+            let lead = existing.hasPrefix("\n") ? "\n" : "\n\n"
+            return block + lead + existing
+        }
         return existing + separator + block
     }
 

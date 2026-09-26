@@ -123,3 +123,65 @@ struct MultiInstanceInstructionsTests {
         }
     }
 }
+
+/// Port42 wrote instruction blocks before the markers existed, and those survive every refresh.
+/// They name a fixed loopback port, carry no `Authorization` header, and point at a Settings section
+/// that is gone, so an agent that reads a file top to bottom follows the broken copy and is refused
+/// with `auth_required`, which names the wrong problem. Measured on a real machine: `~/.gemini/GEMINI.md`
+/// held exactly that above a correct managed block.
+///
+/// The managed block therefore goes FIRST when unmanaged call instructions are present, and nowhere
+/// near a deletion: the user's content is preserved byte for byte.
+@Suite("Legacy instruction blocks lose precedence, and survive")
+struct LegacyInstructionBlockTests {
+
+    let legacy = """
+    # My notes
+
+    ```bash
+    curl -s http://127.0.0.1:4242/call \\
+      -d '{"method":"<method>","args":{...}}'
+    ```
+
+    Pre-approve categories in Port42 Settings -> Remote Access.
+    """
+
+    @Test("unmanaged call instructions are detected")
+    func detectsLegacy() {
+        #expect(InstructionService.hasUnmanagedCallInstructions(legacy))
+        #expect(!InstructionService.hasUnmanagedCallInstructions("# My notes\n\nNothing about ports here."))
+    }
+
+    @Test("a managed block does not count as unmanaged, however it is written")
+    func managedBlockIsNotLegacy() {
+        let managed = "# Notes\n\n<!-- port42:start -->\ncurl http://127.0.0.1:4242/call\n<!-- port42:end -->\n"
+        #expect(!InstructionService.hasUnmanagedCallInstructions(managed))
+    }
+
+    @Test("with legacy content present the block goes first, and nothing is deleted")
+    func blockWinsPrecedence() {
+        let block = "<!-- port42:start -->\nfresh\n<!-- port42:end -->"
+        let out = InstructionService.merged(existing: legacy, block: block)
+
+        #expect(out.hasPrefix(block), "the authoritative block must be read before the stale one")
+        #expect(out.contains("# My notes"), "the user's content must survive")
+        #expect(out.contains("Pre-approve categories"), "even the stale part is the user's file, not ours to delete")
+    }
+
+    @Test("without legacy content the block still appends, which is the polite position")
+    func appendsWhenClean() {
+        let block = "<!-- port42:start -->\nfresh\n<!-- port42:end -->"
+        let out = InstructionService.merged(existing: "# My notes\n", block: block)
+        #expect(out.hasSuffix(block))
+        #expect(out.hasPrefix("# My notes"))
+    }
+
+    @Test("an existing managed block is still replaced in place, wherever it sits")
+    func replacesInPlace() {
+        let existing = "# Top\n\n<!-- port42:start -->\nold\n<!-- port42:end -->\n\n# Bottom\n"
+        let block = "<!-- port42:start -->\nnew\n<!-- port42:end -->"
+        let out = InstructionService.merged(existing: existing, block: block)
+        #expect(out.contains("new") && !out.contains("old"))
+        #expect(out.hasPrefix("# Top") && out.contains("# Bottom"))
+    }
+}
