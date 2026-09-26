@@ -192,7 +192,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let principalId = portPrincipal.id
             for path in paths { state.grantPickedPath(path, to: principalId) }
         }
-        guard let json = try? JSONSerialization.data(withJSONObject: paths),
+        guard let json = SafeJSON.data(paths),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
         p42log("[Port42] handleFileDrop: dispatching port42:filedrop for %d path(s)", paths.count)
         // R2b / finding 7: a drop onto a WEB port is an external write into the runtime that never
@@ -240,7 +240,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// impossible. The envelope's keys become properties on the Error.
     @MainActor
     public func rejectCall(_ callId: Int, envelope: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.fragmentsAllowed]),
+        guard let data = SafeJSON.data(envelope, options: [.fragmentsAllowed]),
               let json = String(data: data, encoding: .utf8) else {
             let escaped = escapeJSString((envelope["error"] as? String) ?? "error")
             webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
@@ -255,7 +255,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     @MainActor
     public func resolveValue(_ callId: Int, _ value: BridgeValue) {
         let json = value.toJSONObject()
-        let jsonData = try? JSONSerialization.data(withJSONObject: json, options: [.fragmentsAllowed])
+        let jsonData = SafeJSON.data(json, options: [.fragmentsAllowed])
         let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
         webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))") { _, _ in }
     }
@@ -403,7 +403,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 // block or main-actor task runs again) while the run loop keeps pumping — the app
                 // looks alive but every queued action is dead. Same option as the streaming
                 // resolve path above.
-                let jsonData = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
+                let jsonData = SafeJSON.data(value, options: [.fragmentsAllowed])
                 let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
                 _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
             }
@@ -531,7 +531,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// keeping it here means `PortEventKind` cannot be bypassed by a caller with a String.
     @MainActor
     private func pushEvent(wire event: String, data: BridgeValue) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: data.toJSONObject(),
+        guard let jsonData = SafeJSON.data(data.toJSONObject(),
                                                         options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }

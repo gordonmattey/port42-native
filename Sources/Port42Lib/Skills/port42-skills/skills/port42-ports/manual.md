@@ -442,7 +442,9 @@ BRIDGE API REFERENCE:
     EVERY error carries a `code` you can branch on, and a `message` for a human. The codes are a
     closed set, so matching one is safe:
       RETRY WITH e.current   token_required · stale_write
-      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · js_syntax
+      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · too_large (the result
+                             would not fit in one frame (2 MB): ask for less, e.g. a tail, a
+                             limit or a selector) · js_syntax
       THE TARGET             not_found (no such port/session/window) · no_surface (it exists but
                              has nothing live to write to yet — wait or respawn) · port_paused
       CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,

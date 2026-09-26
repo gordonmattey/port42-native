@@ -89,6 +89,13 @@ type Peer struct {
 	rateMu   sync.Mutex
 }
 
+// isHost reports whether this peer is the proven global host (see the is_host check in handleWS).
+func (g *Gateway) isHost(p *Peer) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return p.IsHost && g.globalHostID == p.ID
+}
+
 // rateOK returns true if the peer hasn't exceeded the frame rate limit.
 func (p *Peer) rateOK() bool {
 	p.rateMu.Lock()
@@ -247,7 +254,10 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		if !peer.rateOK() {
+		// The proven host is never rate limited: its frames are the answers to calls, and dropping
+		// one leaves a caller waiting until it times out. Measured with the real gateway and door:
+		// a burst of 300 calls got 30 answers (GatewayStallTests).
+		if !g.isHost(peer) && !peer.rateOK() {
 			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
 			log.Printf("[gateway] peer %s rate limited", peer.ID[:min(8, len(peer.ID))])
 			continue

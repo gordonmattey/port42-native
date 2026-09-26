@@ -45,7 +45,7 @@ public struct PortChatEntry: Equatable {
     func storedJSON() -> String {
         let o: [String: Any] = ["at": at.timeIntervalSince1970, "text": text,
                                 "fromId": fromId, "fromName": fromName, "fromKind": fromKind]
-        let data = (try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])) ?? Data("{}".utf8)
+        let data = (SafeJSON.data(o, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
@@ -111,7 +111,12 @@ extension AppState {
         // A post in a terminal port's own chat wakes its companion without a mention, unless the
         // post is ANOTHER companion's: companions must @mention each other, or two of them replying
         // into each other's chats would wake each other forever.
+        // Port42's own notices ("x is waiting at a startup prompt", a watch paused, a budget spent)
+        // count as a companion's post here: they reach only whom they @mention. They used to reach
+        // every member of the chat as a client's plain post, so each notice in an imagine space woke
+        // the whole team (Dev4, 2026-09-26).
         let senderIsCompanion = entry.fromKind == Principal.Kind.companion.rawValue
+            || entry.fromId == ChatRouting.port42SenderId
             || companions.contains { $0.displayName.lowercased() == entry.fromName.lowercased() }
         let implicit = ChatRouting.wakesOwnCompanion(senderIsCompanion: senderIsCompanion) ? own.flatMap { name in
             companions.first { $0.displayName.lowercased() == name.lowercased() && $0.openInTerminal }
@@ -210,6 +215,9 @@ public enum ChatRouting {
 
     /// The headless (non-terminal) companions a post wakes: those it mentions; with no mention,
     /// every member, but only when a person posted. Never the sender.
+    /// The id Port42 posts its own notices under.
+    public static let port42SenderId = "port42"
+
     public static func headlessTargets(mentioned: [AgentConfig], members: [AgentConfig], text: String,
                                        senderName: String, senderIsPerson: Bool) -> [AgentConfig] {
         let hasMention = !MentionParser.extractMentions(from: text).isEmpty

@@ -288,7 +288,7 @@ public final class CompanionWatchService {
         // produced, and loop.
         if q.isBusy, let driver = appState?.portInput.driver(of: w.portUdid, now: now()),
            identities(of: c).contains(driver.ref.principal) { return }
-        let payload = obj["payload"].flatMap { (try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed])) }
+        let payload = obj["payload"].flatMap { (SafeJSON.data($0, options: [.fragmentsAllowed])) }
             .map { String(decoding: $0, as: UTF8.self) } ?? ""
         let actions = q.receive(.init(watchId: w.id, kind: kind, payload: payload, at: now()))
         queues[c.id] = q

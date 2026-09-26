@@ -89,7 +89,7 @@ func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
             let stored: String
             if let str = rawValue as? String {
                 stored = str
-            } else if let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.fragmentsAllowed]),
+            } else if let data = SafeJSON.data(rawValue, options: [.fragmentsAllowed]),
                       let json = String(data: data, encoding: .utf8) {
                 stored = json
             } else {

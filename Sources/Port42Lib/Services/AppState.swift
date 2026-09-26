@@ -227,7 +227,7 @@ public final class AppState: ObservableObject {
             guard let self, let key = self.chatKey(for: watch.portUdid) else { return }
             _ = try? self.postToChat(key: key, text: "@\(companion.displayName)'s watch on this port paused after "
                 + "\(service.ceilingPerHour) wakes in an hour. Watch it again to resume.",
-                from: .peer(id: "port42", displayName: "port42", spaceId: nil))
+                from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: nil))
         }
         return service
     }()
@@ -1617,7 +1617,7 @@ public final class AppState: ObservableObject {
                                                        _ = try? self.postToChat(
                                                            key: config.spaceId,
                                                            text: "\(config.companionName) is waiting at a startup prompt in its terminal.\(says) Open it to answer (⌘K finds it if it is hidden); messages to it are held until then.",
-                                                           from: .peer(id: "port42", displayName: "port42", spaceId: config.spaceId))
+                                                           from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
                                                    })
         terminalControllers[panel.id] = controller
         return controller

@@ -1810,14 +1810,14 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.posY = panel.position.map { Double($0.y) }
         if !panel.positions.isEmpty {
             let obj = panel.positions.mapValues { ["x": Double($0.x), "y": Double($0.y)] }
-            self.positions = (try? JSONSerialization.data(withJSONObject: obj))
+            self.positions = (SafeJSON.data(obj))
                 .flatMap { String(data: $0, encoding: .utf8) }
         }
         let perms = panel.bridge.grantedPermissions
         self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
         self.userTitle = panel.userTitle
         if !panel.storedCapabilities.isEmpty,
-           let json = try? JSONSerialization.data(withJSONObject: panel.storedCapabilities),
+           let json = SafeJSON.data(panel.storedCapabilities),
            let str = String(data: json, encoding: .utf8) {
             self.capabilities = str
         }
@@ -1827,7 +1827,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.presentation = panel.presentation
         self.z = panel.z
         if !panel.adoptedSpaceIds.isEmpty,
-           let json = try? JSONSerialization.data(withJSONObject: panel.adoptedSpaceIds),
+           let json = SafeJSON.data(panel.adoptedSpaceIds),
            let str = String(data: json, encoding: .utf8) {
             self.adoptedSpaceIds = str
         }

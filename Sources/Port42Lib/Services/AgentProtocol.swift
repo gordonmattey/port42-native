@@ -124,11 +124,8 @@ public enum AgentProtocol {
             dict["event"] = "shutdown"
         }
 
-        let jsonData = try JSONSerialization.data(
-            withJSONObject: dict,
-            options: [.sortedKeys, .withoutEscapingSlashes]
-        )
-        guard var str = String(data: jsonData, encoding: .utf8) else {
+        guard let jsonData = SafeJSON.data(dict, options: [.sortedKeys, .withoutEscapingSlashes]),
+              var str = String(data: jsonData, encoding: .utf8) else {
             throw AgentProtocolError.encodingFailed
         }
         str += "\n"
