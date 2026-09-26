@@ -70,15 +70,19 @@ public enum Imagine {
     }
 
     /// The first message, to the lead. The person's line goes in verbatim.
+    ///
+    /// ONLY THE LEAD IS @MENTIONED. An @mention delivers, so a brief that named the engineers with @
+    /// reached all three, and on Dev4 the first CLI to start (a Codex engineer) wrote the vision and
+    /// ran the team. The engineers are named plainly; the lead hands them work with @.
     public static func brief(line: String, person: String, lead: String, eng1: String, eng2: String,
                              title: String, versions: Int) -> String {
         """
         @\(lead) /imagine from \(person): "\(line)"
-        You lead @\(eng1) and @\(eng2). Make one web port titled '\(title)' that realizes this, in at \
-        most \(versions) versions.
+        You lead two engineers, \(eng1) and \(eng2) (hand them work with @ and their name). Make one web \
+        port titled '\(title)' that realizes this, in at most \(versions) versions.
         1. Reply here in one line saying what you are going for, then write the vision in 3 to 5 lines \
         in the port's chat.
-        2. Have @\(eng1) make v1. For each later version, give both engineers concrete, non-overlapping \
+        2. Have \(eng1) make v1. For each later version, give both engineers concrete, non-overlapping \
         next steps toward the vision, check the result, and push further.
         3. When the vision is met or the budget is spent, post in the port's chat a message that starts \
         with DONE and says what the port now is, and one line here.
@@ -101,7 +105,7 @@ public enum Imagine {
 
     /// Posted in the space when a team stops. Bare names, so it wakes nobody.
     public static func stopped(_ team: ImagineTeam) -> String {
-        "The imagine team (\(team.members.joined(separator: ", "))) has stopped and left this space. The port and its chats stay."
+        "The imagine team (\(team.members.joined(separator: ", "))) has stopped and is gone. The port and its chats stay."
     }
 }
 
@@ -172,17 +176,20 @@ extension AppState {
         return team
     }
 
-    /// Stop the team imagined in a space: close its terminals, drop its watches and take it out of
-    /// the space. The port and the chats stay. The companions are not deleted, since deleting one
-    /// also closes the ports it made.
+    /// Stop the team imagined in a space: close its terminals, drop its watches and remove its
+    /// companions. The port and the chats stay.
+    ///
+    /// REMOVED, not only taken out of the space. A mention reaches any companion that exists and
+    /// re-adds it to the space, so on Dev4 a stopped team came back within minutes: one member's
+    /// last reply @mentioned another, which respawned its terminal. `deleteCompanion` is not used,
+    /// because it also closes the ports a companion made, and the port is what the person keeps.
     @discardableResult
     func stopImagine(spaceId: String) throws -> ImagineTeam {
         guard var team = try db.imagineTeam(spaceId: spaceId) else {
             throw BridgeError(code: .notFound, message: "no imagine team in space '\(spaceId)'", details: ["space": spaceId])
         }
-        guard team.stoppedAt == nil else {
-            throw BridgeError(code: .wrongState, message: "the imagine team in this space has already stopped", details: ["space": spaceId])
-        }
+        // Stopping again is allowed and cleans up whatever of the team still exists.
+        let first = team.stoppedAt == nil
         for name in team.members {
             for panel in portWindows.panels
             where panel.terminalConfig?.companionName.caseInsensitiveCompare(name) == .orderedSame {
@@ -190,12 +197,16 @@ extension AppState {
             }
             guard let c = companions.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
             companionWatches.removeAll(companionId: c.id)
-            leaveCompanionFromSpace(c, spaceId: spaceId)
+            try db.removeAllSpacesForAgent(c.id)
+            try db.deleteAgent(id: c.id)
         }
+        companions = try db.getAllAgents()
+        refreshSpaceCompanions()
+        guard first else { return team }
         team.stoppedAt = Date()
         try db.saveImagineTeam(team)
         _ = try postToChat(key: spaceId, text: Imagine.stopped(team),
-                           from: .peer(id: "port42", displayName: "port42", spaceId: spaceId))
+                           from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: spaceId))
         return team
     }
 
@@ -221,7 +232,7 @@ extension AppState {
             guard let spaceId else { throw BridgeError.badArg("/imagine --versions works in the space the team was imagined in") }
             let team = try setImagineBudget(spaceId: spaceId, versions: n)
             _ = try postToChat(key: spaceId, text: "The imagine budget is now \(team.versions) versions.",
-                               from: .peer(id: "port42", displayName: "port42", spaceId: spaceId))
+                               from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: spaceId))
         }
     }
 
@@ -277,7 +288,7 @@ extension AppState {
         guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal),
               team.stoppedAt == nil, imagineVersionCount(ref) == team.versions, let key = PortRef.key(ref) else { return }
         _ = try? postToChat(key: key, text: Imagine.budgetSpent(lead: team.lead, versions: team.versions),
-                            from: .peer(id: "port42", displayName: "port42", spaceId: team.spaceId))
+                            from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: team.spaceId))
     }
 }
 

@@ -32,10 +32,12 @@ input.
 | watch-fix | one | watch a port, fix it when it breaks | watching, console clean after the break, content intact |
 | duo-review | claude maker, codex reviewer | v1 and exactly one improvement | 2 or 3 versions, console clean, both spoke in the port's chat |
 | team-three | claude lead, claude and codex engineers | exactly three versions | 3 or 4 versions, console clean, all three spoke, one port |
+| imagine | the team `imagine.start` makes | a fixed line, budget of three versions | 1 to 3 versions, console clean, all three spoke, one port |
 
-Solo tasks run once per CLI (claude and codex); mixed ones as written: 12 variants in all. Agents are
+Solo tasks run once per CLI (claude and codex); mixed ones as written: 13 variants in all. Agents are
 made hidden with `companions.create` in a space of their own, and asked in the space's chat as a person
-would ask them.
+would ask them. The `imagine` task is the exception: `imagine.start` makes the space, the visible team
+and the brief, exactly as ⌘I does, and the run reads the names and title it returns.
 
 ## How to run it (not yet run)
 
@@ -53,7 +55,7 @@ To compare against the brief before Phase 5 (label `old-brief`), build a dev ins
 before `8da4704` and run the same set against it.
 
 Three repetitions per variant is the least that makes a median mean anything; the full set at three
-repetitions is 36 runs of real agent work.
+repetitions is 39 runs of real agent work.
 
 ## The accounting (`scripts/evals/usage.py`)
 

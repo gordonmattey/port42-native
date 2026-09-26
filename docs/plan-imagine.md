@@ -4,7 +4,7 @@ Detailed plan for `/imagine`, moved from the roadmap into the release's scope (G
 for GM's review, written against `nautilus` at `0ce34a5`; approved by GM with the recommended defaults.
 Product idea; whether people want it is unvalidated.
 
-**Status:** I.1 to I.4 done. I.5 (live verify) next.
+**Status:** I.1 to I.4 done. I.5 in progress: the harness and the eval task are built; the live run on Dev4 found five defects, fixed below, and is being rerun.
 
 ## Goal
 
@@ -155,6 +155,27 @@ set gains it as a task. GM tries it from the space's chat.
 
 *Gates:* the harness run reaches DONE within the budget with one port, no console errors, and every
 agent speaking; five of five.
+
+*Built.* `scripts/scenarios/imagine.py` (calls `imagine.start`, watches to DONE, checks the budget, one
+port, every agent, the console and the lead's answer, then stops the team and checks the port stays)
+and the `imagine` task in the golden eval set (`run_evals.py` reads the team from `imagine.start`).
+The run tag goes first in the fixed line, since the title keeps 60 characters.
+
+*What the live runs on Dev4 found, all fixed with tests:*
+
+- The brief @mentioned both engineers, so all three received it and the Codex engineer, first to
+  start, wrote the vision. The brief now @mentions only the lead and names the engineers plainly.
+  This changes the approved template's wording in two places.
+- Port42's own notices (a CLI at a startup prompt) reached every member of the chat. They now reach
+  only whom they @mention; the budget notice still reaches the lead.
+- A stopped team came back: one member's late reply @mentioned another, which re-added it to the
+  space and respawned its terminal. Stop now removes the team's companions (its ports stay), and
+  stopping again cleans up whatever is left.
+- The lock screen's video froze the app at a switch between clips (`bfb1053`).
+- The app went deaf to every call after a NaN was serialized on the main thread (`2afbe1c`).
+
+Seen and not yet fixed: a Claude CLI slower than 30s to start is reported as stuck at a startup
+prompt, and messages typed into a starting Claude were not submitted after three Enters.
 
 ## Test plan
 

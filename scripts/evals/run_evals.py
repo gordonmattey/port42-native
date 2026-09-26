@@ -53,7 +53,7 @@ class Run:
     def __init__(self, c, task, cli, tag, log_path):
         self.c, self.task, self.cli, self.tag, self.log_path = c, task, cli, tag, log_path
         self.title = task["title"].replace("{tag}", tag)
-        self.names = {a["role"]: f"{a['role']}-{tag}" for a in task["agents"]}
+        self.names = {a["role"]: f"{a['role']}-{tag}" for a in task.get("agents", [])}
         self.space = None
         self.ask_seq = 0
 
@@ -96,6 +96,14 @@ class Run:
 
     # ---- the run -------------------------------------------------------------------------------
     def setup(self):
+        if "imagine" in self.task:
+            # /imagine makes its own space, team and brief; the names and title come back from it.
+            im = self.task["imagine"]
+            r = self.c.call("imagine.start", {"line": im["line"].replace("{tag}", self.tag),
+                                              "versions": im["versions"]}, timeout=180)
+            self.space, self.title = r["space"], r["title"]
+            self.names = {"lead": r["lead"], "eng1": r["eng1"], "eng2": r["eng2"]}
+            return
         self.space = self.c.call("space.create", {"name": f"eval-{self.task['id']}-{self.tag}"})["id"]
         for a in self.task["agents"]:
             cli = a.get("cli") or self.cli
@@ -115,6 +123,8 @@ class Run:
                                             "space_id": self.space})
 
     def act(self, deadline):
+        if "imagine" in self.task:                               # the brief was the ask
+            return self.wait(self.task["done_when"], deadline)
         ask = self.task["ask"]
         r = self.c.call("chat.post", {"port": self.space, "text": fill(ask["text"], self.names, self.title, self.tag)})
         self.ask_seq = r["entry"]["seq"]
@@ -195,7 +205,7 @@ def main():
     plan = expand(load_tasks(), set(a.task or []), set(a.cli or []))
     print(f"{len(plan)} task variant(s) x {a.repeat} = {len(plan) * a.repeat} run(s) on port {a.port}, label '{a.label}':")
     for t, cli in plan:
-        who = ", ".join(f"{g['role']}={g.get('cli') or cli}" for g in t["agents"])
+        who = ", ".join(f"{g['role']}={g.get('cli') or cli}" for g in t.get("agents", [])) or "imagine team"
         print(f"  {t['id']:<14} {who:<44} timeout {t['timeout']}s   {t['summary']}")
     if not a.run:
         print("\nNothing ran. Add --run to run it (costs real agent turns).")

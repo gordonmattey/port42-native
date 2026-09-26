@@ -32,10 +32,12 @@ struct ImagineTests {
         let b = Imagine.brief(line: line, person: "gordon", lead: "swift-pika", eng1: "merry-wren",
                               eng2: "merry-koi", title: "a shader that reacts to music", versions: 5)
         #expect(b.hasPrefix("@swift-pika /imagine from gordon: \"\(line)\""))
-        #expect(b.contains("You lead @merry-wren and @merry-koi."))
+        #expect(b.contains("You lead two engineers, merry-wren and merry-koi"))
+        #expect(MentionParser.extractMentions(from: b).map { $0.lowercased() } == ["@swift-pika"],
+                "the brief must @mention only the lead, or it reaches the engineers too")
         #expect(b.contains("titled 'a shader that reacts to music'"))
         #expect(b.contains("in at most 5 versions"))
-        #expect(b.contains("Have @merry-wren make v1"))
+        #expect(b.contains("Have merry-wren make v1"))
         #expect(b.contains("starts with DONE"))
         #expect(!b.contains("{"), "an unfilled variable")
     }
@@ -153,7 +155,7 @@ struct ImagineTests {
         #expect(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 2)
     }
 
-    @Test("stop: the team leaves the space and its terminals close; the port and the chats stay; the budget is lifted")
+    @Test("stop: the team is gone and its terminals close; a later mention brings no one back; the port and the chats stay")
     @MainActor
     func stop() async throws {
         let r = try await run(versions: 1)
@@ -174,18 +176,26 @@ struct ImagineTests {
         guard case .object(let o) = v, case .array(let gone)? = o["stopped"] else { Issue.record("no stopped list"); return }
         #expect(gone.count == 3)
         #expect(try r.w.state.db.getAgentsForSpace(spaceId: r.team.spaceId).isEmpty, "the team is still in its space")
+        #expect(!r.w.state.companions.contains { r.team.isMember($0.displayName) }, "a stopped team's companion still exists")
+        // A late reply from one member mentioning another used to bring the team back (Dev4).
+        _ = try r.w.state.postToChat(key: r.team.spaceId, text: "@\(r.team.eng1) done, over to you",
+                                     from: .peer(id: "x", displayName: r.team.eng2, spaceId: r.team.spaceId))
+        #expect(try r.w.state.db.getAgentsForSpace(spaceId: r.team.spaceId).isEmpty, "a mention brought a stopped member back")
         let terminals = r.w.state.portWindows.panels.filter { p in
             r.team.members.contains { $0.caseInsensitiveCompare(p.terminalConfig?.companionName ?? "") == .orderedSame }
         }
         #expect(terminals.isEmpty, "a team terminal is still open")
         #expect(r.w.state.portWindows.panels.contains { $0.udid == r.udid }, "stop closed the port")
         #expect(try r.w.state.db.chatEntries(chat: key, after: 0, limit: 10).contains { $0.text == "working" })
-        let last = try #require(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).last)
+        let last = try #require(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).last { $0.fromName == "port42" })
         #expect(last.text == Imagine.stopped(try #require(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId))))
         #expect(!last.text.contains("@"), "the stop notice must not wake the team")
         try await r.write(as: r.team.eng1, "after stop")
         #expect(try r.versions() == 2, "a stopped team is not bound by its budget")
-        await #expect(throws: BridgeError.self) { _ = try await r.person("imagine.stop", ["space": r.team.spaceId]) }
+        let notices = try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).filter { $0.fromName == "port42" }.count
+        _ = try await r.person("imagine.stop", ["space": r.team.spaceId])
+        #expect(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).filter { $0.fromName == "port42" }.count == notices,
+                "stopping again posted again")
     }
 
     // MARK: - ⌘I and the slash command (I.4)

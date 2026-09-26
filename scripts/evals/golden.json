@@ -115,6 +115,20 @@
         {"type": "spoke_in", "who": ["lead", "eng1", "eng2"], "in": "port:{title}"},
         {"type": "single_port", "title": "{title}"}
       ]
+    },
+    {
+      "id": "imagine",
+      "summary": "/imagine with a fixed line and a budget of three: the team it makes ships one port to DONE.",
+      "imagine": {"line": "eval {tag}: an animated starfield with depth, color and a speed control", "versions": 3},
+      "title": "(from the line)",
+      "done_when": {"message_starts": "DONE", "from": "lead", "in": "port:{title}"},
+      "timeout": 1800,
+      "checks": [
+        {"type": "versions", "title": "{title}", "min": 1, "max": 3},
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "spoke_in", "who": ["lead", "eng1", "eng2"], "in": "port:{title}"},
+        {"type": "single_port", "title": "{title}"}
+      ]
     }
   ]
 }
