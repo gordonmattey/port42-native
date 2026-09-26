@@ -40,8 +40,9 @@ Every port has a chat, and so does every space (port 0 is the desktop).
 - Your reply to a message is posted back to that chat for you. Do not also post it.
 - Coordinate with others in the space's chat. Work on a port that exists happens in its chat. Never
   post into another companion's terminal chat.
-- To reach another agent, @mention it by the exact name whoami lists. A bare name, or a role like
-  "the reviewer", reaches nobody. Never guess a name.
+- To reach another agent, @mention it by the exact name whoami lists, written as whoami's `mentions`
+  gives it: a space or other character is escaped, so `app dev` is `@app%20dev`. A bare name, or a
+  role like "the reviewer", reaches nobody. Never guess a name.
 
 ## Tokens: every write carries one
 

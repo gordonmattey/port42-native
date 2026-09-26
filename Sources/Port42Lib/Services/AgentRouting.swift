@@ -7,7 +7,7 @@ import Foundation
 /// Auto-registered CLI terminals took the port's TITLE verbatim, and a title is prose. The live
 /// teleport run produced a companion called `teleport: main`, and codex terminals produced
 /// `codex probe` and `codex 146`. All of them joined the space correctly and none of them could be
-/// addressed, because `MentionParser` accepts `@[a-zA-Z][a-zA-Z0-9-]*` and stops at the first space
+/// addressed, because `MentionParser` accepted only `@[a-zA-Z][a-zA-Z0-9-]*` and stopped at the first space
 /// or colon. It read as "the session never became a companion" when it had.
 ///
 /// This is the inverse of the parser, and it lives beside it so the two cannot drift: whatever the
@@ -15,27 +15,21 @@ import Foundation
 /// names (spaces to hyphens); this extends the rule to the other addressable noun.
 public enum CompanionName {
 
-    /// Fold a human title into something `@mentionable`, or nil if nothing usable survives.
+    /// How a companion is @mentioned: its name exactly as the person typed it, with every character a
+    /// mention cannot carry percent-encoded, as in a URL. `app dev` is `@app%20dev`; `scout` is
+    /// `@scout`. The name itself is never changed (GM, 2026-09-26: no hyphen folding).
     ///
-    /// Every run of characters the parser rejects becomes a single hyphen, and a leading non-letter
-    /// is dropped, because the parser demands a letter first — a companion called `146` could not be
-    /// addressed no matter how it was spelled.
-    public static func mentionable(_ raw: String) -> String? {
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        var out = ""
-        var lastWasHyphen = true          // leading hyphens are never useful
-        for scalar in raw.unicodeScalars {
-            if allowed.contains(scalar) {
-                out.unicodeScalars.append(scalar)
-                lastWasHyphen = false
-            } else if !lastWasHyphen {
-                out.append("-")
-                lastWasHyphen = true
-            }
+    /// A mention ends at the first character outside letters, digits and `-`, so a space in a name
+    /// must be escaped in the mention; the parser decodes it back. A first character that is not a
+    /// letter is encoded too, since the parser needs a letter or an escape to start a mention.
+    public static func mention(_ name: String) -> String {
+        var out = "@"
+        for (i, ch) in name.enumerated() {
+            let plain = ch.isASCII && (ch.isLetter || (i > 0 && (ch.isNumber || ch == "-")))
+            if plain { out.append(ch) }
+            else { for b in String(ch).utf8 { out += String(format: "%%%02X", b) } }
         }
-        while out.hasSuffix("-") { out.removeLast() }
-        while let f = out.first, !f.isLetter { out.removeFirst() }
-        return out.isEmpty ? nil : out
+        return out
     }
 }
 
@@ -112,8 +106,10 @@ public enum MentionParser {
     /// Supports both `@Name` and namespaced `@Name@Owner` formats.
     /// Ignores email addresses (word@domain). Deduplicates results.
     public static func extractMentions(from content: String) -> [String] {
-        // Match @Name or @Name@Owner (but not email: requires non-word char before @)
-        let pattern = #"(?<![a-zA-Z0-9.])@([a-zA-Z][a-zA-Z0-9-]*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
+        // Match @Name or @Name@Owner (but not email: requires non-word char before @). A name may carry
+        // percent escapes (`@app%20dev`, see `CompanionName.mention`); the result is decoded, so it
+        // compares equal to the companion's name as typed.
+        let pattern = #"(?<![a-zA-Z0-9.%])@((?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let range = NSRange(content.startIndex..., in: content)
@@ -124,7 +120,8 @@ public enum MentionParser {
 
         for match in matches {
             guard let fullRange = Range(match.range, in: content) else { continue }
-            let mention = String(content[fullRange])
+            let raw = String(content[fullRange])
+            let mention = raw.removingPercentEncoding ?? raw
             if !seen.contains(mention) {
                 seen.insert(mention)
                 result.append(mention)
@@ -139,7 +136,8 @@ public enum MentionParser {
         let lowered = query.lowercased()
         if lowered == "@" { return agents }
         // Strip leading @ since displayName doesn't include it
-        let stripped = lowered.hasPrefix("@") ? String(lowered.dropFirst()) : lowered
+        let bare = lowered.hasPrefix("@") ? String(lowered.dropFirst()) : lowered
+        let stripped = bare.removingPercentEncoding ?? bare
         return agents.filter { $0.displayName.lowercased().hasPrefix(stripped) }
     }
 }

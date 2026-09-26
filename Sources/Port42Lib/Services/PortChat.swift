@@ -190,14 +190,15 @@ public enum ChatRouting {
             guard before.isWhitespace else { return nil }       // an email, not a mention
         }
         let tail = draft[draft.index(after: at)...]
-        guard tail.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
+        guard tail.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "%" }) else { return nil }
         return String(tail)
     }
 
-    /// The draft with the @name being typed completed to `name`, followed by a space.
+    /// The draft with the @name being typed completed to `name`'s mention (escaped, see
+    /// `CompanionName.mention`), followed by a space.
     public static func complete(_ draft: String, with name: String) -> String {
         guard mentionQuery(in: draft) != nil, let at = draft.lastIndex(of: "@") else { return draft }
-        return String(draft[..<at]) + "@" + name + " "
+        return String(draft[..<at]) + CompanionName.mention(name) + " "
     }
 
     /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
@@ -307,8 +308,11 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             o["space_id"] = .string(sid)
             o["space_name"] = .string(space.name)
             let me = o["name"]
-            o["companions"] = .array(appState.companions(forSpace: sid)
-                .map(\.displayName).filter { BridgeValue.string($0) != me }.map { .string($0) })
+            let others = appState.companions(forSpace: sid).map(\.displayName).filter { BridgeValue.string($0) != me }
+            o["companions"] = .array(others.map { .string($0) })
+            // How to @mention each, in the same order: a space or other character is escaped
+            // (`app dev` is `@app%20dev`).
+            o["mentions"] = .array(others.map { .string(CompanionName.mention($0)) })
         }
         return .object(o)
     }

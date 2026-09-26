@@ -38,14 +38,14 @@ this is measured beyond the observations cited.
 
 | # | Defect | Impact | Fix | v1 |
 |---|---|---|---|---|
-| 1 | A companion's terminal is found by display name | A mention opens a second terminal for the same companion: two sessions, double the tokens, replies from both. GM hit it. `/imagine` stop also matches by name | Match terminal to companion on `companionId`, which the spawn already accepts | Fix |
+| 1 | A companion's terminal is found by display name | Reproduced: after a rename, a mention opened a second terminal | Terminals match by `companionId`; a rename reaches the live terminal (current name from the id, tile title and client name updated); a rename onto an existing name is refused | Done |
 | 2 | Every terminal name mints a companion; nothing reaps them | Roster clutter, every stray name addressable, the same inflation on the grantee side. GM hit it | Decision first: a companion made by a deliberate act and removed with its last port. Minimum: reap an auto-registered companion when its terminal closes | Decide, minimum fix |
 | 3 | No recovery after a WebContent process crash | A port goes blank for good, silently; more likely with dozens of live webviews | Handle `webViewWebContentProcessDidTerminate` by reloading the port's HTML | Fix |
 | 4 | The startup-prompt test is flaky | Test hygiene, not a product defect | Gone with the detector it tested | Done |
 | 5 | A Claude slower than 30s to start is called stuck | A false notice in the space, every run | The detector is removed (GM, 2026-09-26) | Done |
 | 6 | Messages typed into a starting Claude not submitted | The brief can sit unsent and the agent idles. Seen in /imagine run 2, not in run 3; run 2 also queued three Port42 notices, now gone | Re-observe in the I.5 runs before changing code | Watch |
 | 7 | No cap on tool results on the live path | Token cost per call (`port.console` can return ~400,000 characters). The 2 MB frame refusal (`too_large`) now bounds the worst case | Per-method limits on the verbose reads | Optional |
-| 8 | A name with a space cannot be mentioned | Mostly folded to a mentionable handle at spawn and boot | Check the remaining creation paths | Later |
+| 8 | A name with a space cannot be mentioned | Reproduced: `app dev` was stored as typed, its terminal named `app-dev`, and neither mention reached it | Names are kept as typed (no hyphen folding, GM); a mention escapes what it cannot carry, as a URL does (`@app%20dev`); autocomplete and whoami give the escaped form | Done |
 | 9 | Settings opens on a tab named "AI" | It shows an accurate one-line note that agents are CLIs; the name is a leftover | Rename or fold into another tab | Polish |
 | 10 | `aiPaused` / `isSuspended` dead, with a false comment | None at runtime | Delete | Cleanup |
 

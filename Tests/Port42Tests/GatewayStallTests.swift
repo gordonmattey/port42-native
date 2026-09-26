@@ -46,12 +46,21 @@ struct GatewayStallTests {
     static func freePort() -> Int { Int.random(in: 47000..<48900) }
 
     /// An HTTP /call as any client makes it. Returns the body, or nil when nothing came back in time.
+    /// Enough connections that a burst is not queued behind the shared session's six per host: a
+    /// queued call's timeout runs while it waits, so under a loaded test run most of a 300-call burst
+    /// expired unsent and the test measured the queue, not the gateway.
+    nonisolated static let session: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.httpMaximumConnectionsPerHost = 64
+        return URLSession(configuration: c)
+    }()
+
     nonisolated static func call(_ port: Int, _ method: String, args: [String: Any] = [:], timeout: TimeInterval = 8) async -> [String: Any]? {
         var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/call")!, timeoutInterval: timeout)
         req.httpMethod = "POST"
         req.setValue("Bearer p42_test", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["method": method, "args": args])
-        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
+        guard let (data, _) = try? await session.data(for: req) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
@@ -102,7 +111,7 @@ struct GatewayStallTests {
         let r = try await rig()
         let port = r.port
         let answered = await withTaskGroup(of: Bool.self) { g in
-            for i in 0..<300 { g.addTask { await Self.call(port, "echo", args: ["i": i])?["content"] != nil } }
+            for i in 0..<300 { g.addTask { await Self.call(port, "echo", args: ["i": i], timeout: 30)?["content"] != nil } }
             return await g.reduce(0) { $0 + ($1 ? 1 : 0) }
         }
         #expect(answered == 300)

@@ -9,7 +9,8 @@ description: Use when working with other agents in Port42: handing work off, rev
 
     port42 whoami
 
-It lists the companions you can @mention. Use those exact names; never invent or guess one.
+It lists the companions you can @mention, and in `mentions` how to write each: a name with a space
+or other character is escaped (`app dev` is `@app%20dev`). Use those; never invent or guess a name.
 
 ## Rooms
 
