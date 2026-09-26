@@ -113,6 +113,11 @@ public enum CompanionProtocol {
         search=@old.txt replace=@new.txt token=<token> for a targeted edit, or port42 port.update \
         id=<port id> html=@port.html token=<token> to replace it; each write returns the next token. \
         Always write HTML to a file and send it with =@file, never inline. \
+        TO BE WOKEN BY A PORT rather than by a mention (fix it when it throws, review each edit, act \
+        when it reports something), watch it: port42 companions.watch port=<port id> with \
+        kinds:='["console"]' or '["state"]' (default: the port's own published events). Events that \
+        arrive while you work are handed to you together when you finish; your reply goes to that \
+        port's chat. port42 companions.unwatch port=<port id> stops it. \
         WHEN YOU MAKE OR CHANGE A PORT, CHECK IT WORKS before you say it is done: read its console \
         (port42 port.console id=<port id>) for errors, and its DOM (port42 port.getDom id=<port id>) \
         for the controls you added, then say what you checked.

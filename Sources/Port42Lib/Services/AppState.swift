@@ -227,6 +227,38 @@ public final class AppState: ObservableObject {
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
 
+    /// Companions watching ports (nautilus Phase 3.3). Started once ports are restored.
+    lazy var companionWatches: CompanionWatchService = {
+        let service = CompanionWatchService(appState: self)
+        service.deliver = { [weak self] companion, message, portUdid in
+            self?.deliverWatch(companion: companion, message: message, portUdid: portUdid)
+        }
+        service.pauseNotice = { [weak self] watch, companion in
+            guard let self, let key = self.chatKey(for: watch.portUdid) else { return }
+            _ = try? self.postToChat(key: key, text: "@\(companion.displayName)'s watch on this port paused after "
+                + "\(service.ceilingPerHour) wakes in an hour. Watch it again to resume.",
+                from: .peer(id: "port42", displayName: "port42", spaceId: nil))
+        }
+        return service
+    }()
+
+    /// Start a companion's turn for its watch: typed into its terminal (reopened if closed), or a
+    /// headless companion launched with it. The reply goes to the watched port's chat.
+    func deliverWatch(companion: AgentConfig, message: String, portUdid: String) {
+        guard let key = chatKey(for: portUdid) else { return }
+        let panel = portWindows.panels.first { $0.udid == portUdid }
+        let spaceId = panel?.spaceId ?? currentSpace?.id ?? ""
+        let source = ChatRouting.sourceLabel(port: panel?.title, portId: portUdid)
+        if companion.openInTerminal {
+            deliverToTerminalCompanion(companion,
+                                       line: ChatRouting.terminalLine(sender: "port42", source: source, text: message),
+                                       replyChat: key, spaceId: spaceId)
+        } else {
+            launchAgents([companion], spaceId: spaceId, spaceAgentIds: Set(spaceCompanions.map(\.id)),
+                         triggerContent: message, senderId: "port42", senderName: "port42", replyChat: key)
+        }
+    }
+
     /// The companion a caller acts as: itself when it is one, else the companion running in the
     /// terminal its credential belongs to. A terminal companion calls Port42 with its terminal's
     /// credential, as a peer, so anything that applies a companion's own settings (its secrets) has
@@ -438,6 +470,7 @@ public final class AppState: ObservableObject {
             }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
+            self.companionWatches.start()
             if self.isSetupComplete, let space = self.currentSpace {
                 self.portWindows.switchToSpace(space.id, spaceName: space.name)
             }
@@ -987,30 +1020,36 @@ public final class AppState: ObservableObject {
             if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal
             }) {
-                // Native Ghostty terminal companion. Set the "typing…" indicator HERE
-                // (cleared by the controller's post closure on turnComplete). launchAgents
-                // skips openInTerminal companions, so the optimistic typing loops must NOT
-                // set it — this route is the only point a native terminal companion is driven.
-                let name = companion.displayName
-                ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
-                if let controller = terminalControllers.values.first(where: {
-                    $0.config.companionName.lowercased() == key
-                }), controller.isSurfaceBound {
-                    // Live terminal: inject now AND arm the next turnComplete so only this
-                    // reply is broadcast back to the space.
-                    controller.inject(line)
-                    setTerminalTyping(name: name, spaceId: spaceId)
-                    NSLog("[Port42] Routed '%@' to native terminal", key)
-                } else {
-                    // Terminal closed/minimized (or mid-(re)spawn): queue the message and
-                    // ensure a live terminal exists. The controller drains the queue once the
-                    // CLI signals readiness (SessionStart). Auto-reopen + deliver.
-                    pendingTerminalInjections[key, default: []].append(line)
-                    ensureTerminalLive(companion: companion, spaceId: spaceId)
-                    setTerminalTyping(name: name, spaceId: spaceId)
-                    NSLog("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
-                }
+                deliverToTerminalCompanion(companion, line: line, replyChat: replyChat, spaceId: spaceId)
             }
+        }
+    }
+
+    /// Type one message into a terminal companion and route its reply to `replyChat`: a mention, or a
+    /// watch waking it. Its turn starts here, so a watch holds its events until the turn ends.
+    func deliverToTerminalCompanion(_ companion: AgentConfig, line: String, replyChat: String?, spaceId: String) {
+        // Native Ghostty terminal companion. Set the "typing…" indicator HERE (cleared by the
+        // controller's post closure on turnComplete). launchAgents skips openInTerminal companions, so
+        // the optimistic typing loops must NOT set it: this is the only point one is driven.
+        let name = companion.displayName
+        let key = name.lowercased()
+        ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        companionWatches.turnStarted(companionName: name)
+        if let controller = terminalControllers.values.first(where: {
+            $0.config.companionName.lowercased() == key
+        }), controller.isSurfaceBound {
+            // Live terminal: inject now AND arm the next turnComplete so only this reply is posted.
+            controller.inject(line)
+            setTerminalTyping(name: name, spaceId: spaceId)
+            NSLog("[Port42] Routed '%@' to native terminal", key)
+        } else {
+            // Terminal closed/minimized (or mid-(re)spawn): queue the message and ensure a live
+            // terminal exists. The controller drains the queue once the CLI signals readiness
+            // (SessionStart). Auto-reopen + deliver.
+            pendingTerminalInjections[key, default: []].append(line)
+            ensureTerminalLive(companion: companion, spaceId: spaceId)
+            setTerminalTyping(name: name, spaceId: spaceId)
+            NSLog("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
         }
     }
 
@@ -1463,6 +1502,8 @@ public final class AppState: ObservableObject {
             // timeout). Native terminal companions are skipped by launchAgents (which is what
             // clears typing for LLM/command agents), so without this the indicator hangs forever.
             self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
+            // The turn is over: what its watches held while it ran goes now, as one.
+            defer { self.companionWatches.turnEnded(companionName: config.companionName) }
             let companion = self.companions.first(where: { $0.displayName == config.companionName })
             let who: Principal = companion.map {
                 .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
@@ -2001,6 +2042,7 @@ public final class AppState: ObservableObject {
         for panel in panelsToClose {
             portWindows.close(panel.id)
         }
+        companionWatches.removeAll(companionId: companion.id)
         do {
             try db.removeAllSpacesForAgent(companion.id)
             try db.deleteAgent(id: companion.id)

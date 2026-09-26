@@ -699,6 +699,7 @@ public final class PortWindowManager: ObservableObject {
         guard let row = try? db?.fetchPortPanel(id: id) else { return }
         TerminalSessionBootstrap.clearLiveCwd(portId: id)
         try? db?.deletePortForever(id: id, udid: row.udid ?? id)
+        appState?.companionWatches.removeAll(portUdid: row.udid ?? id)
         NSLog("[Port42] Deleted port %@ for good", id)
     }
 

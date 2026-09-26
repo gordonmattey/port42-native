@@ -263,6 +263,21 @@ card field with its reader); a companion made hidden is created with a hidden te
 companion made for a port starts with that watch; the secrets gate refuses a terminal companion a
 secret it was not given (calibrated by removing the gate).
 
+**Built 2026-09-26.** `CompanionWatch.swift`: the watch model, `WatchKinds` (the default "port" is
+every `port.*` event; `terminal.output` and the frame streams can never wake), the pure `WakeQueue`,
+and `CompanionWatchService`, which subscribes each watch to its port's topic and feeds the queue.
+Stored in `companion_watches` (migration v53), restored at launch, removed with the port (delete
+forever) or the companion. API: `companions.watch`, `companions.unwatch`, `companions.watches`; the
+caller is the watcher unless it names `companion`. Delivery reuses the mention path
+(`deliverToTerminalCompanion`, extracted from `routeMentionsToTerminals`), so a closed terminal is
+reopened first and the reply goes to the watched port's chat; a mention's turn also holds watch
+events. The turn ends at the terminal's Stop hook; a turn that never reports its end times out and
+releases what it held (found writing the tests: without it, held events waited forever behind a
+closed terminal). The companion prompt and Codex's AGENTS.md teach `port42 companions.watch`.
+Gates: `WakeQueueTests` (11, calibrated by removing the gather, the hold and the ceiling) and
+`CompanionWatchTests` (5, through the API and the real bus, calibrated by removing the self-wake
+guard and the delete cleanup). Not yet verified live.
+
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
 What it would be: each caller that runs `terminal.exec` gets one hidden terminal port of its own,

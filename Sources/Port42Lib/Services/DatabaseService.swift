@@ -823,6 +823,19 @@ public final class DatabaseService {
             try db.alter(table: "port_panels") { t in t.add(column: "closedAt", .datetime) }
         }
 
+        migrator.registerMigration("v53-companion-watches") { db in
+            // Nautilus Phase 3.3: a companion watches a port, and an event of a kind it names wakes it.
+            try db.create(table: "companion_watches") { t in
+                t.column("companionId", .text).notNull()
+                t.column("portUdid", .text).notNull()
+                t.column("kinds", .text).notNull()          // JSON [String]
+                t.column("every", .integer)                 // seconds between wakes; null: none
+                t.column("paused", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.primaryKey(["companionId", "portUdid"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1511,6 +1524,37 @@ public final class DatabaseService {
     }
 
     /// Delete a port for good: its row, its versions and its chat.
+    // MARK: - Companion watches (nautilus Phase 3.3)
+
+    public func saveCompanionWatch(_ w: CompanionWatch) throws {
+        let kinds = String(decoding: try JSONEncoder().encode(w.kinds), as: UTF8.self)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO companion_watches (companionId, portUdid, kinds, every, paused, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(companionId, portUdid) DO UPDATE SET
+                    kinds = excluded.kinds, every = excluded.every, paused = excluded.paused
+                """, arguments: [w.companionId, w.portUdid, kinds, w.every, w.paused, w.createdAt])
+        }
+    }
+
+    public func companionWatches() throws -> [CompanionWatch] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM companion_watches ORDER BY createdAt").map { row in
+                let kinds = (try? JSONDecoder().decode([String].self, from: Data((row["kinds"] as String).utf8))) ?? []
+                return CompanionWatch(companionId: row["companionId"], portUdid: row["portUdid"], kinds: kinds,
+                                      every: row["every"], paused: row["paused"], createdAt: row["createdAt"])
+            }
+        }
+    }
+
+    public func deleteCompanionWatch(companionId: String, portUdid: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM companion_watches WHERE companionId = ? AND portUdid = ?",
+                           arguments: [companionId, portUdid])
+        }
+    }
+
     public func deletePortForever(id: String, udid: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM port_panels WHERE id = ?", arguments: [id])
