@@ -75,3 +75,10 @@ now.
 So the flag means **use, do not inspect**: no-fork excludes the source-revealing set from the grant
 and leaves render, events and input. It is enforceable for a Port42-to-Port42 share and is a request
 for a web one. The UI should say so rather than imply a lock that does not exist.
+
+**Scope, GM 2026-09-26: Port42 to Port42 is the first cut.** Rendering to the web over RPC, where the
+guest receives output rather than code, is a later problem. Worth keeping in view because it pays
+three ways at once: the flag becomes enforceable on the web, the port's code and data never leave the
+machine, and it works for ports whose live state cannot be replicated at all. It is the third mode in
+`invite-over-libp2p.md` arriving through a different door, and it is also what would make a phone a
+viewer rather than a peer.
