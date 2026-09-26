@@ -66,10 +66,10 @@ public enum CompanionProtocol {
     reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write \
     your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply \
     via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another \
-    companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for \
-    example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — \
-    a bare name like "Critic" is just text they never receive. So end a hand-off with the @mention, \
-    e.g. "Built the login form, @Critic please review."
+    companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ \
+    (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name \
+    is just text they never receive. So end a hand-off with the @mention, e.g. "Built the login form, \
+    @<their name> please review."
     """
 
     /// How chats work, taught to every companion (GM's multi-agent test, 2026-09-25: agents did not
@@ -86,7 +86,10 @@ public enum CompanionProtocol {
         chat, or a port's chat with its id. Work on a port belongs in that port's chat: read it with \
         \(call) -d '{"method":"chat.read","args":{"port":"<port id>"}}' and post to it with \
         \(call) -d '{"method":"chat.post","args":{"port":"<port id>","text":"..."}}', which is posted as \
-        you. To reach another companion, @mention it by name in a chat; whoami lists who is here. \
+        you. To reach another companion, @mention it in a chat by the exact name whoami lists; never \
+        guess a name, and a role like "the reviewer" is not a name. WHEN YOU MAKE A PORT FOR SOMEONE, \
+        answer where they asked with one line naming the port and its id, and hold the rest of that \
+        work's conversation, details and follow-ups in the port's own chat. \
         WHEN YOU MAKE OR CHANGE A PORT, CHECK IT WORKS before you say it is done: read its console \
         (\(call) -d '{"method":"port.console","args":{"id":"<port id>"}}') for errors, and its DOM \
         (port.getDom) for the controls you added, then say what you checked.
@@ -97,7 +100,7 @@ public enum CompanionProtocol {
     /// proved to have changed nothing. Extracting shared prose is a refactor; a refactor that
     /// quietly reworded a live system prompt would be a behaviour change wearing a refactor's
     /// clothes. `CompanionProtocolTests` compares `rules` against this, character for character.
-    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\""
+    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @<their name> please review.\""
 
     /// The sentence fragments a surface must carry to count as stating the protocol. Used by the
     /// anti-drift test rather than comparing whole strings, so wording can be improved in one place

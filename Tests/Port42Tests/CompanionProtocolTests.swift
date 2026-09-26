@@ -29,6 +29,17 @@ struct CompanionProtocolTests {
         #expect(CompanionProtocol.rules == CompanionProtocol.historicalRules)
     }
 
+    /// GM's two-agent run, 2026-09-25: an agent @mentioned a companion that does not exist. The rules
+    /// illustrated mentions with invented names (@Critic, @Maker), which read as real handles.
+    @Test("the rules show no invented @handles an agent could copy")
+    func noInventedHandles() {
+        // "[@name]" is the message format and "@mention" is the word; both are named here so that
+        // any other handle, an invented example, fails.
+        let handles = MentionParser.extractMentions(from: CompanionProtocol.rules)
+            .filter { !["@name", "@mention"].contains($0) }
+        #expect(handles.isEmpty, "example handles in the rules: \(handles)")
+    }
+
     @Test("the protocol states its three load-bearing rules")
     func rulesAreComplete() {
         for phrase in CompanionProtocol.loadBearingPhrases {
@@ -171,7 +182,8 @@ struct CompanionProtocolTests {
         #expect(baked.contains(chats))
         for phrase in ["\"method\":\"whoami\"", "\"method\":\"chat.read\"", "\"method\":\"chat.post\"",
                        "every port in Port42 has a chat", "\"method\":\"port.console\"",
-                       "CHECK IT WORKS before you say it is done"] {
+                       "CHECK IT WORKS before you say it is done",
+                       "never guess a name", "hold the rest of that work's conversation"] {
             #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
         }
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
