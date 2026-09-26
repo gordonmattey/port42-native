@@ -200,6 +200,18 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### companions
 
+  companions.create(name, agent, args, runs, port, kinds, cwd, prompt, command, space_id)  [permission: terminal]
+      Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: "port" (default, on the desktop) or "hidden" (no place on the desktop; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default ["port"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.
+        agent (string): The CLI (default claude).
+        args (array): Arguments for the CLI or command.
+        command (string): agent custom: the command to run.
+        cwd (string): Working directory (default: the space's).
+        kinds (array): With `port`: event kinds that wake it.
+        name (string, required): Its name; @mention it by this.
+        port (string): A port to watch instead of listening to the space.
+        prompt (string): Its system prompt.
+        runs (string): Where its terminal runs (default port).
+        space_id (string): The space (default: yours, else the current one).
   companions.get(id)
       Get details about a specific companion by ID
         id (string, required): The companion's ID

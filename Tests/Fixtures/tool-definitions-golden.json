@@ -169,6 +169,73 @@
     "name" : "clipboard_write"
   },
   {
+    "description" : "Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: \"port\" (default, on the desktop) or \"hidden\" (no place on the desktop; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default [\"port\"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.",
+    "input_schema" : {
+      "properties" : {
+        "agent" : {
+          "description" : "The CLI (default claude).",
+          "enum" : [
+            "claude",
+            "codex",
+            "custom"
+          ],
+          "type" : "string"
+        },
+        "args" : {
+          "description" : "Arguments for the CLI or command.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "command" : {
+          "description" : "agent custom: the command to run.",
+          "type" : "string"
+        },
+        "cwd" : {
+          "description" : "Working directory (default: the space's).",
+          "type" : "string"
+        },
+        "kinds" : {
+          "description" : "With `port`: event kinds that wake it.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "name" : {
+          "description" : "Its name; @mention it by this.",
+          "type" : "string"
+        },
+        "port" : {
+          "description" : "A port to watch instead of listening to the space.",
+          "type" : "string"
+        },
+        "prompt" : {
+          "description" : "Its system prompt.",
+          "type" : "string"
+        },
+        "runs" : {
+          "description" : "Where its terminal runs (default port).",
+          "enum" : [
+            "port",
+            "hidden"
+          ],
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "The space (default: yours, else the current one).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "name"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_create"
+  },
+  {
     "description" : "Get details about a specific companion by ID",
     "input_schema" : {
       "properties" : {

@@ -1082,11 +1082,10 @@ public final class AppState: ObservableObject {
         }
         // A panel already exists for this companion: restore it if backgrounded (minimized),
         // otherwise it is mid-build — leave it (its controller will appear shortly).
-        if let panel = portWindows.panels.first(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
-            if panel.isBackground {
-                NSLog("[Port42] Restoring backgrounded terminal for '%@'", key)
-                portWindows.restore(panel.id)
-            }
+        // A panel already exists for this companion: it is mid-build, and its controller will appear
+        // shortly. A HIDDEN one stays hidden: it used to be restored here, so waking a hidden
+        // companion while its terminal started put it back on the desktop (nautilus 3.7).
+        if portWindows.panels.contains(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
             return
         }
         // No panel at all → fully closed → spawn a fresh terminal port.
@@ -1417,6 +1416,28 @@ public final class AppState: ObservableObject {
     }
 
     // MARK: - Companions
+
+    /// Make a companion as the new-companion card describes it, in a space, listening to that space
+    /// or watching one port. THE one path: the card and `companions.create` both come through here, so
+    /// what the harness proves over the API is what the card does.
+    @discardableResult
+    func createCompanion(_ c: AgentConfig, spaceId: String, watchPort: String? = nil,
+                         watchKinds: [String] = WatchKinds.defaultKinds) throws -> AgentConfig {
+        guard !companions.contains(where: { $0.displayName.lowercased() == c.displayName.lowercased() }) else {
+            throw BridgeError.badArg("a companion named '\(c.displayName)' already exists")
+        }
+        guard let space = spaces.first(where: { $0.id == spaceId }) else { throw BridgeError.notFound("space '\(spaceId)'") }
+        var udid: String?
+        if let watchPort {
+            guard let u = resolvePortRef(watchPort)?.udid else { throw BridgeError.notFound("port '\(watchPort)'") }
+            _ = try WatchKinds.validate(watchKinds)
+            udid = u
+        }
+        addCompanion(c)
+        addCompanionToSpace(c, space: space)
+        if let udid { try companionWatches.watch(companion: c, portUdid: udid, kinds: watchKinds, every: nil) }
+        return c
+    }
 
     public func addCompanion(_ companion: AgentConfig) {
         do {

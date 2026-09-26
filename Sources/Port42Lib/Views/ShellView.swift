@@ -825,7 +825,7 @@ struct ShellSettingsView: View {
             // is its space membership and its watches (`companions.watch`).
             if c.openInTerminal {
                 fieldLabel("RUNS")
-                segmented(["in a tile", "hidden"], selected: c.runsHidden ? "hidden" : "in a tile") { v in
+                segmented(["in a port", "hidden"], selected: c.runsHidden ? "hidden" : "in a port") { v in
                     edit(c) { $0.runsHidden = v == "hidden" }
                     appState.setCompanionHidden(c, hidden: v == "hidden")
                 }
@@ -1051,16 +1051,16 @@ struct ShellNewCompanionView: View {
     @ObservedObject var appState: AppState
     @State private var name = ""
     @State private var promptText = ""
-    @State private var selectedSecrets: Set<String> = []
     @State private var command = ""
     @State private var argsText = ""
     @State private var workingDir = ""
     @State private var cliChoice = ClaudeCodeSetup.findBinary("claude") == nil && ClaudeCodeSetup.findBinary("codex") != nil
         ? "codex" : "claude"                         // claude | codex | custom
-    @State private var runs = "in a tile"            // in a tile | hidden
+    @State private var runs = "in a port"            // in a port | hidden
     @State private var listensTo = "this space"      // this space | a port
     @State private var watchedPort: String?          // udid
     @State private var watchKinds: Set<String> = ["port"]
+    @State private var createError: String?
     // anim
     @State private var cardScale: CGFloat = 0.92
     @State private var cardOpacity: Double = 0
@@ -1134,8 +1134,9 @@ struct ShellNewCompanionView: View {
 
             label("RUNS")
             if isCLI {
-                seg(["in a tile", "hidden"], sel: runs) { runs = $0 }
-                Text(runs == "hidden" ? "no tile: reach it through its chat, show it from ⌘K" : "a terminal on this desktop")
+                seg(["in a port", "hidden"], sel: runs) { runs = $0 }
+                Text(runs == "hidden" ? "a terminal port kept off the desktop: talk to it in its chat, show it from ⌘K"
+                                      : "a terminal port on this desktop")
                     .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
             } else {
                 Text("headless: a custom command speaks Port42's stdio protocol, with no terminal")
@@ -1156,9 +1157,12 @@ struct ShellNewCompanionView: View {
 
             label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
             label("SYSTEM PROMPT"); promptBox
-            // Named Keychain secrets it may use with rest.call, never seeing the value.
-            label("SECRETS"); ShellSecretsField(selected: $selectedSecrets, accent: acc)
+            // Secrets are not set here (GM, 2026-09-26): an agent CLI calls APIs from its own shell, so
+            // Port42's named secrets for rest.call are rarely wanted at birth. They are in its settings.
 
+            if let createError {
+                Text(createError).font(Port42Theme.mono(10)).foregroundStyle(.red.opacity(0.9))
+            }
             Button { create() } label: {
                 Text("Create companion").font(Port42Theme.monoBold(13)).foregroundStyle(canCreate ? .black : Port42Theme.textSecondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
@@ -1166,9 +1170,13 @@ struct ShellNewCompanionView: View {
             }.buttonStyle(.plain).disabled(!canCreate)
 
             if !rosterNotHere.isEmpty {
-                label("OR ADD EXISTING")
+                label("OR BRING ONE FROM ANOTHER SPACE")
+                Text("it joins this space and hears it; its terminal stays where it runs")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                ForEach(rosterBySpace, id: \.space) { group in
+                    Text(group.space).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
-                    ForEach(rosterNotHere) { c in
+                    ForEach(group.companions) { c in
                         Button { addExisting(c) } label: {
                             HStack(spacing: 6) {
                                 Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 18, height: 18)
@@ -1180,8 +1188,19 @@ struct ShellNewCompanionView: View {
                         }.buttonStyle(.plain)
                     }
                 }
+                }
             }
         }
+    }
+
+    /// The companions not in this space, grouped under the space each is in now (by name).
+    private var rosterBySpace: [(space: String, companions: [AgentConfig])] {
+        var groups: [String: [AgentConfig]] = [:]
+        for c in rosterNotHere {
+            let home = appState.spaces.first { s in appState.companions(forSpace: s.id).contains { $0.id == c.id } }
+            groups["#" + (home?.name ?? "no space"), default: []].append(c)
+        }
+        return groups.keys.sorted().map { ($0, groups[$0]!.sorted { $0.displayName < $1.displayName }) }
     }
 
     private var portPicker: some View {
@@ -1252,13 +1271,18 @@ struct ShellNewCompanionView: View {
         guard canCreate, let user = appState.currentUser else { return }
         let c = Self.makeCompanion(owner: user.id, name: effectiveName, cli: cliChoice, command: command,
                                    argsText: argsText, workingDir: workingDir, prompt: promptText,
-                                   hidden: runs == "hidden", secrets: selectedSecrets)
-        appState.addCompanion(c)
-        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
-        if listensTo == "a port", let port = watchedPort {
-            try? appState.companionWatches.watch(companion: c, portUdid: port, kinds: Array(watchKinds), every: nil)
+                                   hidden: runs == "hidden", secrets: [])
+        guard let sid = appState.currentSpace?.id else { return }
+        // The same path `companions.create` takes, so what the harness proves is what this does.
+        do {
+            try appState.createCompanion(c, spaceId: sid, watchPort: listensTo == "a port" ? watchedPort : nil,
+                                         watchKinds: Array(watchKinds))
+            dismiss()
+        } catch let e as BridgeError {
+            createError = e.message
+        } catch {
+            createError = error.localizedDescription
         }
-        dismiss()
     }
 
     /// The companion the card describes. Pure, so what each field becomes is tested.

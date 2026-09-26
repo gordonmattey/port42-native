@@ -134,7 +134,8 @@ struct BridgeSchemaParityTests {
         // + port_delete (delete a closed port for good). = 53.
         // + whoami (a companion learns who and where it is from its credential). = 54.
         // + companions_watch, companions_unwatch, companions_watches (Phase 3.3). = 57.
-        #expect(checked == 57, "expected 57 parity-set methods, checked \(checked)")
+        // + companions_create (the new-companion card as an API, Phase 3.7). = 58.
+        #expect(checked == 58, "expected 58 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

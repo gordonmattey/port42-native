@@ -66,4 +66,42 @@ struct NewCompanionCardTests {
                     "\(file) still shows TRIGGER, which nothing reads")
         }
     }
+
+    @Test("companions.create is the card's path: a custom companion joins the space and watches the port it was made for")
+    @MainActor
+    func createPath() async throws {
+        let w = try makeParityWorld(companionName: "scout")
+        w.state.portWindows.registerTiledPort(id: "p", html: "<title>feed</title>", spaceId: w.space.id, createdBy: nil,
+                                              title: "feed", position: CGPoint(x: 40, y: 40))
+        let udid = w.state.portWindows.panels.first { $0.id == "p" }!.udid
+        let person = Principal.peer(id: "cli", displayName: "cli", spaceId: w.space.id)
+        let run = { (args: [String: Any]) async throws -> BridgeValue in
+            try await w.state.runBridgeMethod("companions.create", principal: person, args: BridgeArgs(args),
+                                              pregrant: [.terminal])
+        }
+        _ = try await run(["name": "watcher", "agent": "custom", "command": "my-agent", "port": udid, "kinds": ["console"]])
+        let c = try #require(w.state.companions.first { $0.displayName == "watcher" })
+        #expect(try w.state.db.getAgentsForSpace(spaceId: w.space.id).contains { $0.id == c.id }, "it did not join the space")
+        #expect(w.state.companionWatches.watches.map(\.kinds) == [["console"]])
+        await #expect(throws: BridgeError.self) { _ = try await run(["name": "Watcher", "agent": "custom", "command": "x"]) }
+        await #expect(throws: BridgeError.self) { _ = try await run(["name": "other", "agent": "custom", "command": "x", "port": "nope"]) }
+        #expect(!w.state.companions.contains { $0.displayName == "other" }, "a refused create left a companion behind")
+    }
+
+    @Test("waking a hidden companion whose terminal is still starting does not put it on the desktop")
+    @MainActor
+    func hiddenStaysHidden() throws {
+        let w = try makeParityWorld(companionName: "scout")
+        let config = TerminalPortConfig(command: "/bin/zsh", args: [], startupCommand: "claude", cwd: "/tmp",
+                                        spaceId: w.space.id, spaceName: w.space.name, companionName: "scout",
+                                        companionId: w.companion.id, createdBy: "", companionPrompt: "", env: [:], initialInput: "")
+        let json = String(decoding: try JSONEncoder().encode(config), as: UTF8.self)
+        var panel = PortPanel(id: "t1", udid: "t1", html: json, bridge: PortBridge(appState: w.state, spaceId: w.space.id, messageId: "t1"),
+                              spaceId: w.space.id, createdBy: nil, messageId: "t1", size: CGSize(width: 400, height: 300))
+        panel.portType = "terminal"
+        w.state.portWindows.panels.append(panel)
+        w.state.portWindows.minimize("t1")
+        w.state.ensureTerminalLive(companion: w.companion, spaceId: w.space.id)
+        #expect(w.state.portWindows.hiddenPanels.map(\.id) == ["t1"], "waking it un-hid it")
+    }
 }
