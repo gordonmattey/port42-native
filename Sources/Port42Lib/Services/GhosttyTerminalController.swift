@@ -171,7 +171,7 @@ final class GhosttyTerminalController {
     /// Whether a live Ghostty surface is bound — i.e. inject() can reach the PTY right now.
     var isSurfaceBound: Bool { injectToSurface != nil }
 
-    private func log(_ msg: String) { NSLog("[ctl:%@] %@", config.companionName, msg) }
+    private func log(_ msg: String) { p42log("[ctl:%@] %@", config.companionName, msg) }
 
     init(panelId: String, config: TerminalPortConfig,
          post: @escaping (String) -> Void,
@@ -214,7 +214,7 @@ final class GhosttyTerminalController {
             producer: nil
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
-        NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
+        p42log("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
               config.companionName, panelId, hooksCapable ? "Y" : "N", session.socketPath,
               config.spaceId, config.cwd, config.startupCommand)
 
@@ -223,7 +223,7 @@ final class GhosttyTerminalController {
         // for non-hooks tools (claude/gemini stream via turnComplete; teeing a TUI is redraw garbage —
         // the same coarse guard, no alt-screen probe).
         // Capture the param + a computed flag, NOT self (self.processor is mid-init here).
-        self.processor = TerminalOutputProcessor { [onOutput, hc = Self.isHooksCapable(config.startupCommand)] out in
+        self.processor = TerminalOutputProcessor(wantsCleanedOutput: !Self.isHooksCapable(config.startupCommand)) { [onOutput, hc = Self.isHooksCapable(config.startupCommand)] out in
             guard !hc, !out.isEmpty else { return }
             onOutput(out)
         }
@@ -285,8 +285,14 @@ final class GhosttyTerminalController {
         case .inputSubmitted(let prompt):
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box
+            if unconfirmed > 0 { unconfirmed -= 1 }
         case .sessionStarted(let cli):
             log("event=sessionStarted cli=\(cli ?? "?")")
+            self.cli = cli ?? self.cli
+            if !cliRunning {
+                cliRunning = true
+                becomeReadyWhenQuiet()
+            }
             // CLI is up → deliver any messages queued while it was (re)spawning.
             flushPending(reason: "sessionStarted")
             // First launch → let AppState auto-register this terminal as a companion (once).
@@ -296,6 +302,8 @@ final class GhosttyTerminalController {
             }
         case .sessionEnded:
             log("event=sessionEnded")
+            cliRunning = false
+            inputReady = false
             // Allow re-registration if the user runs claude again in this same terminal.
             didNotifySessionStart = false
             onSessionEnded()
@@ -308,18 +316,129 @@ final class GhosttyTerminalController {
     /// forget, because nothing is waiting on a mention's Enter the way a bridge caller waits on its
     /// token.
     func inject(_ line: String) {
+        // NOT BEFORE THE CLI IS RUNNING (2026-09-26). A message typed while the shell is still
+        // starting claude lands in the tty's typeahead: claude later shows it in its input box, and
+        // the Enter is spent before it can act, so the message sits unsent. Measured on Dev4: every
+        // mention reached its terminal about 2 s before SessionStart, and only a person pressing
+        // Enter sent it. Codex happened to submit typeahead, which is why this looked intermittent.
+        // After the CLI exits the same text would reach the bare shell and RUN as a command. So a
+        // hooks-capable terminal holds messages until its CLI says it is running.
+        if hooksCapable && !inputReady {
+            heldUntilRunning.append(line)
+            log("held until the CLI is running (\(heldUntilRunning.count) waiting): \(line.prefix(60).debugDescription)")
+            if heldUntilRunning.count == 1 { armHeldFallback() }
+            return
+        }
         gate.arm()
         log("inject + armed: \(line.prefix(80).debugDescription)")
         if injectToSurface == nil { log("  WARNING: no surface bound — inject dropped") }
         let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
         prefillPending = false
         injectToSurface?(write) {}
+        expectSubmit()
     }
 
     /// A first-run prefill was typed and not yet sent: the next message clears it first, or the
     /// message is appended to it ("what is this place?[@gordon]: hi").
     private(set) var prefillPending = false
     func notePrefill() { prefillPending = true }
+
+    /// The CLI in this terminal has said it is running (SessionStart) and has not ended.
+    private(set) var cliRunning = false
+    /// ...and has finished starting, so its input box takes keystrokes. Claude's SessionStart hook
+    /// fires while it is still starting (measured on Dev4: a message typed at SessionStart sat unsent
+    /// in all four Claude companions, and in none of the Codex ones), so readiness is SessionStart
+    /// followed by the screen going quiet: no output for `readyQuiet`, at most `readyCap` after it.
+    private(set) var inputReady = false
+    private var lastOutputAt: Date?
+    var readyQuiet: TimeInterval = 0.8
+    var readyCap: TimeInterval = 15
+    /// The clock readiness is judged by. Replaceable so a test decides when time passes.
+    var now: () -> Date = Date.init
+
+    /// Wait until the CLI's input is ready (after SessionStart and a quiet screen), up to `timeout`.
+    /// For tests that model a running CLI.
+    func waitUntilInputReady(timeout: TimeInterval = 5) async {
+        let end = Date().addingTimeInterval(timeout)
+        while !inputReady && Date() < end { try? await Task.sleep(nanoseconds: 20_000_000) }
+    }
+
+    private func becomeReadyWhenQuiet() {
+        let started = now()
+        Task { @MainActor [weak self] in
+            while let self, self.cliRunning, !self.inputReady {
+                let now = self.now()
+                let quietFor = now.timeIntervalSince(max(self.lastOutputAt ?? started, started))
+                if quietFor >= self.readyQuiet || now.timeIntervalSince(started) >= self.readyCap {
+                    self.inputReady = true
+                    self.log("input ready after \(String(format: "%.1f", now.timeIntervalSince(started)))s")
+                    self.releaseHeld(reason: "ready")
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+    }
+    private var heldUntilRunning: [String] = []
+    /// How long a held message waits for SessionStart before it is typed anyway (a CLI whose hook
+    /// never fires would otherwise hold it forever, silently).
+    var heldFallback: TimeInterval = 60
+
+    /// Which CLI said it started (SessionStart names it).
+    private(set) var cli: String?
+    /// Messages typed but not yet confirmed submitted (Claude's UserPromptSubmit), and the Enters
+    /// pressed again for them. A message can reach Claude's input box and sit there unsent (typed
+    /// while it was still starting, measured on Dev4); a person pressing Enter sent it, so the app
+    /// does the same until the submit is confirmed.
+    private var unconfirmed = 0
+    var submitConfirmWait: TimeInterval = 4
+    var maxEnterRetries = 3
+
+    private func expectSubmit() {
+        guard cli == "claude" else { return }     // the one CLI that reports a submit
+        unconfirmed += 1
+        scheduleSubmitCheck(attempt: 1)
+    }
+
+    private func scheduleSubmitCheck(attempt: Int) {
+        let wait = submitConfirmWait
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, self.unconfirmed > 0 else { return }
+            guard attempt <= self.maxEnterRetries else {
+                self.log("WARNING: message still not submitted after \(self.maxEnterRetries) Enters")
+                self.unconfirmed = 0
+                return
+            }
+            self.log("no submit \(Int(wait))s after typing: pressing Enter again (\(attempt))")
+            self.injectToSurface?(TerminalWrite(text: "", submit: true)) {}
+            self.scheduleSubmitCheck(attempt: attempt + 1)
+        }
+    }
+
+    private func releaseHeld(reason: String) {
+        guard !heldUntilRunning.isEmpty else { return }
+        let lines = heldUntilRunning
+        heldUntilRunning = []
+        log("releasing \(lines.count) held message(s) (\(reason))")
+        for line in lines {
+            gate.arm()
+            let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
+            prefillPending = false
+            injectToSurface?(write) {}
+            expectSubmit()
+        }
+    }
+
+    private func armHeldFallback() {
+        let wait = heldFallback
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, !self.heldUntilRunning.isEmpty else { return }
+            self.log("WARNING: no SessionStart after \(Int(wait))s; typing held messages anyway")
+            self.releaseHeld(reason: "fallback")
+        }
+    }
 
     /// Write raw input to the surface WITHOUT arming the post gate. This is the path for
     /// `port.push` / `port_push` to a terminal: a caller driving the terminal directly should not
@@ -407,6 +526,7 @@ final class GhosttyTerminalController {
 
     /// Feed raw PTY bytes (from the Ghostty tee) into the `<p42>` extractor.
     func receiveTee(_ str: String) {
+        lastOutputAt = now()
         processor.receive(str)
     }
 

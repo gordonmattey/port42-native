@@ -41,7 +41,7 @@ public final class BrowserBridge: PortOwnedResource {
             sessions.removeValue(forKey: sid)
         }
         if !owned.isEmpty {
-            NSLog("[Port42] browser: released %d session(s) for port %@", owned.count, id)
+            p42log("[Port42] browser: released %d session(s) for port %@", owned.count, id)
         }
     }
 
@@ -81,7 +81,7 @@ public final class BrowserBridge: PortOwnedResource {
             return result
         }
 
-        NSLog("[Port42] browser.open: session %@ opened %@", String(sessionId), urlString)
+        p42log("[Port42] browser.open: session %@ opened %@", String(sessionId), urlString)
         return ["sessionId": String(sessionId), "url": urlString, "title": result["title"] ?? ""]
     }
 
@@ -95,7 +95,7 @@ public final class BrowserBridge: PortOwnedResource {
         }
 
         let result = await session.navigate(to: url)
-        NSLog("[Port42] browser.navigate: session %@ -> %@", sessionId, urlString)
+        p42log("[Port42] browser.navigate: session %@ -> %@", sessionId, urlString)
         return result
     }
 
@@ -138,7 +138,7 @@ public final class BrowserBridge: PortOwnedResource {
         }
         session.cleanup()
         sessions.removeValue(forKey: sessionId)
-        NSLog("[Port42] browser.close: session %@ closed", sessionId)
+        p42log("[Port42] browser.close: session %@ closed", sessionId)
         return ["ok": true]
     }
 
@@ -234,7 +234,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
             }
 
             let sizeMB = Double(pngData.count) / 1_048_576.0
-            NSLog("[Port42] browser.capture: session %@ %dx%d (%.1f MB)", id,
+            p42log("[Port42] browser.capture: session %@ %dx%d (%.1f MB)", id,
                   Int(webView.frame.width), Int(webView.frame.height), sizeMB)
 
             return [
@@ -243,7 +243,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
                 "height": Int(webView.frame.height)
             ]
         } catch {
-            NSLog("[Port42] browser.capture: failed: %@", error.localizedDescription)
+            p42log("[Port42] browser.capture: failed: %@", error.localizedDescription)
             return ["error": "screenshot failed: \(error.localizedDescription)"]
         }
     }
@@ -386,7 +386,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
         if nsError.code == NSURLErrorCancelled { return }
 
         let url = webView.url?.absoluteString ?? ""
-        NSLog("[Port42] browser: session %@ navigation error: %@", id, error.localizedDescription)
+        p42log("[Port42] browser: session %@ navigation error: %@", id, error.localizedDescription)
 
         bridge?.pushEvent(.browserError, data: .object([
             "sessionId": .string(id),

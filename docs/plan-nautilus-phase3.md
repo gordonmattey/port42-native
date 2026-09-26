@@ -1,8 +1,12 @@
 # Nautilus Phase 3: the pipe
 
 Detailed plan for Phase 3 of `plan-shell-only.md`. Scenario served: 3. Rewritten 2026-09-26 against
-`nautilus` at `140bd30` for GM's review. Built so far: 3.1 (nothing to build) and 3.6 (the `port42`
-command). Everything from 3.0 to 3.5 is unbuilt.
+`nautilus` at `140bd30` for GM's review.
+
+**Status (2026-09-26): built.** The Antigravity producer moved to the roadmap (GM). 3.0 to 3.3, 3.5, 3.6 and 3.7 are built
+and verified live on Dev4; 3.4 moved to the roadmap (decision 5). The harness passes five of five
+with scenario 3's three rows, and all eight companion combinations (claude and codex, in a port and
+hidden, listening to a space and watching a port) pass. Suite 1228 green.
 
 ## Goal
 
@@ -263,6 +267,74 @@ card field with its reader); a companion made hidden is created with a hidden te
 companion made for a port starts with that watch; the secrets gate refuses a terminal companion a
 secret it was not given (calibrated by removing the gate).
 
+**Built 2026-09-26.** `CompanionWatch.swift`: the watch model, `WatchKinds` (the default "port" is
+every `port.*` event; `terminal.output` and the frame streams can never wake), the pure `WakeQueue`,
+and `CompanionWatchService`, which subscribes each watch to its port's topic and feeds the queue.
+Stored in `companion_watches` (migration v53), restored at launch, removed with the port (delete
+forever) or the companion. API: `companions.watch`, `companions.unwatch`, `companions.watches`; the
+caller is the watcher unless it names `companion`. Delivery reuses the mention path
+(`deliverToTerminalCompanion`, extracted from `routeMentionsToTerminals`), so a closed terminal is
+reopened first and the reply goes to the watched port's chat; a mention's turn also holds watch
+events. The turn ends at the terminal's Stop hook; a turn that never reports its end times out and
+releases what it held (found writing the tests: without it, held events waited forever behind a
+closed terminal). The companion prompt and Codex's AGENTS.md teach `port42 companions.watch`.
+Gates: `WakeQueueTests` (11, calibrated by removing the gather, the hold and the ceiling) and
+`CompanionWatchTests` (5, through the API and the real bus, calibrated by removing the self-wake
+guard and the delete cleanup). Verified live on Dev4: a hidden Claude companion watching a port
+answered one published event in the port's chat 9 s later, and a further event followed by five
+more fired during its turn gave exactly two more replies, the second reading "Alerts #3 to #7 came
+in as a burst, all within 47 ms".
+
+**3.7 built 2026-09-26** (card and settings), except Antigravity, which waits on its spike. The card
+shows every field with no "Advanced": AGENT (claude, codex, custom), ARGS for every CLI, RUNS (in a
+tile or hidden, stored as the companion's `runsHidden`, migration v54, so a reopened terminal comes
+back hidden), LISTENS TO (this space, or a port picked from the space with the events that wake it,
+which creates the watch), working dir, prompt and secrets. The presets and their four constitution
+files are gone. The settings card's TRIGGER became RUNS, which hides or shows the live terminal.
+Gates in `NewCompanionCardTests`, calibrated. Not yet looked at by GM.
+
+**GM's review of the card, and testing every combination (2026-09-26).** Wording is "in a port" /
+"hidden", never "tile"; secrets moved to the companion's settings (an agent CLI calls APIs from its
+own shell); "bring one from another space" lists companions under the space each is in now, and
+joins the same companion to this space (its terminal stays where it runs). The card and a new
+`companions.create` share one path (`AppState.createCompanion`), so the harness proves what the card
+does. Running all eight combinations (claude and codex × in a port and hidden × this space and a
+port) on Dev4 found and fixed, each with a calibrated test:
+
+- **The missing Enter** (GM saw it live). A message typed before Claude was ready sat unsent as
+  typeahead. Messages now wait for the CLI's SessionStart and a quiet screen; after the CLI exits
+  they are held rather than run in the bare shell; and Claude now reports a submitted prompt
+  (UserPromptSubmit), so an unconfirmed message gets Enter again, up to three times. Verified: two of
+  four Claude companions needed the second Enter and then answered.
+- **A hidden companion put back on the desktop** when woken while its terminal started.
+- **The app froze.** AVKit's `AVPlayerView` (lock screen and boot videos) deadlocked the main thread
+  with a media thread; the videos are drawn with a bare `AVPlayerLayer`.
+- **Calls timed out under load.** The main thread re-scanned every terminal's output buffer with
+  freshly compiled regexes on every chunk, and cleaned output nobody reads; and it committed a
+  client's last-seen to disk on every gateway call. Both fixed.
+
+Result: all eight combinations PASS. Open: with the disk busy (Dropbox's file provider at 112% CPU
+while this repo was being committed and built), the harness's own polling still saw one 30 s call,
+sampled as the main thread blocked in a synchronous write to its log file. The app still logs and
+commits to SQLite on the main thread; moving that I/O off it is the remaining fix.
+
+**Fixed the same day.** The database runs in WAL mode with `synchronous = NORMAL`, so a commit is a
+sequential append rather than a rollback journal and two syncs; every log line goes through
+`p42log`, formatted where it is logged and written in order by a background queue (all 158 `NSLog`
+calls in the library). Gates in `MainThreadIOTests` (journal mode, a slow log sink not blocking its
+caller, no `NSLog` left), calibrated. Re-run on Dev4: all eight combinations PASS, every companion
+answering within 16 s of the ask, and the slowest call of the run 0.11 s where calls had timed out
+at 30 s.
+
+**Antigravity spike (2026-09-26).** `agy` (installed at `~/.local/bin/agy`) is an interactive terminal
+agent with a print mode (`-p`), resume (`--conversation`, `--continue`) and plugins. It has lifecycle
+hooks, among them SessionStart, Stop, Pre/PostInvocation and PostTool, loaded from a plugin's
+`plugins/<name>/hooks.json` (run with the plugin's directory as cwd), and the hook payload carries a
+`transcriptPath`. So the path is a Port42 plugin for `agy` whose SessionStart and Stop hooks call the
+same notifier (`port42-claude-shim notify …`) Claude's and Codex's do, plus a producer that installs it
+per session. Not built; it is a step of its own (a third `CLIHookProducer`, the plugin, and a live check
+that an `agy` companion registers and its replies post), after which the card offers it.
+
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
 What it would be: each caller that runs `terminal.exec` gets one hidden terminal port of its own,
@@ -279,6 +351,13 @@ The harness's scenario 3 gains, in its own space:
   event and replying in the render port's chat;
 - a burst of five events while it is answering, which arrives as one batched turn, so the render
   port's chat holds two replies, not six.
+
+**Built 2026-09-26.** Scenario 3 reports three rows: the original pipe; "hidden, off screen" (the
+transform stage created hidden, the render port in another space, `harness-elsewhere`); and "a
+watching agent" (a hidden Claude companion watching an alarm port: one event answered in its chat,
+then one event and a burst of five during its turn giving exactly two more replies). First run on
+Dev4: all three PASS; 8 events in 6 s at 4 ms median, the same 8 off screen, the watcher answering
+in 15 s and the burst arriving as one turn. The watching row costs about three agent turns.
 
 ### 3.6 Port42 as a command, not curl (built 2026-09-26)
 

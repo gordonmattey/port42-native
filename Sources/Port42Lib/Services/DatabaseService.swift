@@ -4,7 +4,7 @@ import GRDB
 public final class DatabaseService {
     public let dbQueue: DatabaseQueue
 
-    public init(subdirectory: String = "Port42") throws {
+    public convenience init(subdirectory: String = "Port42") throws {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!.appendingPathComponent(subdirectory, isDirectory: true)
@@ -14,7 +14,25 @@ public final class DatabaseService {
         )
 
         let dbPath = appSupport.appendingPathComponent("port42.sqlite").path
-        dbQueue = try DatabaseQueue(path: dbPath)
+        try self.init(path: dbPath)
+    }
+
+    /// A database file at `path`, in WAL mode.
+    ///
+    /// WAL, with `synchronous = NORMAL` (2026-09-26). The default rollback journal copies every page
+    /// it changes to a journal and syncs both files on each commit, and the app commits on the main
+    /// thread: with the disk busy (Dropbox's file provider at 112% CPU while this repo was built),
+    /// one commit held the main thread long enough for gateway calls to time out (sampled on Dev4 in
+    /// `pagerAddPageToRollbackJournal`). WAL appends to one file and, at NORMAL, syncs only at
+    /// checkpoints: a commit is a sequential write. A crash can lose the last commits, never the
+    /// database's integrity.
+    public init(path: String) throws {
+        var config = Configuration()
+        config.prepareDatabase { db in
+            _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+        }
+        dbQueue = try DatabaseQueue(path: path, configuration: config)
         try migrate()
     }
 
@@ -573,7 +591,7 @@ public final class DatabaseService {
             for row in dupRows {
                 let aid: String = row["agentId"]
                 let c: Int = row["c"]
-                NSLog("[Port42][v35] WARNING companion %@ has %d direct spaces (dup DM) — oldest wins; manual cleanup advised", aid, c)
+                p42log("[Port42][v35] WARNING companion %@ has %d direct spaces (dup DM) — oldest wins; manual cleanup advised", aid, c)
             }
         }
 
@@ -823,6 +841,24 @@ public final class DatabaseService {
             try db.alter(table: "port_panels") { t in t.add(column: "closedAt", .datetime) }
         }
 
+        migrator.registerMigration("v53-companion-watches") { db in
+            // Nautilus Phase 3.3: a companion watches a port, and an event of a kind it names wakes it.
+            try db.create(table: "companion_watches") { t in
+                t.column("companionId", .text).notNull()
+                t.column("portUdid", .text).notNull()
+                t.column("kinds", .text).notNull()          // JSON [String]
+                t.column("every", .integer)                 // seconds between wakes; null: none
+                t.column("paused", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.primaryKey(["companionId", "portUdid"])
+            }
+        }
+
+        migrator.registerMigration("v54-companion-runs-hidden") { db in
+            // Nautilus Phase 3.7: a companion can run hidden, and stays hidden when its terminal reopens.
+            try db.alter(table: "agents") { t in t.add(column: "runsHidden", .boolean).notNull().defaults(to: false) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1043,7 +1079,7 @@ public final class DatabaseService {
                 let msgs = try Int.fetchOne(
                     db, sql: "SELECT COUNT(*) FROM messages WHERE spaceId = ?",
                     arguments: [oldId]) ?? 0
-                NSLog("[Port42][v35] dropping dead swim %@ (%d messages, agent gone)", oldId, msgs)
+                p42log("[Port42][v35] dropping dead swim %@ (%d messages, agent gone)", oldId, msgs)
                 try Self.deleteSpaceAndChildren(db, spaceId: oldId)
                 return
             }
@@ -1511,6 +1547,37 @@ public final class DatabaseService {
     }
 
     /// Delete a port for good: its row, its versions and its chat.
+    // MARK: - Companion watches (nautilus Phase 3.3)
+
+    public func saveCompanionWatch(_ w: CompanionWatch) throws {
+        let kinds = String(decoding: try JSONEncoder().encode(w.kinds), as: UTF8.self)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO companion_watches (companionId, portUdid, kinds, every, paused, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(companionId, portUdid) DO UPDATE SET
+                    kinds = excluded.kinds, every = excluded.every, paused = excluded.paused
+                """, arguments: [w.companionId, w.portUdid, kinds, w.every, w.paused, w.createdAt])
+        }
+    }
+
+    public func companionWatches() throws -> [CompanionWatch] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM companion_watches ORDER BY createdAt").map { row in
+                let kinds = (try? JSONDecoder().decode([String].self, from: Data((row["kinds"] as String).utf8))) ?? []
+                return CompanionWatch(companionId: row["companionId"], portUdid: row["portUdid"], kinds: kinds,
+                                      every: row["every"], paused: row["paused"], createdAt: row["createdAt"])
+            }
+        }
+    }
+
+    public func deleteCompanionWatch(companionId: String, portUdid: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM companion_watches WHERE companionId = ? AND portUdid = ?",
+                           arguments: [companionId, portUdid])
+        }
+    }
+
     public func deletePortForever(id: String, udid: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM port_panels WHERE id = ?", arguments: [id])

@@ -18,7 +18,7 @@ struct TerminalControllerDrainTests {
     }
 
     @Test("queued messages are injected once the CLI signals readiness (sessionStarted)")
-    func flushOnSessionStarted() {
+    func flushOnSessionStarted() async {
         var queue = ["[gordon]: @claude9 hi\r"]
         var injected: [String] = []
         let ctl = GhosttyTerminalController(
@@ -26,14 +26,14 @@ struct TerminalControllerDrainTests {
             drainPending: { let q = queue; queue = []; return q })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted(cli: nil))
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)
 
         #expect(injected == ["[gordon]: @claude9 hi\r"])
         ctl.teardown()
     }
 
     @Test("flushing a queued message arms the gate so the next turnComplete posts the reply")
-    func flushArmsGateForReply() {
+    func flushArmsGateForReply() async {
         var queue = ["[gordon]: hello\r"]
         var posted: [String] = []
         let ctl = GhosttyTerminalController(
@@ -41,7 +41,7 @@ struct TerminalControllerDrainTests {
             drainPending: { let q = queue; queue = []; return q })
         ctl.bindSurface { _, done in done() }
 
-        ctl.handleEvent(.sessionStarted(cli: nil))                       // drains + injects + arms
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)                       // drains + injects + arms
         ctl.handleEvent(.turnComplete(text: "Hey gordon", exitCode: 0))
 
         #expect(posted == ["Hey gordon"])                      // armed by the flushed inject
@@ -49,7 +49,7 @@ struct TerminalControllerDrainTests {
     }
 
     @Test("flush runs at most once even if readiness fires repeatedly")
-    func flushIsIdempotent() {
+    func flushIsIdempotent() async {
         var drains = 0
         var injected: [String] = []
         let ctl = GhosttyTerminalController(
@@ -57,8 +57,8 @@ struct TerminalControllerDrainTests {
             drainPending: { drains += 1; return drains == 1 ? ["[gordon]: x\r"] : ["LATE\r"] })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted(cli: nil))
-        ctl.handleEvent(.sessionStarted(cli: nil))                       // second readiness signal
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)                       // second readiness signal
 
         #expect(injected == ["[gordon]: x\r"])                 // only the first drain delivered
         #expect(drains == 1)                                   // queue not re-read
@@ -66,33 +66,33 @@ struct TerminalControllerDrainTests {
     }
 
     @Test("an empty queue is a harmless no-op (normal startup, nothing waiting)")
-    func emptyQueueNoOp() {
+    func emptyQueueNoOp() async {
         var injected: [String] = []
         let ctl = GhosttyTerminalController(
             panelId: "p4", config: makeConfig(), post: { _ in },
             drainPending: { [] })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted(cli: nil))
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)
 
         #expect(injected.isEmpty)
         ctl.teardown()
     }
 
     @Test("readiness before a surface is bound defers the flush (message not lost)")
-    func flushDeferredUntilSurfaceBound() {
+    func flushDeferredUntilSurfaceBound() async {
         var queue = ["[gordon]: hi\r"]
         var injected: [String] = []
         let ctl = GhosttyTerminalController(
             panelId: "p5", config: makeConfig(), post: { _ in },
             drainPending: { let q = queue; queue = []; return q })
 
-        ctl.handleEvent(.sessionStarted(cli: nil))                       // no surface yet → deferred, must not crash
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)                       // no surface yet → deferred, must not crash
         #expect(injected.isEmpty)
         #expect(queue == ["[gordon]: hi\r"])                   // still queued, not drained
 
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
-        ctl.handleEvent(.sessionStarted(cli: nil))                       // now bound → delivers
+        ctl.readyQuiet = 0.05; ctl.handleEvent(.sessionStarted(cli: nil)); await ctl.waitUntilInputReady(timeout: 1)                       // now bound → delivers
         #expect(injected == ["[gordon]: hi\r"])
         ctl.teardown()
     }

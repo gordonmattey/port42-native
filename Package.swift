@@ -31,7 +31,11 @@ let package = Package(
             ],
             path: "Sources/Port42Lib",
             resources: [
-                .process("Resources")
+                .process("Resources"),
+                // The skills plugin (nautilus Phase 5) is a folder tree that must arrive intact:
+                // `.claude-plugin/plugin.json` and five `skills/<name>/SKILL.md`. `.process`
+                // flattens, and five files named SKILL.md would collide.
+                .copy("Skills/port42-skills")
             ],
             linkerSettings: [
                 // GhosttyKit is a static archive; the consuming app must link the

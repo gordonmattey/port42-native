@@ -237,10 +237,10 @@ public final class PortWindowManager: ObservableObject {
             let saved = try db.fetchPortPanels()
             for row in saved { restorePanel(from: row, appState: appState) }
             if !saved.isEmpty {
-                NSLog("[Port42] Restored %d port panels from database", saved.count)
+                p42log("[Port42] Restored %d port panels from database", saved.count)
             }
         } catch {
-            NSLog("[Port42] Failed to restore port panels: %@", error.localizedDescription)
+            p42log("[Port42] Failed to restore port panels: %@", error.localizedDescription)
         }
     }
 
@@ -349,7 +349,7 @@ public final class PortWindowManager: ObservableObject {
             try db.savePortPanel(record)
             try db.savePortVersion(portUdid: panel.udid, html: panel.html, createdBy: panel.createdBy)
         } catch {
-            NSLog("[Port42] Failed to persist port panel: %@", error.localizedDescription)
+            p42log("[Port42] Failed to persist port panel: %@", error.localizedDescription)
         }
     }
 
@@ -679,7 +679,7 @@ public final class PortWindowManager: ObservableObject {
               let row = try? db.fetchPortPanel(id: id) else { return false }
         try? db.setPortClosed(id: id, at: nil)
         restorePanel(from: row, appState: appState)
-        NSLog("[Port42] Reopened port %@", id)
+        p42log("[Port42] Reopened port %@", id)
         return true
     }
 
@@ -699,7 +699,8 @@ public final class PortWindowManager: ObservableObject {
         guard let row = try? db?.fetchPortPanel(id: id) else { return }
         TerminalSessionBootstrap.clearLiveCwd(portId: id)
         try? db?.deletePortForever(id: id, udid: row.udid ?? id)
-        NSLog("[Port42] Deleted port %@ for good", id)
+        appState?.companionWatches.removeAll(portUdid: row.udid ?? id)
+        p42log("[Port42] Deleted port %@ for good", id)
     }
 
     /// Resize a panel.
@@ -754,7 +755,7 @@ public final class PortWindowManager: ObservableObject {
         if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(false, on: wv) }
         panels[idx].bridge.suspendAI()      // backgrounded = off-screen: stop billing the model
         persistPanel(id)
-        NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
+        p42log("[Port42] Port minimized to background: %@", panels[idx].title)
     }
 
     /// Restore a background port to the desktop. Returns false if the port is not backgrounded.
@@ -764,7 +765,7 @@ public final class PortWindowManager: ObservableObject {
         panels[idx].isBackground = false
         if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(true, on: wv) }
         persistPanel(id)
-        NSLog("[Port42] Port restored from background: %@", panels[idx].title)
+        p42log("[Port42] Port restored from background: %@", panels[idx].title)
         return true
     }
 
@@ -775,7 +776,7 @@ public final class PortWindowManager: ObservableObject {
         // goes, so a stopped port cannot keep the mic (etc.) running (backlog 0.5).
         panel.bridge.releaseAcquisitions()
         destroyWebView(id)
-        NSLog("[Port42] Port stopped: %@", panel.title)
+        p42log("[Port42] Port stopped: %@", panel.title)
     }
 
     /// Restart a port by reloading its content. Web ports reload the WKWebView; native
@@ -795,7 +796,7 @@ public final class PortWindowManager: ObservableObject {
             destroyWebView(id)
             createPortWebView(for: panels[idx])
         }
-        NSLog("[Port42] Port restarted: %@", panels[idx].title)
+        p42log("[Port42] Port restarted: %@", panels[idx].title)
     }
 
     /// Wait until a port's document has actually loaded, or give up after `timeout`.
@@ -842,7 +843,7 @@ public final class PortWindowManager: ObservableObject {
         guard let panel = panels.first(where: { $0.id == id }), let wv = webViews[id] else { return }
         let document = PortWebViewFactory.wrapHTML(panel.html)
         wv.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
-        NSLog("[Port42] Port reloaded in place: %@", panel.title)
+        p42log("[Port42] Port reloaded in place: %@", panel.title)
     }
 
     /// Lightweight version history for UI display (no HTML blobs). Grouped by `<meta>` version.
@@ -870,7 +871,7 @@ public final class PortWindowManager: ObservableObject {
               let html = try? db.fetchPortVersionHtml(udid: panel.udid, version: version) else { return }
         Task { @MainActor in
             await updatePort(idOrTitle: panel.udid, html: html, skipVersionSnapshot: true)
-            NSLog("[Port42] Port restored to v%d: %@", version, panel.title)
+            p42log("[Port42] Port restored to v%d: %@", version, panel.title)
         }
     }
 
@@ -930,13 +931,13 @@ public final class PortWindowManager: ObservableObject {
         if let webView = webViews[panelId] {
             if !webView.isLoading, await applyLive(plan, html: html, to: webView) {
                 outcome = plan == .offer ? .handledByPage : .styles
-                NSLog("[Port42] Port updated live (%@): %@ (%@)", outcome.rawValue, newTitle, panelId)
+                p42log("[Port42] Port updated live (%@): %@ (%@)", outcome.rawValue, newTitle, panelId)
             } else {
                 webView.loadHTMLString(PortWebViewFactory.wrapHTML(html), baseURL: URL(string: "http://port42.local/"))
-                NSLog("[Port42] Port updated (webview reloaded): %@ (%@)", newTitle, panelId)
+                p42log("[Port42] Port updated (webview reloaded): %@ (%@)", newTitle, panelId)
             }
         } else {
-            NSLog("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
+            p42log("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
         }
 
         // Persist to database and optionally snapshot version
@@ -1444,7 +1445,7 @@ class PortConsoleHandler: NSObject, WKScriptMessageHandler {
            let body = message.body as? [String: Any],
            let level = body["level"] as? String,
            let msg = body["message"] as? String {
-            NSLog("[Port42:port:%@] %@", level, msg)
+            p42log("[Port42:port:%@] %@", level, msg)
             let cb = onConsole
             Task { @MainActor in cb?(level, msg) }
         }

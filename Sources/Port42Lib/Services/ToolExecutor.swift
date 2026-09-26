@@ -67,7 +67,7 @@ public final class ToolExecutor {
     /// Execute a tool and return the result as content blocks for the Anthropic API.
     /// Returns an array of content blocks (text or image).
     func execute(name: String, input: [String: Any]) async -> [[String: Any]] {
-        NSLog("[Port42] ToolExecutor: executing %@", name)
+        p42log("[Port42] ToolExecutor: executing %@", name)
 
         // Registry-first (Phase 2): the in-app companion path dispatches extracted methods through the
         // one shared impl, then renders the BridgeValue as tool-use content blocks. Unextracted
@@ -119,7 +119,7 @@ public final class ToolExecutor {
 
         // The old switch is GONE (the close-out): every tool is served registry-first above.
         // Nothing falls through.
-        NSLog("[Port42] ToolExecutor: unknown tool %@", name)
+        p42log("[Port42] ToolExecutor: unknown tool %@", name)
         return [["type": "text", "text": "Unknown tool: \(name)"]]
     }
 }

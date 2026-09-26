@@ -31,22 +31,26 @@ window globals — inline handler attributes (onclick="fn()") cannot see your fu
 with "Can't find variable". Attach handlers with addEventListener, or expose explicitly with
 window.fn = fn. Never use inline onclick/onchange attributes in port HTML.
 
-## Calling Port42 APIs
+## Calling Port42
 
-Use `curl` to call any API. Port42 must be running.
+Use the `port42` command. It calls as you, on the Port42 that started your session.
 
 ```bash
-curl -s http://127.0.0.1:4242/call \
-  -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" \
-  -d '{"method":"<method>","args":{...}}'
+port42 whoami                         # who you are, your space, who you can @mention
+port42 <method> key=value ...         # any method
+port42 help api                       # every method and its arguments
+port42 help ports                     # the port manual
 ```
 
-Response: `{"content": "..."}` — the result as a string or JSON.
+Arguments: `key=value` is a string, `key:=<json>` a number, boolean, array or object, and
+`key=@<file>` a file's contents (send HTML this way, never inline). A refused call prints
+`{error, code, ...}` and exits 1; a stale write's `current` is the token to retry with. (Each call is
+an HTTP POST to `http://127.0.0.1:$PORT42_GATEWAY_PORT/call` with
+`Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")`; the command does that for you.)
 
-**Every call must name a caller.** If Port42 started this session, `$PORT42_TOKEN_FILE` is the path
-to your own token and `$PORT42_CLIENT_ID` is the name Port42 knows you by; read the file at call
-time rather than caching it. If that variable is not set, ask the user to add a client in Port42
-Settings → Access. Each instance mints its own tokens, so one instance's is refused by another.
+**Every call names a caller.** If Port42 started this session, `$PORT42_TOKEN_FILE` is your own token
+and `$PORT42_CLIENT_ID` the name Port42 knows you by, and `port42` uses them. Anywhere else it calls
+as the port42 CLI. Each instance mints its own tokens, so one instance's is refused by another.
 
 **Do not read another tool's token file.** It will work, and that is the problem: the permission
 prompt then names that tool instead of you, the grant lands on it, and revoking your access breaks
@@ -58,30 +62,22 @@ A grant is per caller and per capability; the user can see and revoke it in Port
 ## Quick examples
 
 ```bash
-# Read clipboard
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"clipboard.read"}'
+port42 clipboard.read
+port42 terminal.exec command="ls ~/Desktop"
+port42 screen.capture scale:=0.5
 
-# Run a shell command
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+# Every port has a chat (a space is a port, port 0 is the desktop). A post is yours, and an
+# @mention wakes that companion.
+port42 chat.post port=<space or port id> text="hello from {{TOOL_NAME}}"
+port42 chat.read port=<space or port id> limit:=10
 
-# Take a screenshot
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"screen_capture","args":{"scale":0.5}}'
+# Make a port from a file, change it with the token ports.list gives you
+port42 port.create type=web html=@port.html
+port42 port.update id=<port id> html=@port.html token=<token>
 
-# Post to a port's chat (every port has one; a space is a port, port 0 is the desktop).
-# It is posted as you, and an @mention wakes that companion.
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.post","args":{"port":"<space or port id>","text":"hello from {{TOOL_NAME}}"}}'
-
-# Read a port's chat
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.read","args":{"port":"<space or port id>","limit":10}}'
-
-# List all spaces
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"space.list"}'
-
-# List companions
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"companions.list"}'
-
-# Get current user
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"user.get"}'
+port42 space.list
+port42 companions.list
+port42 user.get
 ```
 
 ERRORS CARRY A CODE YOU CAN BRANCH ON, and a message written for a human. Branch on the code,
@@ -200,12 +196,37 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### companions
 
+  companions.create(name, agent, args, runs, port, kinds, cwd, prompt, command, space_id)  [permission: terminal]
+      Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: "port" (default, on the desktop) or "hidden" (no place on the desktop; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default ["port"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.
+        agent (string): The CLI (default claude).
+        args (array): Arguments for the CLI or command.
+        command (string): agent custom: the command to run.
+        cwd (string): Working directory (default: the space's).
+        kinds (array): With `port`: event kinds that wake it.
+        name (string, required): Its name; @mention it by this.
+        port (string): A port to watch instead of listening to the space.
+        prompt (string): Its system prompt.
+        runs (string): Where its terminal runs (default port).
+        space_id (string): The space (default: yours, else the current one).
   companions.get(id)
       Get details about a specific companion by ID
         id (string, required): The companion's ID
   companions.list(space_id)
       List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want).
         space_id (string): Omit for your own space (the default). A space id targets that space. "*" returns the whole-instance roster.
+  companions.unwatch(port, companion)
+      Stop watching a port. Call it as the watcher, or pass `companion`.
+        companion (string): Whose watch, by name or id (default: you).
+        port (string, required): The watched port (id, udid or title).
+  companions.watch(port, kinds, every, companion)
+      Watch a port: an event on it of a kind you name wakes you for a turn, and your reply is posted in that port's chat. Default kinds: ["port"], the port's own published events (port.publish). Others: "console" (a log line or error), "state" (an edit), "chat" (every post in its chat), or one exact kind such as "port.alert". Events that arrive while you are in a turn are held and given to you together when it ends. Watching again changes the watch and resumes it if it paused (a watch pauses after 60 wakes in an hour, and says so in the port's chat). Call it as the companion that should wake, or pass `companion` to set a watch for another.
+        companion (string): Whose watch, by name or id (default: you).
+        every (integer): The least time between two wakes, in seconds (default: none).
+        kinds (array): Event kinds that wake you (default ["port"]).
+        port (string, required): The port to watch (id, udid or title).
+  companions.watches(companion)
+      List watches: yours, another companion's (`companion`), or every one (`companion`: "*"). Each is {companion, port, title, kinds, every, paused}.
+        companion (string): A name or id, or "*" for all (default: you).
 
 ### fs
 

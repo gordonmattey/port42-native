@@ -519,7 +519,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         view.registerForDraggedTypes([.fileURL])  // Step 5c: drop a file → paste its path
 
         guard let app = GhosttyApp.shared.ensureApp() else {
-            NSLog("[Ghostty] buildSurface: no app singleton")
+            p42log("[Ghostty] buildSurface: no app singleton")
             return
         }
 
@@ -565,13 +565,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
         cStrings.forEach { free($0) }
         guard let surface else {
-            NSLog("[Ghostty] buildSurface: ghostty_surface_new returned nil")
+            p42log("[Ghostty] buildSurface: ghostty_surface_new returned nil")
             return
         }
         view.surface = surface
         coordinator.surface = surface
         coordinator.view = view
-        NSLog("[Ghostty] buildSurface: surface created \(surface) for '\(config.companionName)'")
+        p42log("[Ghostty] buildSurface: surface created \(surface) for '\(config.companionName)'")
 
         // PTY tee → copy bytes synchronously off the IO thread (gap #5), hand to
         // main, deliver via the coordinator's onTee.
@@ -689,7 +689,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, let v = self.view else { return }
                 v.write(self.startupCommand + "\r", mode: .keys)
-                NSLog("[Ghostty] typed startup command (%d chars)", self.startupCommand.count)
+                p42log("[Ghostty] typed startup command (%d chars)", self.startupCommand.count)
             }
         }
 
@@ -701,7 +701,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             guard !prefillSent, !text.isEmpty, let v = view else { return }
             prefillSent = true
             v.write(text, mode: .keys)
-            NSLog("[Ghostty] typed prefill, unsent (%d chars)", text.count)
+            p42log("[Ghostty] typed prefill, unsent (%d chars)", text.count)
         }
 
         func teardown() {
@@ -713,7 +713,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             ghostty_surface_free(s)
             teeBox?.release()                             // the callback can no longer reach it
             teeBox = nil
-            NSLog("[Ghostty] dismantleNSView: surface freed (app singleton kept).")
+            p42log("[Ghostty] dismantleNSView: surface freed (app singleton kept).")
         }
     }
 }

@@ -32,7 +32,7 @@ public final class Analytics {
     public func configure(userId: String) {
         guard !configured else { return }
         guard isOptedIn else {
-            NSLog("[analytics] user has not opted in (analyticsOptIn = false)")
+            p42log("[analytics] user has not opted in (analyticsOptIn = false)")
             return
         }
 
@@ -40,10 +40,10 @@ public final class Analytics {
             ?? Bundle.main.object(forInfoDictionaryKey: "POSTHOG_API_KEY") as? String
             ?? ""
         guard !apiKey.isEmpty else {
-            NSLog("[analytics] no PostHog API key configured")
+            p42log("[analytics] no PostHog API key configured")
             return
         }
-        NSLog("[analytics] configuring PostHog for user %@", userId)
+        p42log("[analytics] configuring PostHog for user %@", userId)
 
         let config = PostHogConfig(
             apiKey: apiKey,

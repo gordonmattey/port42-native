@@ -24,6 +24,8 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "skills":
+		os.Exit(runSkills(os.Args[2:], os.Stdout, os.Stderr))
 	case "teleport":
 		os.Exit(runTeleport(os.Args[2:]))
 	case "help", "--help", "-h":
@@ -55,6 +57,8 @@ Usage:
   port42 <method> [args]    Call one Port42 method, e.g. port42 whoami
   port42 help api           Every method, with its arguments (from the running app)
   port42 help ports         The port-authoring manual
+  port42 skills install     Install Port42's skills into Claude Code and Codex, for sessions
+                            Port42 did not start (in a Port42 terminal they load on their own)
   port42 teleport [flags]   Bring this terminal's Claude Code session into a Port42 port
   port42 help               Show this message
 

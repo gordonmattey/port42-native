@@ -22,6 +22,8 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerLiveDeviceMethods(into: &r, appState: appState)
     registerPortLiveMethods(into: &r, appState: appState)
     registerChatMethods(into: &r, appState: appState)       // chat.* (PortChat.swift)
+    registerWatchMethods(into: &r, appState: appState)      // companions.watch* (CompanionWatch.swift)
+    registerCompanionCreate(into: &r, appState: appState)   // companions.create (CompanionWatch.swift)
     // R3: every WRITE verb gains the optional `expect` token here, once, instead of eight times in
     // eight declarations. A write verb added tomorrow gets compare-and-swap by construction.
     return r.mapValues { $0.acceptingExpect() }
@@ -202,10 +204,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // carries the full identity, so each branch uses the key its accessor keys on (terminal id /
         // webViews-key / inline messageId). Terminal-wins precedence lives in PortResolution now, not here.
         guard let ref = appState.resolvePortRef(id) else {
-            NSLog("[Port42][portdrive] push id=%@ → NOTFOUND space=%@", id, appState.currentSpace?.name ?? "?")
+            p42log("[Port42][portdrive] push id=%@ → NOTFOUND space=%@", id, appState.currentSpace?.name ?? "?")
             throw BridgeError.notFound("port '\(id)'")
         }
-        NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
+        p42log("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
         // A TERMINAL TAKES KEYSTROKES, and there is no keystroke for null. Presence alone closes the
         // reported bug (an omitted `data` can no longer reach the prompt), but `{"data": null}` would
         // still serialize to the string "null" at the branch below and type it. Refused here rather
@@ -1131,7 +1133,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         case nil, "":
             return .string(appState.apiReference)
         case "ports":
-            return .string(AppState.portsContext)
+            // The ports skill, then the full manual: the same files an agent's skill loads.
+            return .string(SkillCatalog.helpPorts())
         case let other?:
             throw BridgeError(code: .notFound, message: "unknown help topic '\(other)' — known topics: ports")
         }

@@ -255,7 +255,7 @@ public final class ClientRegistry {
             try writeTokenFile(id: id, token: token)
             return token
         } catch {
-            NSLog("[Port42] ClientRegistry: failed to register %@: %@", id, "\(error)")
+            p42log("[Port42] ClientRegistry: failed to register %@: %@", id, "\(error)")
             return nil
         }
     }

@@ -57,7 +57,7 @@ public final class ScreenBridge: PortOwnedResource {
             ] as [String: Any]
         }
 
-        NSLog("[Port42] screen.windows: found %d windows", list.count)
+        p42log("[Port42] screen.windows: found %d windows", list.count)
         return ["windows": list]
     }
 
@@ -84,7 +84,7 @@ public final class ScreenBridge: PortOwnedResource {
 
         // Display capture path
         guard !content.displays.isEmpty else {
-            NSLog("[Port42] screen.capture: no displays available")
+            p42log("[Port42] screen.capture: no displays available")
             return ["error": "no displays available"]
         }
 
@@ -137,7 +137,7 @@ public final class ScreenBridge: PortOwnedResource {
 
     private func captureWindow(windowId: UInt32, scale: Double, content: SCShareableContent) async -> [String: Any] {
         guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
-            NSLog("[Port42] screen.capture: window %u not found", windowId)
+            p42log("[Port42] screen.capture: window %u not found", windowId)
             return ["error": "window not found", "code": BridgeErrorCode.notFound.wire]
         }
 
@@ -151,7 +151,7 @@ public final class ScreenBridge: PortOwnedResource {
         // Transparent background for window-only capture
         config.backgroundColor = .clear
 
-        NSLog("[Port42] screen.capture: window '%@' (%u) %.0fx%.0f",
+        p42log("[Port42] screen.capture: window '%@' (%u) %.0fx%.0f",
               window.title ?? "untitled", windowId, window.frame.width, window.frame.height)
 
         return await takeScreenshot(filter: filter, config: config, scale: scale, label: "window '\(window.title ?? "untitled")'")
@@ -162,22 +162,22 @@ public final class ScreenBridge: PortOwnedResource {
         do {
             cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         } catch {
-            NSLog("[Port42] screen.capture: capture failed: %@", error.localizedDescription)
+            p42log("[Port42] screen.capture: capture failed: %@", error.localizedDescription)
             return ["error": "screen capture failed: \(error.localizedDescription)"]
         }
 
         let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
         guard let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
-            NSLog("[Port42] screen.capture: PNG conversion failed")
+            p42log("[Port42] screen.capture: PNG conversion failed")
             return ["error": "failed to encode screenshot as PNG"]
         }
 
         let sizeMB = Double(pngData.count) / 1_048_576.0
         if sizeMB > 10.0 {
-            NSLog("[Port42] screen.capture: large image warning (%.1f MB)", sizeMB)
+            p42log("[Port42] screen.capture: large image warning (%.1f MB)", sizeMB)
         }
 
-        NSLog("[Port42] screen.capture: %@ %dx%d (%.1f MB, scale=%.1f)",
+        p42log("[Port42] screen.capture: %@ %dx%d (%.1f MB, scale=%.1f)",
               label, cgImage.width, cgImage.height, sizeMB, scale)
 
         return [
@@ -247,7 +247,7 @@ public final class ScreenBridge: PortOwnedResource {
             try scStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: DispatchQueue(label: "com.port42.screen.stream", qos: .userInitiated))
             try await scStream.startCapture()
         } catch {
-            NSLog("[Port42] screen.stream: failed to start: %@", error.localizedDescription)
+            p42log("[Port42] screen.stream: failed to start: %@", error.localizedDescription)
             return ["error": "screen stream failed: \(error.localizedDescription)"]
         }
 
@@ -256,7 +256,7 @@ public final class ScreenBridge: PortOwnedResource {
         self.isStreaming = true
         self.ownerPortId = owner?.messageId
 
-        NSLog("[Port42] screen.stream: started %dx%d @ %.0f fps", captureWidth, captureHeight, fps)
+        p42log("[Port42] screen.stream: started %dx%d @ %.0f fps", captureWidth, captureHeight, fps)
         return ["ok": true, "width": captureWidth, "height": captureHeight]
     }
 
@@ -270,7 +270,7 @@ public final class ScreenBridge: PortOwnedResource {
             do {
                 try await scStream.stopCapture()
             } catch {
-                NSLog("[Port42] screen.stopStream: error: %@", error.localizedDescription)
+                p42log("[Port42] screen.stopStream: error: %@", error.localizedDescription)
             }
         }
 
@@ -279,7 +279,7 @@ public final class ScreenBridge: PortOwnedResource {
         self.isStreaming = false
         self.ownerPortId = nil
 
-        NSLog("[Port42] screen.stream: stopped")
+        p42log("[Port42] screen.stream: stopped")
         return ["ok": true]
     }
 
@@ -322,10 +322,10 @@ public final class ScreenBridge: PortOwnedResource {
         if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamError" ||
            nsError.localizedDescription.lowercased().contains("permission") ||
            nsError.localizedDescription.lowercased().contains("denied") {
-            NSLog("[Port42] %@: TCC permission denied: %@", method, error.localizedDescription)
+            p42log("[Port42] %@: TCC permission denied: %@", method, error.localizedDescription)
             return ["error": "screen recording permission denied. Check System Settings > Privacy & Security > Screen Recording", "code": BridgeErrorCode.permissionDenied.wire]
         }
-        NSLog("[Port42] %@: failed to get shareable content: %@", method, error.localizedDescription)
+        p42log("[Port42] %@: failed to get shareable content: %@", method, error.localizedDescription)
         return ["error": "screen capture failed: \(error.localizedDescription)"]
     }
 }

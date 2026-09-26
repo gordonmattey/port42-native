@@ -136,16 +136,6 @@ public final class AppState: ObservableObject {
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
     }()
 
-    /// The resident CORE (bundled): what a port is, the non-negotiables, and the pointer to the
-    /// manual. This is the ONLY port knowledge that rides in every companion system prompt.
-    static let portsCore: String = {
-        if let url = Bundle.port42.url(forResource: "ports-core", withExtension: "txt"),
-           let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
-        }
-        return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Call the help tool with topic \"ports\" before building one."
-    }()
-
     @Published public var spaces: [Space] = []
     @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
     @Published public var currentUser: AppUser?
@@ -226,6 +216,46 @@ public final class AppState: ObservableObject {
     /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
+
+    /// Companions watching ports (nautilus Phase 3.3). Started once ports are restored.
+    lazy var companionWatches: CompanionWatchService = {
+        let service = CompanionWatchService(appState: self)
+        service.deliver = { [weak self] companion, message, portUdid in
+            self?.deliverWatch(companion: companion, message: message, portUdid: portUdid)
+        }
+        service.pauseNotice = { [weak self] watch, companion in
+            guard let self, let key = self.chatKey(for: watch.portUdid) else { return }
+            _ = try? self.postToChat(key: key, text: "@\(companion.displayName)'s watch on this port paused after "
+                + "\(service.ceilingPerHour) wakes in an hour. Watch it again to resume.",
+                from: .peer(id: "port42", displayName: "port42", spaceId: nil))
+        }
+        return service
+    }()
+
+    /// Hide or show a companion's running terminal now, as its RUNS setting just changed.
+    func setCompanionHidden(_ companion: AgentConfig, hidden: Bool) {
+        let key = companion.displayName.lowercased()
+        for panel in portWindows.panels where panel.terminalConfig?.companionName.lowercased() == key {
+            if hidden { portWindows.minimize(panel.id) } else { _ = portWindows.restore(panel.id) }
+        }
+    }
+
+    /// Start a companion's turn for its watch: typed into its terminal (reopened if closed), or a
+    /// headless companion launched with it. The reply goes to the watched port's chat.
+    func deliverWatch(companion: AgentConfig, message: String, portUdid: String) {
+        guard let key = chatKey(for: portUdid) else { return }
+        let panel = portWindows.panels.first { $0.udid == portUdid }
+        let spaceId = panel?.spaceId ?? currentSpace?.id ?? ""
+        let source = ChatRouting.sourceLabel(port: panel?.title, portId: portUdid)
+        if companion.openInTerminal {
+            deliverToTerminalCompanion(companion,
+                                       line: ChatRouting.terminalLine(sender: "port42", source: source, text: message),
+                                       replyChat: key, spaceId: spaceId)
+        } else {
+            launchAgents([companion], spaceId: spaceId, spaceAgentIds: Set(spaceCompanions.map(\.id)),
+                         triggerContent: message, senderId: "port42", senderName: "port42", replyChat: key)
+        }
+    }
 
     /// The companion a caller acts as: itself when it is one, else the companion running in the
     /// terminal its credential belongs to. A terminal companion calls Port42 with its terminal's
@@ -430,14 +460,15 @@ public final class AppState: ObservableObject {
             guard let self = self else { return }
             // F8: a port whose space was deleted is removed before anything lists or draws it.
             if let reaped = try? self.db.reapOrphanPortPanels(), reaped > 0 {
-                NSLog("[Port42] Removed %d port(s) whose space no longer exists", reaped)
+                p42log("[Port42] Removed %d port(s) whose space no longer exists", reaped)
             }
             // A chat goes with its port (docs/design-chat-port.md).
             if let reaped = try? self.db.reapOrphanChats(), reaped > 0 {
-                NSLog("[Port42] Removed %d chat entr(ies) whose port no longer exists", reaped)
+                p42log("[Port42] Removed %d chat entr(ies) whose port no longer exists", reaped)
             }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
+            self.companionWatches.start()
             if self.isSetupComplete, let space = self.currentSpace {
                 self.portWindows.switchToSpace(space.id, spaceName: space.name)
             }
@@ -592,8 +623,24 @@ public final class AppState: ObservableObject {
                        + "That was a deliberate act by the person at this machine — ask them before "
                        + "retrying. They can restore it in Settings → Access.")
         }
-        try? db.touchClient(id: clientId)
+        touchClientIfDue(clientId)
         return (clientId, client.name)
+    }
+
+    /// When each client was last recorded as seen. Recording it is a database commit, and it ran on
+    /// EVERY gateway call, on the main thread: with several agents calling at once those commits
+    /// held the main thread and calls timed out behind them (sampled on Dev4, 2026-09-26). "Last
+    /// seen" needs minutes, not calls, so it is written at most once a minute per client.
+    private var clientTouchedAt: [String: Date] = [:]
+    static let clientTouchInterval: TimeInterval = 60
+
+    /// Returns whether it wrote. Written off the main thread, as grant use is (`touchIfDue`).
+    @discardableResult
+    func touchClientIfDue(_ clientId: String, now: Date = Date()) -> Bool {
+        if let last = clientTouchedAt[clientId], now.timeIntervalSince(last) < Self.clientTouchInterval { return false }
+        clientTouchedAt[clientId] = now
+        Task.detached { [db] in try? db.touchClient(id: clientId) }
+        return true
     }
 
     /// Which instance refused, and on which port (D1).
@@ -782,7 +829,7 @@ public final class AppState: ObservableObject {
                 // risk in this operation, so it is stated rather than implied.
                 let reaped = self.clientRegistry.reapOrphanTokenFiles()
                 if !reaped.isEmpty {
-                    NSLog("[Port42] reaped %d orphan token file(s): %@",
+                    p42log("[Port42] reaped %d orphan token file(s): %@",
                           reaped.count, reaped.joined(separator: ", "))   // names, never contents
                 }
             }
@@ -951,12 +998,12 @@ public final class AppState: ObservableObject {
             let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             for pidStr in output.split(separator: "\n") {
                 if let pid = Int32(pidStr.trimmingCharacters(in: .whitespaces)) {
-                    NSLog("[gateway] killing stale process on port %d (pid %d)", port, pid)
+                    p42log("[gateway] killing stale process on port %d (pid %d)", port, pid)
                     kill(pid, SIGTERM)
                 }
             }
         } catch {
-            NSLog("[gateway] lsof failed: %@", error.localizedDescription)
+            p42log("[gateway] lsof failed: %@", error.localizedDescription)
         }
     }
 
@@ -987,30 +1034,36 @@ public final class AppState: ObservableObject {
             if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal
             }) {
-                // Native Ghostty terminal companion. Set the "typing…" indicator HERE
-                // (cleared by the controller's post closure on turnComplete). launchAgents
-                // skips openInTerminal companions, so the optimistic typing loops must NOT
-                // set it — this route is the only point a native terminal companion is driven.
-                let name = companion.displayName
-                ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
-                if let controller = terminalControllers.values.first(where: {
-                    $0.config.companionName.lowercased() == key
-                }), controller.isSurfaceBound {
-                    // Live terminal: inject now AND arm the next turnComplete so only this
-                    // reply is broadcast back to the space.
-                    controller.inject(line)
-                    setTerminalTyping(name: name, spaceId: spaceId)
-                    NSLog("[Port42] Routed '%@' to native terminal", key)
-                } else {
-                    // Terminal closed/minimized (or mid-(re)spawn): queue the message and
-                    // ensure a live terminal exists. The controller drains the queue once the
-                    // CLI signals readiness (SessionStart). Auto-reopen + deliver.
-                    pendingTerminalInjections[key, default: []].append(line)
-                    ensureTerminalLive(companion: companion, spaceId: spaceId)
-                    setTerminalTyping(name: name, spaceId: spaceId)
-                    NSLog("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
-                }
+                deliverToTerminalCompanion(companion, line: line, replyChat: replyChat, spaceId: spaceId)
             }
+        }
+    }
+
+    /// Type one message into a terminal companion and route its reply to `replyChat`: a mention, or a
+    /// watch waking it. Its turn starts here, so a watch holds its events until the turn ends.
+    func deliverToTerminalCompanion(_ companion: AgentConfig, line: String, replyChat: String?, spaceId: String) {
+        // Native Ghostty terminal companion. Set the "typing…" indicator HERE (cleared by the
+        // controller's post closure on turnComplete). launchAgents skips openInTerminal companions, so
+        // the optimistic typing loops must NOT set it: this is the only point one is driven.
+        let name = companion.displayName
+        let key = name.lowercased()
+        ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        companionWatches.turnStarted(companionName: name)
+        if let controller = terminalControllers.values.first(where: {
+            $0.config.companionName.lowercased() == key
+        }), controller.isSurfaceBound {
+            // Live terminal: inject now AND arm the next turnComplete so only this reply is posted.
+            controller.inject(line)
+            setTerminalTyping(name: name, spaceId: spaceId)
+            p42log("[Port42] Routed '%@' to native terminal", key)
+        } else {
+            // Terminal closed/minimized (or mid-(re)spawn): queue the message and ensure a live
+            // terminal exists. The controller drains the queue once the CLI signals readiness
+            // (SessionStart). Auto-reopen + deliver.
+            pendingTerminalInjections[key, default: []].append(line)
+            ensureTerminalLive(companion: companion, spaceId: spaceId)
+            setTerminalTyping(name: name, spaceId: spaceId)
+            p42log("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
         }
     }
 
@@ -1035,19 +1088,18 @@ public final class AppState: ObservableObject {
         }
         // A panel already exists for this companion: restore it if backgrounded (minimized),
         // otherwise it is mid-build — leave it (its controller will appear shortly).
-        if let panel = portWindows.panels.first(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
-            if panel.isBackground {
-                NSLog("[Port42] Restoring backgrounded terminal for '%@'", key)
-                portWindows.restore(panel.id)
-            }
+        // A panel already exists for this companion: it is mid-build, and its controller will appear
+        // shortly. A HIDDEN one stays hidden: it used to be restored here, so waking a hidden
+        // companion while its terminal started put it back on the desktop (nautilus 3.7).
+        if portWindows.panels.contains(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
             return
         }
         // No panel at all → fully closed → spawn a fresh terminal port.
         guard let command = companion.command else {
-            NSLog("[Port42] ensureTerminalLive: '%@' has no command, cannot respawn", key)
+            p42log("[Port42] ensureTerminalLive: '%@' has no command, cannot respawn", key)
             return
         }
-        NSLog("[Port42] Respawning closed terminal for '%@'", key)
+        p42log("[Port42] Respawning closed terminal for '%@'", key)
         spawnTerminalAgentPort(companion: companion, command: command, spaceId: spaceId)
     }
 
@@ -1061,7 +1113,7 @@ public final class AppState: ObservableObject {
         terminalTypingTimers[key] = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                NSLog("[Port42] Terminal typing safety-timeout fired for '%@' — clearing", name)
+                p42log("[Port42] Terminal typing safety-timeout fired for '%@' — clearing", name)
                 self.clearTerminalTyping(name: name, spaceId: spaceId)
             }
         }
@@ -1371,6 +1423,28 @@ public final class AppState: ObservableObject {
 
     // MARK: - Companions
 
+    /// Make a companion as the new-companion card describes it, in a space, listening to that space
+    /// or watching one port. THE one path: the card and `companions.create` both come through here, so
+    /// what the harness proves over the API is what the card does.
+    @discardableResult
+    func createCompanion(_ c: AgentConfig, spaceId: String, watchPort: String? = nil,
+                         watchKinds: [String] = WatchKinds.defaultKinds) throws -> AgentConfig {
+        guard !companions.contains(where: { $0.displayName.lowercased() == c.displayName.lowercased() }) else {
+            throw BridgeError.badArg("a companion named '\(c.displayName)' already exists")
+        }
+        guard let space = spaces.first(where: { $0.id == spaceId }) else { throw BridgeError.notFound("space '\(spaceId)'") }
+        var udid: String?
+        if let watchPort {
+            guard let u = resolvePortRef(watchPort)?.udid else { throw BridgeError.notFound("port '\(watchPort)'") }
+            _ = try WatchKinds.validate(watchKinds)
+            udid = u
+        }
+        addCompanion(c)
+        addCompanionToSpace(c, space: space)
+        if let udid { try companionWatches.watch(companion: c, portUdid: udid, kinds: watchKinds, every: nil) }
+        return c
+    }
+
     public func addCompanion(_ companion: AgentConfig) {
         do {
             try db.saveAgent(companion)
@@ -1463,6 +1537,8 @@ public final class AppState: ObservableObject {
             // timeout). Native terminal companions are skipped by launchAgents (which is what
             // clears typing for LLM/command agents), so without this the indicator hangs forever.
             self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
+            // The turn is over: what its watches held while it ran goes now, as one.
+            defer { self.companionWatches.turnEnded(companionName: config.companionName) }
             let companion = self.companions.first(where: { $0.displayName == config.companionName })
             let who: Principal = companion.map {
                 .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
@@ -1472,7 +1548,7 @@ public final class AppState: ObservableObject {
             let asked = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased())
             let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
             do { try self.postToChat(key: chat, text: content, from: who) }
-            catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
+            catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainKey = config.companionName.lowercased()
@@ -1562,9 +1638,9 @@ public final class AppState: ObservableObject {
             try db.saveAgent(agent)
             companions = try db.getAllAgents()
             autoRegisteredCompanions[panelId] = agent.id
-            NSLog("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
+            p42log("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
         } catch {
-            NSLog("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
+            p42log("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
             return
         }
         // Membership + the "joined" announcement (once) via the shared seam.
@@ -1599,9 +1675,9 @@ public final class AppState: ObservableObject {
             try db.removeAllSpacesForAgent(agentId)
             try db.deleteAgent(id: agentId)
             companions = try db.getAllAgents()
-            NSLog("[Port42] removed auto-registered CLI companion id=%@", agentId)
+            p42log("[Port42] removed auto-registered CLI companion id=%@", agentId)
         } catch {
-            NSLog("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
+            p42log("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
         }
     }
 
@@ -1692,10 +1768,11 @@ public final class AppState: ObservableObject {
         // so a copy here would drift against that one silently. What stays local is what only this
         // surface knows: who this companion is, which space, its own self-post command, and how to
         // authenticate it.
+        // The six every-turn rules (nautilus Phase 5): who you are, then `rules` and `pointer`.
+        // Everything else is in the port42 skills.
+        _ = gwPort
         let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
-            + CompanionProtocol.rules + " "
-            + CompanionProtocol.chats(gatewayPort: gwPort)
-            + " POSTING ON YOUR OWN INITIATIVE: to post a NEW message when you are NOT replying (e.g. to share an update or raise something proactively), post it to the space's chat: port42 chat.post port=\(spaceId) text=\"your message\" — it is posted as you. Only for self-initiated messages, never to deliver a reply. The port42 command calls as you, with YOUR OWN token ($PORT42_TOKEN_FILE; $PORT42_CLIENT_ID is the name Port42 knows you by); a curl to the gateway needs the header -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\". Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
+            + CompanionProtocol.rules + " " + CompanionProtocol.pointer + " Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
@@ -1728,7 +1805,7 @@ public final class AppState: ObservableObject {
                 try? db.deleteAgent(id: agent.id)
                 live.remove(agent.displayName)
                 reaped += 1
-                NSLog("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
+                p42log("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
                       agent.displayName, handle)
             } else {
                 var renamed = agent
@@ -1737,7 +1814,7 @@ public final class AppState: ObservableObject {
                 live.remove(agent.displayName)
                 live.insert(handle)
                 folded += 1
-                NSLog("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
+                p42log("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
             }
         }
 
@@ -1819,7 +1896,7 @@ public final class AppState: ObservableObject {
             initialInput: initialInput
         )
         guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
-            NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
+            p42log("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
             return nil
         }
 
@@ -1830,7 +1907,7 @@ public final class AppState: ObservableObject {
         if let panel = portWindows.panels.first(where: { $0.id == portId }) {
             buildTerminalSurface(for: panel, config: config)
         }
-        NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
+        p42log("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
 
         // Step 5b: record params so the card's play can respawn after a close, and track the
         // currently-live port id under the stable card key (`recordKey` on respawn, else portId).
@@ -1916,12 +1993,13 @@ public final class AppState: ObservableObject {
 
         // Companion identity is baked by spawnNativeTerminalPort (bakeCompanionPrompt): the
         // Port42 operational framing wrapped around this companion's RAW systemPrompt template.
-        guard spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
-                                      spaceId: spaceId, title: name,
-                                      companionName: name, companionId: companion.id,
-                                      systemPrompt: companion.systemPrompt) != nil else {
+        guard let portId = spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
+                                                   spaceId: spaceId, title: name,
+                                                   companionName: name, companionId: companion.id,
+                                                   systemPrompt: companion.systemPrompt) else {
             return
         }
+        if companion.runsHidden { portWindows.applyPresentation("hidden", to: portId) }
 
         // The join announcement is NOT posted here: this path also runs on respawn (a closed
         // terminal reopened), which is not a fresh join. Arrival is announced once at the
@@ -2001,6 +2079,7 @@ public final class AppState: ObservableObject {
         for panel in panelsToClose {
             portWindows.close(panel.id)
         }
+        companionWatches.removeAll(companionId: companion.id)
         do {
             try db.removeAllSpacesForAgent(companion.id)
             try db.deleteAgent(id: companion.id)

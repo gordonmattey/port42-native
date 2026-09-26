@@ -1,0 +1,5 @@
+{
+  "name": "port42",
+  "description": "Port42's knowledge for agents: calling Port42, making ports, composing them, working with other agents, and using the machine.",
+  "version": "1.0.0"
+}

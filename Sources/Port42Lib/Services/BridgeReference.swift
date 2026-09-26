@@ -84,7 +84,7 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
 /// param name) is discoverable via `help` — e.g. what goes inside an `options` bag. Keys are sorted so
 /// the generated reference is byte-stable (the llms.txt freshness gate). Renders one line per property:
 /// `name (type[, required]): description`. A schema with no properties renders nothing.
-private func renderSchemaParams(_ schema: [String: Any]) -> String {
+func renderSchemaParams(_ schema: [String: Any]) -> String {
     guard let props = schema["properties"] as? [String: Any], !props.isEmpty else { return "" }
     let required = Set((schema["required"] as? [String]) ?? [])
     var out = ""

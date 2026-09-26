@@ -49,7 +49,7 @@ extension CLIHookProducer {
             // fresh login. `sessions/`: the Stop payload's `transcript_path` lands INSIDE this home,
             // so leaving it unlinked strands transcripts in a temp dir and breaks `codex resume`.
             let entries = (try? fm.contentsOfDirectory(atPath: realHome)) ?? []
-            for entry in entries where entry != "config.toml" && entry != "AGENTS.md" {
+            for entry in entries where entry != "config.toml" && entry != "AGENTS.md" && entry != "skills" {
                 let link = "\(home)/\(entry)"
                 try? fm.removeItem(atPath: link)
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: "\(realHome)/\(entry)")
@@ -61,6 +61,23 @@ extension CLIHookProducer {
             // it into ~/.codex, where every instance rewrote it at launch, so the last instance
             // launched decided which gateway every Codex session called. The user's file is never
             // written; its content is re-read at every spawn, so edits to it stay live.
+            // SKILLS: this home's own folder (nautilus Phase 5.3), the user's skills linked in and the
+            // running app's Port42 skills beside them, so a codex in any Port42 terminal loads them for
+            // its session and ~/.codex/skills is never written. On a name clash the app's own wins:
+            // it is the version this instance's API matches.
+            let skills = "\(home)/skills"
+            try? fm.removeItem(atPath: skills)                     // a link or folder from before
+            try? fm.createDirectory(atPath: skills, withIntermediateDirectories: true)
+            for s in (try? fm.contentsOfDirectory(atPath: "\(realHome)/skills")) ?? [] {
+                try? fm.createSymbolicLink(atPath: "\(skills)/\(s)", withDestinationPath: "\(realHome)/skills/\(s)")
+            }
+            if let ours = ctx.skillsDir {
+                for s in (try? fm.contentsOfDirectory(atPath: ours)) ?? [] where !s.hasPrefix(".") {
+                    try? fm.removeItem(atPath: "\(skills)/\(s)")
+                    try? fm.createSymbolicLink(atPath: "\(skills)/\(s)", withDestinationPath: "\(ours)/\(s)")
+                }
+            }
+
             let userAgents = (try? String(contentsOfFile: "\(realHome)/AGENTS.md", encoding: .utf8)) ?? ""
             let agents = InstructionService.merged(
                 existing: userAgents,
@@ -123,7 +140,7 @@ extension CLIHookProducer {
                     //
                 ]
             } catch {
-                NSLog("[hooks] codex: failed to write config.toml: \(error)")
+                p42log("[hooks] codex: failed to write config.toml: \(error)")
             }
             return out
         })

@@ -145,6 +145,18 @@ func sessionPin(home, sid string, userArgs []string) []string {
 	return sessionIDArgs(home, sid)
 }
 
+// pluginDirArgs names the app's skills plugin for claude, when the terminal says where it is and
+// it is there. A missing folder is skipped rather than passed: claude would refuse to start.
+func pluginDirArgs(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil
+	}
+	return []string{"--plugin-dir", dir}
+}
+
 // runClaude execs the real claude, injecting Port42 hooks via --settings when a hook socket
 // is present. Resolves the real binary from $PORT42_CLAUDE_PATH so it can never re-exec itself.
 func runClaude() {
@@ -165,6 +177,11 @@ func runClaude() {
 	} else {
 		fmt.Fprintf(os.Stderr, "[port42-claude-shim] no PORT42_HOOKS_SOCKET; passthrough exec %s\n", real)
 	}
+
+	// The running app's Port42 skills, for this session only (nautilus Phase 5.3). Every claude in
+	// a Port42 terminal comes through here, so a companion, a claude typed at the prompt and a
+	// teleported session all get them, and ~/.claude is never written.
+	argv = append(argv, pluginDirArgs(os.Getenv("PORT42_SKILLS_DIR"))...)
 
 	// Companion identity → append to the system prompt (no file mutation). Independent of hooks.
 	if prompt := os.Getenv("PORT42_COMPANION_PROMPT"); prompt != "" {
@@ -224,6 +241,14 @@ func buildSettings(selfPath string) string {
 			"SessionStart": []matcherBlock{{
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionStarted")}},
+			}},
+			// UserPromptSubmit confirms a message was SUBMITTED, not just typed. A message typed while
+			// claude is still starting sits unsent in its input box (2026-09-26, Dev4), so the app
+			// presses Enter again until this arrives. Claude's hooks are passed fresh at each launch,
+			// so adding one costs nothing (Codex's are trusted by hash and must not change).
+			"UserPromptSubmit": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("inputSubmitted")}},
 			}},
 			// SessionEnd is the mirror: when claude exits, the auto-registered CLI companion leaves
 			// the space (even if the terminal shell stays open).
@@ -334,6 +359,10 @@ func runNotify(event, cli string) {
 		out.Transcript = tp
 		if fi, statErr := os.Stat(tp); statErr == nil {
 			out.TranscriptBytes = fi.Size()
+		}
+	case "inputSubmitted":
+		if p, ok := payload["prompt"].(string); ok {
+			out.Prompt = p
 		}
 	case "needsAttention":
 		// Claude's Notification payload carries the human-readable reason ("Claude needs your

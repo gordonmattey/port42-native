@@ -61,13 +61,13 @@ final class CommandAgentHandler {
             try appState.postToChat(key: replyChat, text: text,
                                     from: .companion(id: agent.id, displayName: agent.displayName, spaceId: spaceId))
         } catch {
-            NSLog("[Port42] Command agent reply to %@ failed: %@", replyChat, error.localizedDescription)
+            p42log("[Port42] Command agent reply to %@ failed: %@", replyChat, error.localizedDescription)
         }
     }
 
     func start(triggerContent: String, senderId: String, senderName: String) {
         guard let command = agent.command else {
-            NSLog("[Port42] Command agent has no command path")
+            p42log("[Port42] Command agent has no command path")
             return
         }
         // Spawn process off main thread
@@ -126,7 +126,7 @@ final class CommandAgentHandler {
                 stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     if !data.isEmpty, let line = String(data: data, encoding: .utf8) {
-                        NSLog("[Port42] Command agent (%@) stderr: %@", agentId, line.trimmingCharacters(in: .newlines))
+                        p42log("[Port42] Command agent (%@) stderr: %@", agentId, line.trimmingCharacters(in: .newlines))
                     }
                 }
 
@@ -172,7 +172,7 @@ final class CommandAgentHandler {
                             fullContent = response.type == "done" ? content : fullContent + content
                         }
                     case "error":
-                        NSLog("[Port42] Command agent error: %@", response.content ?? "unknown")
+                        p42log("[Port42] Command agent error: %@", response.content ?? "unknown")
                     default:
                         break
                     }
@@ -211,7 +211,7 @@ final class CommandAgentHandler {
 
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
             } catch {
-                NSLog("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
+                p42log("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
                 await MainActor.run { self.finish("") }
             }
         }

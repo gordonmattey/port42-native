@@ -169,11 +169,11 @@ public struct TransitionRoot: View {
             }
         }
         .onChange(of: showBootCinematic) { _, newValue in
-            NSLog("[TransitionRoot] showBootCinematic changed to %d, bootCinematicDone=%d, showDreamscape=%d", newValue ? 1 : 0, bootCinematicDone ? 1 : 0, appState.showDreamscape ? 1 : 0)
+            p42log("[TransitionRoot] showBootCinematic changed to %d, bootCinematicDone=%d, showDreamscape=%d", newValue ? 1 : 0, bootCinematicDone ? 1 : 0, appState.showDreamscape ? 1 : 0)
             if !newValue {
                 bootCinematicDone = true
                 appState.showDreamscape = false
-                NSLog("[TransitionRoot] Set bootCinematicDone=true, showDreamscape=false")
+                p42log("[TransitionRoot] Set bootCinematicDone=true, showDreamscape=false")
             }
         }
         .onAppear {
@@ -282,7 +282,7 @@ public struct TransitionRoot: View {
     /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "port42" else { return }
-        NSLog("[Port42] Unhandled deep link: %@", url.host ?? "nil")
+        p42log("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }
 

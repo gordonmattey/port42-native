@@ -194,7 +194,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
         guard let json = try? JSONSerialization.data(withJSONObject: paths),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
-        NSLog("[Port42] handleFileDrop: dispatching port42:filedrop for %d path(s)", paths.count)
+        p42log("[Port42] handleFileDrop: dispatching port42:filedrop for %d path(s)", paths.count)
         // R2b / finding 7: a drop onto a WEB port is an external write into the runtime that never
         // passes the dispatcher, so without this the port's token would not move and a companion's
         // write composed before the drop would still look current. Found by sweeping for ways in,
@@ -374,7 +374,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard Self.isPortOrigin(message) else {
-            NSLog("[Port42][security] bridge call REFUSED from foreign origin %@ (port %@)",
+            p42log("[Port42][security] bridge call REFUSED from foreign origin %@ (port %@)",
                   message.frameInfo.securityOrigin.host, messageId ?? "?")
             return
         }
@@ -494,7 +494,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // The old switch is GONE (the close-out): every other method is served registry-first
         // above. Nothing falls through.
-        NSLog("[Port42] Unknown bridge method: %@", method)
+        p42log("[Port42] Unknown bridge method: %@", method)
         // Coded, like every other refusal. This is a dict rather than a throw because the caller is
         // port JS, whose transport is a result object — but a caller still has to be able to
         // branch on it, and this one answered with prose alone.

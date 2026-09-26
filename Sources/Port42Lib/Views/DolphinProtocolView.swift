@@ -145,7 +145,7 @@ public struct DolphinProtocolView: View {
     }
 
     private func dismiss() {
-        NSLog("[DolphinProtocol] dismiss() called, skipBios=%d", skipBios ? 1 : 0)
+        p42log("[DolphinProtocol] dismiss() called, skipBios=%d", skipBios ? 1 : 0)
         withAnimation(.easeOut(duration: 0.5)) { isPresented = false }
     }
 
@@ -739,27 +739,26 @@ private struct FrequencyBar: View {
 }
 
 private struct DolphinVideoPlayer: NSViewRepresentable {
-    func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspectFill
+    // A bare layer, not AVPlayerView: see `LoopingVideoView` for the main-thread deadlock.
+    func makeNSView(context: Context) -> LoopingVideoView {
+        let playerView = LoopingVideoView()
 
         if let url = Bundle.port42.url(forResource: "DolphinProtocolLoading", withExtension: "mp4") {
-            NSLog("[DolphinProtocol] Video URL resolved: %@", url.path)
+            p42log("[DolphinProtocol] Video URL resolved: %@", url.path)
             let player = AVPlayer(url: url)
-            playerView.player = player
+            playerView.playerLayer.player = player
             player.isMuted = false
             player.volume = 1.0
             player.play()
             context.coordinator.player = player
         } else {
-            NSLog("[DolphinProtocol] ERROR: Could not find DolphinProtocolLoading.mp4 in bundle")
+            p42log("[DolphinProtocol] ERROR: Could not find DolphinProtocolLoading.mp4 in bundle")
         }
 
         return playerView
     }
 
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+    func updateNSView(_ nsView: LoopingVideoView, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     class Coordinator {
