@@ -337,6 +337,65 @@ public struct SignOutSheet: View {
         grantsRefresh &+= 1
     }
 
+    /// Ports shared with other machines, and invites not yet used (nautilus Phase 4, 4.5).
+    @ViewBuilder
+    private var sharedSection: some View {
+        let shared = appState.sharedPorts()
+        let invites = appState.openInvites()
+        if !shared.isEmpty || !invites.isEmpty {
+            Text("SHARED WITH OTHER MACHINES")
+                .font(Port42Theme.mono(9)).tracking(2)
+                .foregroundStyle(Port42Theme.textSecondary)
+                .padding(.top, 4)
+            ForEach(shared) { item in
+                HStack(spacing: 8) {
+                    Text(item.name)
+                        .font(Port42Theme.monoBold(12))
+                        .foregroundStyle(item.peerRemoved ? Port42Theme.textSecondary : Port42Theme.textPrimary)
+                    Text("'\(item.title)'")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Text(item.rights.map(\.rawValue).joined(separator: " · "))
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Button("stop sharing") {
+                        appState.stopSharing(peer: item.peer, port: item.portKey)
+                        grantsRefresh &+= 1
+                    }
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                    .buttonStyle(.plain)
+                }
+                .id("shared-\(item.id)-\(grantsRefresh)")
+            }
+            ForEach(invites, id: \.id) { invite in
+                HStack(spacing: 8) {
+                    Text("invite")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 3))
+                    Text("'\(appState.portWindows.panels.first { $0.udid == invite.portKey }?.title ?? "a port")'")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Text("unused" + (invite.codeHash != nil ? " · needs a code" : ""))
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Button("withdraw") {
+                        appState.withdrawInvite(id: invite.id)
+                        grantsRefresh &+= 1
+                    }
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                    .buttonStyle(.plain)
+                }
+                .id("invite-\(invite.id)-\(grantsRefresh)")
+            }
+        }
+    }
+
     @ViewBuilder
     private var grantsSection: some View {
         if tab == .grants {
@@ -387,6 +446,8 @@ public struct SignOutSheet: View {
                         .foregroundStyle(Port42Theme.textSecondary)
                         .padding(.top, 8)
                 }
+
+                sharedSection
 
                 let all = granteeGrants
                 if all.isEmpty {

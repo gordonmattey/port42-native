@@ -439,6 +439,62 @@
     "name" : "imagine_start"
   },
   {
+    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+    "input_schema" : {
+      "properties" : {
+        "expiresIn" : {
+          "description" : "Seconds until the link stops working (default 7 days, at most 30).",
+          "type" : "integer"
+        },
+        "port" : {
+          "description" : "The port to share (id \/ udid \/ title).",
+          "type" : "string"
+        },
+        "requireCode" : {
+          "description" : "Require a six-digit code, to send another way.",
+          "type" : "boolean"
+        },
+        "rights" : {
+          "description" : "see, use, edit, wake_agents. Default see and use.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "required" : [
+        "port"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_create"
+  },
+  {
+    "description" : "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer), expired or withdrawn.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "invite_list"
+  },
+  {
+    "description" : "Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_revoke"
+  },
+  {
     "description" : "Send a macOS system notification",
     "input_schema" : {
       "properties" : {

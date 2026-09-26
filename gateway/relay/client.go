@@ -44,6 +44,34 @@ func (t *Transport) Accept(ctx context.Context) (transport.Session, error) {
 	}
 }
 
+// PingEvery keeps a quiet connection alive through proxies in front of a relay: Cloudflare, for one,
+// closes a WebSocket after about 100 seconds without traffic.
+var PingEvery = 20 * time.Second
+
+// PingTimeout is how long a ping may go unanswered before the connection is treated as dead.
+var PingTimeout = 10 * time.Second
+
+// keepAlive pings conn until stop closes or a ping fails, and then closes conn so its reader ends.
+// nhooyr's Ping needs a concurrent reader, which every caller here has.
+func keepAlive(conn *websocket.Conn, stop <-chan struct{}) {
+	t := time.NewTicker(PingEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			ctx, cancel := context.WithTimeout(context.Background(), PingTimeout)
+			err := conn.Ping(ctx)
+			cancel()
+			if err != nil {
+				conn.CloseNow()
+				return
+			}
+		}
+	}
+}
+
 // Refusal is a relay's refusal, with a code a caller can act on (host_offline, refused, …).
 type Refusal struct{ Code, Message string }
 
@@ -136,7 +164,10 @@ func (l *hostLink) write(ctx context.Context, typ websocket.MessageType, b []byt
 
 func (t *Transport) serveHostConn(ctx context.Context, conn *websocket.Conn) {
 	l := &hostLink{conn: conn, streams: map[string]*hostStream{}}
+	stop := make(chan struct{})
+	go keepAlive(conn, stop)
 	defer func() {
+		close(stop)
 		conn.CloseNow()
 		l.mu.Lock()
 		for _, s := range l.streams {
@@ -294,9 +325,11 @@ func (t *Transport) dialVia(ctx context.Context, relayURL, peer string) (transpo
 	}
 	hctx, cancel := context.WithTimeout(ctx, t.HandshakeTimeout)
 	defer cancel()
-	s, err := Initiate(hctx, &guestStream{conn: conn}, t.key, peer)
+	g := &guestStream{conn: conn, stop: make(chan struct{})}
+	go keepAlive(conn, g.stop)
+	s, err := Initiate(hctx, g, t.key, peer)
 	if err != nil {
-		conn.CloseNow()
+		g.Close()
 		return nil, err
 	}
 	return s, nil
@@ -306,6 +339,8 @@ func (t *Transport) dialVia(ctx context.Context, relayURL, peer string) (transpo
 type guestStream struct {
 	conn *websocket.Conn
 	wmu  sync.Mutex
+	stop chan struct{}
+	once sync.Once
 }
 
 func (g *guestStream) SendFrame(ctx context.Context, b []byte) error {
@@ -326,4 +361,7 @@ func (g *guestStream) RecvFrame(ctx context.Context) ([]byte, error) {
 	}
 }
 
-func (g *guestStream) Close() error { return g.conn.Close(websocket.StatusNormalClosure, "") }
+func (g *guestStream) Close() error {
+	g.once.Do(func() { close(g.stop) })
+	return g.conn.Close(websocket.StatusNormalClosure, "")
+}

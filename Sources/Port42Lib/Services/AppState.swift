@@ -454,7 +454,14 @@ public final class AppState: ObservableObject {
         door.onRemoteCallReceived = { [weak self] claim, method, input, emit in
             guard let self else { return ["error": "app state deallocated"] }
             let principal: Principal
-            do { principal = try self.resolveRemoteCaller(claim) } catch let e as BridgeError {
+            do {
+                let peer = try self.verifyRemoteAttestation(claim)
+                // Redeeming an invite is how a peer becomes known, so it comes before enrolment.
+                if method == "invite.redeem" {
+                    return try self.redeemInvite(peer: peer, args: input).toJSONObject()
+                }
+                principal = try self.remotePrincipal(peer: peer)
+            } catch let e as BridgeError {
                 return e.toJSONObject()
             } catch { return ["error": error.localizedDescription] }
             let key = "remote:" + principal.id
@@ -663,6 +670,8 @@ public final class AppState: ObservableObject {
 
     /// The key the gateway signs remote peer ids with. Replaced in tests.
     var remoteAttestKey: () -> String? = { GatewayProcess.shared.attestKey }
+    /// The relays this instance is reachable through (invites carry them). Replaced in tests.
+    var relayList: () -> [String] = { AppState.configuredRelays() }
 
     /// **The second verifier: a caller from another machine** (nautilus Phase 4, 4.3).
     ///
@@ -671,12 +680,22 @@ public final class AppState: ObservableObject {
     /// redeeming an invite) and not revoked. What comes back is a `.remote` principal keyed on the
     /// peer id, which the dispatcher confines to the ports that peer holds rights on.
     func resolveRemoteCaller(_ claim: RemoteClaim) throws -> Principal {
+        try remotePrincipal(peer: try verifyRemoteAttestation(claim))
+    }
+
+    /// The peer id, if the gateway's HMAC over it verifies with this spawn's key.
+    func verifyRemoteAttestation(_ claim: RemoteClaim) throws -> String {
         guard let key = remoteAttestKey(), !key.isEmpty,
               ClientRegistry.constantTimeEquals(Self.attest(key: key, peer: claim.peer), claim.attestation) else {
             throw BridgeError(code: .authRequired,
                               message: "This instance cannot verify who you are on the remote door.")
         }
-        guard let client = try? db.client(peerKey: claim.peer), client.kind == .peer else {
+        return claim.peer
+    }
+
+    /// The remote principal for an attested peer: enrolled by an invite, and not removed.
+    func remotePrincipal(peer: String) throws -> Principal {
+        guard let client = try? db.client(peerKey: peer), client.kind == .peer else {
             throw BridgeError(code: .authRequired,
                               message: "\(Self.refusingInstanceLabel()) does not know you. Ask its "
                                      + "owner for an invite to the port you want.")
@@ -687,7 +706,7 @@ public final class AppState: ObservableObject {
                                      + "Ask them for a new invite.")
         }
         try? db.touchClient(id: client.id)
-        return .remote(peer: claim.peer, displayName: client.name)
+        return .remote(peer: peer, displayName: client.name)
     }
 
     /// The gateway's attestation, computed the same way (`gateway/remote.go`, `Attest`).

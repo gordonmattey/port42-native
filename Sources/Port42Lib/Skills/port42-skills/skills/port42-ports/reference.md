@@ -4,6 +4,31 @@ The methods for making and changing ports. Generated from the running app's regi
 Call any of them with `port42 <method> key=value` (`key:=<json>` for numbers, booleans,
 arrays and objects; `key=@<file>` for a file's contents).
 
+## invite.create
+
+Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
+
+        expiresIn (integer): Seconds until the link stops working (default 7 days, at most 30).
+        port (string, required): The port to share (id / udid / title).
+        requireCode (boolean): Require a six-digit code, to send another way.
+        rights (array): see, use, edit, wake_agents. Default see and use.
+
+    port42 invite.create port=… rights=… expiresIn=… requireCode=…
+
+## invite.list
+
+The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer), expired or withdrawn.
+
+    port42 invite.list
+
+## invite.revoke
+
+Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.
+
+        id (string, required)
+
+    port42 invite.revoke id=…
+
 ## port.close
 
 Close the calling port.

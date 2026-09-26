@@ -450,7 +450,8 @@ BRIDGE API REFERENCE:
       ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a
                              path they never picked: they pick a file) · not_granted (you are on
                              another machine and your invite does not cover this; the host sends
-                             a new one)
+                             a new one) · invite_invalid (the invite is used, expired, withdrawn
+                             or needs the right code; ask for a new one)
       ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                              client in Settings -> Access and you send it as `Authorization:
                              Bearer <token>`) · auth_revoked (it knew you and the user withdrew

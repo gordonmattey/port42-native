@@ -190,6 +190,48 @@ New, in Go, beside the door it already is:
 - **Every failure a guest can meet has a message** naming what happened and what to do: offline,
   refused, not approved, invite used, invite expired, rate limited, relay unreachable.
 
+## For the website: `port42.ai/invite.html`
+
+What another agent needs to rebuild the page (step 4.7). The page is static; everything it does
+happens in the visitor's browser.
+
+**The link.** `https://port42.ai/invite.html#<coupon>`. The coupon is base64url (no padding) of this
+JSON, built by `InviteCoupon` in `Invites.swift`:
+
+```
+{ "v": 1,
+  "host": "<the host's peer id: 52 lowercase base32 characters>",
+  "relays": ["wss://relay1.port42.ai/v1"],
+  "port": "<the port's id>",
+  "rights": ["see", "use"],              // also possible: "edit", "wake_agents"
+  "nonce": "<one-time, base64url>",
+  "exp": 1790000000,                      // unix seconds
+  "hostName": "Gordon", "portTitle": "shared chart",
+  "code": false }                         // true: ask for a six-digit code before joining
+```
+
+The old page read `gateway`, `id`, `name`, `key` and `token` from the query string. None of those
+exist any more.
+
+**On load:** decode the coupon from the fragment; if it does not decode, say the link is broken.
+Clear the fragment (`history.replaceState`). Show "<hostName> shared '<portTitle>' with you", what it
+lets them do (from `rights`), and when it expires. Offer two buttons: **Open in Port42**
+(`port42://invite#<coupon>`, handled by the app from step 4.6) and **Open here**. Do nothing else on
+load: no network call before a click.
+
+**Open here** (the browser guest, step 4.7): a name field, a code field when `code` is true, and
+Join. Join makes or loads the guest's key, connects to the first relay that answers, opens a session
+to `host`, runs the Noise IK handshake, sends `invite.redeem {nonce, name, code?}`, then `port.getHtml`
+and `port.subscribe`, and renders the port in a sandboxed iframe with the bridge shim. The protocol is
+the relay's (`gateway/relay`), and Port42 ships the script that speaks it, so the page only hosts it.
+
+**Refusals to show plainly:** `host_offline` ("<hostName>'s Mac is offline"), `invite_invalid` with
+`reason` used, expired, revoked, wrong_code or locked, and `not_granted`.
+
+**Page rules:** no third-party script (remove PostHog: any script on the page can read the coupon);
+a Content-Security-Policy with `connect-src` limited to the relays; `Referrer-Policy: no-referrer`;
+subresource integrity on the guest script.
+
 ## Security properties
 
 | Property | How |

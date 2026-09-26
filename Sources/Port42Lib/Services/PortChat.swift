@@ -104,6 +104,15 @@ extension AppState {
         return entry
     }
 
+    /// A line from Port42 itself in a port's chat: a notice, not a message, so it wakes nobody.
+    func postSystemChatLine(key: String, text: String) {
+        guard let entry = try? db.appendChatEntry(chat: key, text: text, at: Date(), fromId: "port42",
+                                                  fromName: "Port42", fromKind: "system") else { return }
+        chats.received(key, entry)
+        notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
+                          kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
+    }
+
     /// A post wakes the companions it addresses (build step 3). Mentions address a companion, and a
     /// terminal port's own companion is addressed by any post in that port's chat, since that chat
     /// is its session. The reply comes back to this chat (`chatReplyTargets`).

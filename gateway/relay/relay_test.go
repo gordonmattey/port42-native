@@ -306,3 +306,34 @@ func TestAGuestIsLimitedToItsShareOfSessions(t *testing.T) {
 		t.Fatalf("a second session past the limit: %v", err)
 	}
 }
+
+func TestAConnectionThatStopsAnsweringIsNoticedAndClosed(t *testing.T) {
+	oldEvery, oldTimeout := PingEvery, PingTimeout
+	PingEvery, PingTimeout = 50*time.Millisecond, 100*time.Millisecond
+	defer func() { PingEvery, PingTimeout = oldEvery, oldTimeout }()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		<-release // accepted, then silent: it never reads, so no ping is ever answered
+	}))
+	defer srv.Close()
+	defer close(release)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go keepAlive(conn, stop)
+	start := time.Now()
+	_, _, err = conn.Read(ctx)
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("a dead connection was not noticed: %v after %v", err, time.Since(start))
+	}
+}

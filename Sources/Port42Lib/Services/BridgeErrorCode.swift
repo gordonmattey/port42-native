@@ -71,6 +71,9 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     /// Distinct from `permission_denied`: nobody was asked and nobody will be, because a remote
     /// caller never raises a card. The repair is a new invite with more rights, from the host.
     case notGranted = "not_granted"
+    /// An invite that cannot be redeemed: unknown, used, expired, withdrawn, a wrong code, or too many
+    /// wrong codes (nautilus Phase 4). `details.reason` says which; the repair is a new invite.
+    case inviteInvalid = "invite_invalid"
     /// The write did not say what it composed against (R5).
     case tokenRequired = "token_required"
     /// The write composed against state the port has moved past (R3). Carries `current`.
@@ -189,7 +192,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .missingArg, .badArg, .unknownMethod, .jsSyntax: return .fixYourCall
         case .notFound, .noSurface, .portPaused:            return .theTarget
         case .wrongState:                                   return .changeStateRetry
-        case .permissionDenied, .accessDenied, .notGranted: return .askTheUser
+        case .permissionDenied, .accessDenied, .notGranted, .inviteInvalid: return .askTheUser
         case .authRequired, .authRevoked:                   return .enrolFirst
         case .timedOut, .aiTimeout, .jsTimeout:             return .waitOrAllowLonger
         case .unsupported:                                  return .doNotRetry
@@ -210,6 +213,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .permissionDenied: return "a capability: they grant it"
         case .accessDenied:    return "a path they never picked: they pick a file"
         case .notGranted:      return "you are on another machine and your invite does not cover this; the host sends a new one"
+        case .inviteInvalid:   return "the invite is used, expired, withdrawn or needs the right code; ask for a new one"
         case .authRequired:    return "Port42 does not know who you are — the user adds a client in Settings -> Access and you send it as `Authorization: Bearer <token>`"
         case .authRevoked:     return "it knew you and the user withdrew it; ask them, do not retry — the credential is real, so re-sending it will never help"
         case .jsTimeout:       return "usually means you returned a long-lived promise from port_exec — return a plain value instead"

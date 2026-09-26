@@ -137,6 +137,10 @@ public enum RemoteAccess {
         "companions.unwatch": .never,
         "companions.watches": .never,
         "imagine.start": .never,
+        // Invites are made and managed here; a guest redeems at the remote door, not through these.
+        "invite.create": .never,
+        "invite.list": .never,
+        "invite.revoke": .never,
 
         // NEVER for now: storage keys on the caller, so a guest would read its own empty bucket, not
         // the port's. Settled with the browser lane (4.7), which is where a port's storage calls first

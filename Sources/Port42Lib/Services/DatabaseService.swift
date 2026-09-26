@@ -883,6 +883,25 @@ public final class DatabaseService {
                           unique: true, condition: Column("peerKey") != nil)
         }
 
+        migrator.registerMigration("v57-invites") { db in
+            // Nautilus Phase 4, 4.5: one invite per port. The one-time nonce and the optional code are
+            // stored only as hashes, so the table cannot be used to redeem anything.
+            try db.create(table: "invites") { t in
+                t.column("id", .text).primaryKey()
+                t.column("portKey", .text).notNull()
+                t.column("rights", .text).notNull()          // comma-separated RemoteRight values
+                t.column("nonceHash", .text).notNull().unique()
+                t.column("codeHash", .text)                  // nil = no code required
+                t.column("codeTries", .integer).notNull().defaults(to: 0)
+                t.column("createdBy", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("expiresAt", .datetime).notNull()
+                t.column("redeemedAt", .datetime)
+                t.column("redeemedBy", .text)                // the redeemer's peer id
+                t.column("revokedAt", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1053,6 +1072,86 @@ public final class DatabaseService {
                 db, sql: "SELECT permission FROM grants WHERE grantee = ? AND object = ? AND zone = ''",
                 arguments: [grantee, portKey])
             return Set(raw.compactMap(RemoteRight.init(rawValue:)))
+        }
+    }
+
+    // MARK: - Invites (nautilus Phase 4, 4.5)
+
+    public struct InviteRow: Equatable {
+        public let id: String
+        public let portKey: String
+        public let rights: [RemoteRight]
+        public let codeHash: String?
+        public let codeTries: Int
+        public let createdBy: String
+        public let createdAt: Date
+        public let expiresAt: Date
+        public let redeemedAt: Date?
+        public let redeemedBy: String?
+        public let revokedAt: Date?
+    }
+
+    private static func invite(from r: Row) -> InviteRow {
+        let rights = (r["rights"] as String).split(separator: ",").compactMap { RemoteRight(rawValue: String($0)) }
+        return InviteRow(id: r["id"], portKey: r["portKey"], rights: rights, codeHash: r["codeHash"],
+                         codeTries: r["codeTries"], createdBy: r["createdBy"], createdAt: r["createdAt"],
+                         expiresAt: r["expiresAt"], redeemedAt: r["redeemedAt"], redeemedBy: r["redeemedBy"],
+                         revokedAt: r["revokedAt"])
+    }
+
+    public func insertInvite(id: String, portKey: String, rights: [RemoteRight], nonceHash: String,
+                             codeHash: String?, createdBy: String, expiresAt: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO invites (id, portKey, rights, nonceHash, codeHash, createdBy, createdAt, expiresAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [id, portKey, rights.map(\.rawValue).joined(separator: ","), nonceHash,
+                                   codeHash, createdBy, Date(), expiresAt])
+        }
+    }
+
+    public func invite(nonceHash: String) throws -> InviteRow? {
+        try dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM invites WHERE nonceHash = ?", arguments: [nonceHash])
+                .map(Self.invite(from:))
+        }
+    }
+
+    public func allInvites() throws -> [InviteRow] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM invites ORDER BY createdAt DESC").map(Self.invite(from:))
+        }
+    }
+
+    public func markInviteRedeemed(id: String, by peer: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE invites SET redeemedAt = ?, redeemedBy = ? WHERE id = ?",
+                           arguments: [Date(), peer, id])
+        }
+    }
+
+    /// Count a wrong code; returns the new count.
+    public func bumpInviteCodeTries(id: String) throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE invites SET codeTries = codeTries + 1 WHERE id = ?", arguments: [id])
+            return try Int.fetchOne(db, sql: "SELECT codeTries FROM invites WHERE id = ?", arguments: [id]) ?? 0
+        }
+    }
+
+    public func revokeInvite(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE invites SET revokedAt = ? WHERE id = ? AND revokedAt IS NULL",
+                           arguments: [Date(), id])
+        }
+    }
+
+    /// Every remote right, for the manager: (grantee, port key, right).
+    public func allRemoteRights() throws -> [(grantee: String, portKey: String, right: RemoteRight)] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT grantee, object, permission FROM grants WHERE zone = ''")
+                .compactMap { r in
+                    RemoteRight(rawValue: r["permission"]).map { (r["grantee"], r["object"], $0) }
+                }
         }
     }
 

@@ -386,6 +386,43 @@ refused; a required code is enforced, a wrong one refused, and the fifth wrong o
 redemption notifies the host and Remove revokes; port 0 and a space cannot be invited; revoking one
 grant leaves the peer's others. Calibrated by removing the burn and the code check.
 
+**Built 2026-09-26.** `Invites.swift`: `invite.create`, `invite.list`, `invite.revoke`, and
+redemption at the remote door, which runs after the gateway's attestation is verified and before
+enrolment is required, since redeeming is how a peer becomes known. Migration v57 adds `invites`,
+holding only hashes of the nonce and the code. Refusals carry a new code, `invite_invalid`, with a
+`reason` (unknown, used, expired, revoked, wrong_code, locked, gone). An agent or client creating an
+invite is asked by a new `share` permission card; the person is not asked on their own behalf. A
+join posts a system line in the port's chat that wakes nobody. Settings → Access gains "Shared with
+other machines": each guest's ports and rights with "stop sharing", and unused invites with
+"withdraw". The gateway's old `/invite` channel page is gone. The coupon format and the page's
+behavior, for whoever rebuilds `invite.html`, are in `design-phase4-relay.md` ("For the website").
+Moved to 4.6: the app accepting `port42://invite#…` and a pasted link, which needs outbound calls.
+
+Keep-alive, found while testing: `relay1.port42.ai` is proxied by Cloudflare, which closes a
+WebSocket after about 100 seconds of silence, and the 20-second pings in the spec had not been built.
+The relay client now pings every 20 seconds and closes a connection whose ping goes unanswered
+(calibrated).
+
+**Live on Dev2, through `relay1.port42.ai`** (Dev2 registered there; the test peer, a separate
+process with its own key, on this Mac; so the path is real and the machine is the same): an invite
+was created (after the share card), redeemed in 252 ms, and the port read in 222 ms; the same link
+from another key was refused as used; a port not shared was refused `not_granted`; the guest's
+listing held only the shared port; a subscription received the host's pushes and its rename live.
+
+**Found:** a call that times out at the gateway while its permission card waits keeps running in
+the app, and completes when the card is answered. Four retries of `invite.create` during the wait
+became four extra open invites once it was allowed; they were withdrawn. The same holds for any
+gated method (asynchronous permission, D-d, is not in this phase).
+
+**Open, seen twice in about thirty runs:** a guest's `ports.list` through the door returned its one
+port twice, and never an ungranted one. Not reproduced when instrumented; the tests compare the set
+of ids, which still fails if an ungranted port appears. To find.
+
+Gates: `InviteTests` (10). Calibrated: no burn, no code check, no try limit, no expiry, no withdrawal
+check, agents not asked, a space shareable, redemption not handled before enrolment; each failed its
+own test. The registry and tool golden, `llms.txt`, and the ports skill (a new "Share one" section)
+regenerated. Suite 1289 green, Go green under `-race`, harness five of five on Dev2.
+
 ### 4.6 The Port42 lane: a shared port on the other desktop
 
 - **Outbound calls.** The app asks its gateway to call a method on a remote address; the resolver

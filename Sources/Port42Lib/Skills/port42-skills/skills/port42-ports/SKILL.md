@@ -64,6 +64,18 @@ It runs with its storage, chat and subscriptions and no tile. The person finds i
 palette and the "N hidden" count. `port42 port.manage id=<id> action=show token=<token>` (or `hide`) moves it. A
 hidden claude or codex terminal is a headless agent reached through its chat.
 
+## Share one
+
+Only when the person asks you to share a port with someone:
+
+    port42 invite.create port=<id> rights:='["see","use"]'
+
+It returns a `link` to send them. It opens one port, in Port42 or in their browser, and works once.
+Rights are `see`, `use`, `edit` and `wake_agents`; `requireCode:=true` adds a six-digit `code` to
+send another way. Tell the person what `discloses` lists: the port can do those things on this
+machine, and whoever joins can make it. `port42 invite.list` and `port42 invite.revoke id=<id>`
+manage unused invites; people who joined are removed in Settings → Access.
+
 ## Gotchas (each one broke a real port, silently)
 
 - **A port is a tile, not a window.** Its size is arbitrary and changes. Size from your own element,

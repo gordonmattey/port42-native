@@ -91,6 +91,8 @@ never on the message text — messages change. The set is closed:
   ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a path
                          they never picked: they pick a file) · not_granted (you are on another
                          machine and your invite does not cover this; the host sends a new one)
+                         · invite_invalid (the invite is used, expired, withdrawn or needs the
+                         right code; ask for a new one)
   ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                          client in Settings -> Access and you send it as `Authorization: Bearer
                          <token>`) · auth_revoked (it knew you and the user withdrew it; ask
@@ -265,6 +267,20 @@ Generated from the live method registry: every entry below is served exactly as 
       Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 5), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
         line (string, required): What to make, in the person's words.
         versions (integer): The version budget (default 5, at most 20).
+
+### invite
+
+  invite.create(port, rights, expiresIn, requireCode)
+      Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
+        expiresIn (integer): Seconds until the link stops working (default 7 days, at most 30).
+        port (string, required): The port to share (id / udid / title).
+        requireCode (boolean): Require a six-digit code, to send another way.
+        rights (array): see, use, edit, wake_agents. Default see and use.
+  invite.list()
+      The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer), expired or withdrawn.
+  invite.revoke(id)
+      Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.
+        id (string, required)
 
 ### notify
 

@@ -15,6 +15,7 @@ public enum PortPermission: String, Hashable {
     case notification  // notify.send
     case automation    // automation.runAppleScript, automation.runJXA
     case rest          // rest.call — HTTP requests to external APIs
+    case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
 
     // The method-to-permission mapping lives on each method's registry declaration
     // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
@@ -37,6 +38,7 @@ public enum PortPermission: String, Hashable {
         case .notification: return "bell"
         case .automation: return "gearshape.2"
         case .rest: return "network"
+        case .share: return "person.2.wave.2"
         }
     }
 
@@ -97,6 +99,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "HTTP Access",
                 message: "This companion wants to make HTTP requests to external APIs. Allow?"
+            )
+        case .share:
+            return (
+                title: "Share a Port",
+                message: "This wants to make invite links that let someone on another machine open one of your ports. Allow?"
             )
         }
     }
