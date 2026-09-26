@@ -12,8 +12,8 @@ this phase (Dev6, Dev7 and on, 2026-09-26). Dev3, Dev4 and prod are never built,
 
 **Gordon's review, 2026-09-26.** Approved: 2 (no gossipsub), 3 (Port42 runs a relay), 5 (remote
 callers scoped, local unchanged), 6 (the guest page is `port42.ai/invite.html`), 10 (more dev
-instances on this Mac), and 4.0 as the first step. Open: 1 (Gordon asked why the space segment goes),
-4 (i) and (ii), 7, and where the relay is hosted.
+instances on this Mac), 4 (i) and (ii), 7, and 4.0 as the first step. Open: 1 (Gordon asked why the
+space segment goes), the remote rights in 5, and where the relay is hosted.
 
 ## Goal
 
@@ -75,6 +75,11 @@ Port42 operates.
      cannot read, and serves the guest page too (6). New operational scope for Port42.
    - **(b) Public relays only.** No server to run. A failed punch is a failed share, and the browser
      lane works only where WebRTC reaches the host directly, which is unmeasured (4.0).
+   **Can an instance be the relay?** Any libp2p node that others can reach can relay, and a Port42
+   gateway could turn the relay service on. A Mac at home or in a café is behind a router that drops
+   connections nobody asked for, so it cannot be reached and cannot relay. A Mac with a public
+   address or a forwarded port could, so an always-on Port42 of Gordon's is one host option. Nothing
+   here needs a relay to start: a LAN (4.4) and a host with a public address connect directly.
    How it is measured is step 4.8.
 4. **The per-port invite, in both lanes (partly settled, two choices for Gordon).** Settled by D10: an
    invite names one port and grants that port only; port 0 and spaces are never invitable; sharing a
@@ -92,15 +97,38 @@ Port42 operates.
    - **Until it is redeemed the coupon is a bearer secret.** Whoever opens it first gets the grant.
      The host sees the redeemer in Access and can revoke. This is the price of a link that works with
      the host away; asking the host at redemption is the alternative and needs the host present.
-   - **For Gordon, (i) what a browser guest keeps.** Recommended: its key persists in that browser's
+   - **(i) What a browser guest keeps (decided, Gordon 2026-09-26).** its key persists in that browser's
      storage, so a refresh is the same guest and keeps the grant, listed in Access as a browser guest
-     and reaped after it goes unused for a period Gordon sets. Alternative: nothing persists, and a
-     refresh after redemption loses access, because the link is already burned.
-   - **For Gordon, (ii) default rights.** Recommended: view and drive, since scenario 4 drives.
+     and reaped after it goes unused for a period Gordon sets.
+   - **(ii) Default rights (decided, Gordon 2026-09-26): view and drive**, which in the rights of
+     decision 5 are `see` and `use`.
 5. **Read scoping before anything is remote (decided, Gordon 2026-09-26: remote callers locked down,
    local unchanged).** Gordon: remote access grows into a permission system of its own, what a remote
    caller may do on a port, a port being something like a VM. This phase builds its first two rights
-   (view, drive) and the deny-by-default gate that system sits on. A remote caller is **denied by default**. Every registry method declares what it
+   rights and the deny-by-default gate that system sits on.
+   **The rights, for Gordon.** A remote caller holds rights on one port, as a user holds rights on a
+   VM, and these are the questions that system answers:
+   - **`see`**: read the port's source and rendered page (`getHtml`, `history`, `getDom`, `info`), its
+     console, and its live events (`subscribe`). The browser lane ships the source, so `see` includes
+     it and cannot prevent a copy.
+   - **`use`**: send it input and talk in its chat (`push`, `publish`, `chat.read`, `chat.post`). Every
+     write carries CAS, so scenario 4's stale-write refusal needs only this.
+   - **`edit`**: change the port itself (`update`, `patch`, `restore`, `rename`, `setTitle`). Using an
+     app and changing its image are different rights, so `edit` is separate and off by default.
+   - **`wake agents`**: whether the guest's chat posts and events can wake the host's companions
+     (@mentions, Phase 3 watches). Off by default. A companion runs with the host's terminal and
+     grants, so a guest's text reaching it is a prompt injection into an agent with a shell, and a
+     wake spends the host's model tokens.
+   - **What the port can do on the host, driven by a guest.** A guest's own calls get nothing of the
+     machine. But the host's copy of the port keeps its grants (clipboard, REST and so on), and a
+     guest's input can make it use them. The host cannot attribute the port's call to the input that
+     caused it. Recommended: the invite dialog lists what the port can do on this machine and says
+     the guest can make it do so. Alternative: a port's machine grants are suspended while it has a
+     remote grant.
+   - **Limits.** Per-peer rate and message size at the gateway, as `/ws` has today, and expiry and
+     revoke on every grant.
+   Recommended for this phase: `see`, `use` and `edit`, with `wake agents` refused outright, and the
+   invite dialog's disclosure. A remote caller is **denied by default**. Every registry method declares what it
    acts on: a port argument, a listing, the machine (port 0), or nothing. A remote principal may call
    only port methods, only on ports it holds a grant for, within the grant's rights. Listings return
    only its granted ports. Machine capabilities, spaces, companions, `port.create`, `port.exec`,
@@ -130,7 +158,7 @@ Port42 operates.
    renders the port's source in a sandboxed iframe with the bridge shim, as today's spike does. The
    gateway's `/port` route stays for loopback testing until step 4.7 and then goes. Needs from
    Gordon: the origin (a path on `port42.ai`, or its own subdomain).
-7. **Where the Signal Protocol fits: not in this phase (recommended).** Live traffic is encrypted end
+7. **Where the Signal Protocol fits: not in this phase (decided, Gordon 2026-09-26).** Live traffic is encrypted end
    to end by Noise (TCP) or TLS 1.3 (QUIC), including through a relay, which forwards ciphertext. This
    phase stores and forwards nothing: a port whose host is offline is unavailable (slice-02 O-2,
    deferred). Signal's contribution, forward secrecy for a message held for a recipient who is
@@ -240,9 +268,8 @@ Local, no wire. A remote principal can be built in a test without one.
 - **A remote principal.** `Principal.remote(peer:actor:displayName:)`: the grantee is the peer; the
   actor it reports (for example `<peer>/claude`) is display only, since this host cannot verify it.
 - **Port grants.** The object slot gets its first non-zero use: `grants(grantee, .port(key), rights)`
-  with rights `view` or `drive`. `view` covers `getHtml`, `history`, `getDom`, `info`, `console`,
-  `subscribe` and `chat.read`; `drive` adds `push`, `patch`, `update`, `restore`, `rename`,
-  `setTitle` and `chat.post`. Nothing else is grantable to a remote caller in this phase.
+  with the rights `see`, `use` and `edit` of decision 5. Nothing else is grantable to a remote caller
+  in this phase, and a remote caller's chat post or event wakes no companion.
 - **The gate, in the dispatcher**, before the permission gate: a remote principal calling a method
   that is not `.port`, or naming a port it holds no grant for, or needing a right it lacks, is
   refused with `not_granted`. `.listing` methods filter their result. `port.exec` is refused.
