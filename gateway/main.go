@@ -69,7 +69,7 @@ func main() {
 		Addr:    *addr,
 		Handler: mux,
 		// No read/write timeouts: WebSocket connections are long-lived
-		// and timeouts would kill them (especially through reverse proxies/ngrok)
+		// and timeouts would kill them (especially through a reverse proxy)
 	}
 
 	done := make(chan os.Signal, 1)

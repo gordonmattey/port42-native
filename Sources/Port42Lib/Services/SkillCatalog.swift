@@ -38,6 +38,8 @@ public enum SkillCatalog {
         default: break
         }
         switch ns {
+        case "imagine":
+            return "port42-team"
         case "user", "space", "chat":
             return "port42"
         case "port", "ports", "storage":

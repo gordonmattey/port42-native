@@ -180,7 +180,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
         self.bridge = bridge
 
         // Non-persistent data store so sessions don't share cookies/cache
-        let config = WKWebViewConfiguration()
+        let config = PortWebViewFactory.configuration()
         config.websiteDataStore = .nonPersistent()
 
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: height), configuration: config)

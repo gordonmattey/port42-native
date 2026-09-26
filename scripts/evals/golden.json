@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "about": "Port42's golden eval set: fixed tasks with a fixed amount of work and deterministic checks, so two runs (two briefs, two builds) are comparable. {maker}, {reviewer}, {lead}, {eng1}, {eng2} and {watcher} are replaced by the agents' generated names; {title} by the task's port title; {tag} by a per-run tag.",
+  "tasks": [
+    {
+      "id": "make-counter",
+      "summary": "One agent makes one small web port in one version.",
+      "clis": ["claude", "codex"],
+      "agents": [{"role": "maker"}],
+      "title": "eval counter {tag}",
+      "ask": {"chat": "space", "text": "@{maker} make a web port titled '{title}': a button labelled Add, and a number that starts at 0 and goes up by one per click. Make it in one version, check it works, then reply here with its id."},
+      "done_when": {"reply_from": "maker", "in": "space"},
+      "timeout": 600,
+      "checks": [
+        {"type": "port_exists", "title": "{title}"},
+        {"type": "versions", "title": "{title}", "min": 1, "max": 2},
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "dom_contains", "title": "{title}", "text": ["Add"]}
+      ]
+    },
+    {
+      "id": "patch-heading",
+      "summary": "One agent makes a minimal edit to an existing port.",
+      "clis": ["claude", "codex"],
+      "agents": [{"role": "maker"}],
+      "title": "eval heading {tag}",
+      "setup": [{"make_port": {"title": "{title}", "html": "<title>{title}</title><style>h1{color:#c33}</style><h1>Old heading</h1><p>Leave this paragraph exactly as it is.</p>"}}],
+      "ask": {"chat": "space", "text": "@{maker} in the port '{title}', change the heading text to 'New heading' and make it blue. Change nothing else, in one edit, then reply here."},
+      "done_when": {"reply_from": "maker", "in": "space"},
+      "timeout": 480,
+      "checks": [
+        {"type": "versions", "title": "{title}", "min": 2, "max": 3},
+        {"type": "dom_contains", "title": "{title}", "text": ["New heading", "Leave this paragraph exactly as it is."]},
+        {"type": "dom_lacks", "title": "{title}", "text": ["Old heading"]},
+        {"type": "console_clean", "title": "{title}"}
+      ]
+    },
+    {
+      "id": "fix-error",
+      "summary": "One agent finds and fixes a port that throws.",
+      "clis": ["claude", "codex"],
+      "agents": [{"role": "maker"}],
+      "title": "eval broken {tag}",
+      "setup": [{"make_port": {"title": "{title}", "html": "<title>{title}</title><p id=s>starting</p><script>renderStatus(); function renderStatus2(){ document.getElementById('s').textContent = 'ready' }</script>"}}],
+      "ask": {"chat": "space", "text": "@{maker} the port '{title}' throws an error and never says 'ready'. Find the cause from its console, fix it with the smallest change, check it, then reply here."},
+      "done_when": {"reply_from": "maker", "in": "space"},
+      "timeout": 480,
+      "checks": [
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "dom_contains", "title": "{title}", "text": ["ready"]},
+        {"type": "versions", "title": "{title}", "min": 2, "max": 4}
+      ]
+    },
+    {
+      "id": "pipe",
+      "summary": "One agent composes three ports into a pipe, the middle stage hidden.",
+      "clis": ["claude", "codex"],
+      "agents": [{"role": "maker"}],
+      "title": "eval pipe {tag}",
+      "ask": {"chat": "space", "text": "@{maker} build a pipe of three web ports. '{title} source' publishes a counter every half second. '{title} times ten', created HIDDEN, subscribes to it and publishes the counter times ten. '{title} view' subscribes to that and shows the latest value. No code outside the three ports. Check the view updates, then reply here."},
+      "done_when": {"reply_from": "maker", "in": "space"},
+      "timeout": 900,
+      "checks": [
+        {"type": "port_exists", "title": "{title} source"},
+        {"type": "status", "title": "{title} times ten", "is": "hidden"},
+        {"type": "dom_matches", "title": "{title} view", "pattern": "\\b[1-9][0-9]*0\\b", "wait": 6},
+        {"type": "console_clean", "title": "{title} view"}
+      ]
+    },
+    {
+      "id": "watch-fix",
+      "summary": "An agent watches a port and fixes it when it starts throwing.",
+      "clis": ["claude", "codex"],
+      "agents": [{"role": "watcher"}],
+      "title": "eval watched {tag}",
+      "setup": [{"make_port": {"title": "{title}", "html": "<title>{title}</title><p id=s>ok</p>"}}],
+      "ask": {"chat": "space", "text": "@{watcher} watch the port '{title}' for console errors, and whenever one appears, fix the port and say what you did in its chat. Reply here once you are watching."},
+      "then": [
+        {"wait_for": {"reply_from": "watcher", "in": "space"}},
+        {"break_port": {"title": "{title}", "html": "<title>{title}</title><p id=s>ok</p><script>document.getElementById('missing').textContent = 'x'</script>"}}
+      ],
+      "done_when": {"reply_from": "watcher", "in": "port:{title}"},
+      "timeout": 600,
+      "checks": [
+        {"type": "watching", "who": "watcher", "title": "{title}"},
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "dom_contains", "title": "{title}", "text": ["ok"]}
+      ]
+    },
+    {
+      "id": "duo-review",
+      "summary": "A maker builds a port, a reviewer makes exactly one improvement.",
+      "agents": [{"role": "maker", "cli": "claude"}, {"role": "reviewer", "cli": "codex"}],
+      "title": "eval duo {tag}",
+      "ask": {"chat": "space", "text": "@{maker} make a web port titled '{title}': a live clock showing hours, minutes and seconds. Check it works, reply here with its id, then ask @{reviewer} in the port's chat to review it. @{reviewer}: when asked, make exactly one improvement, check it, and say what you changed in the port's chat."},
+      "done_when": {"reply_from": "reviewer", "in": "port:{title}"},
+      "timeout": 900,
+      "checks": [
+        {"type": "versions", "title": "{title}", "min": 2, "max": 3},
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "spoke_in", "who": ["maker", "reviewer"], "in": "port:{title}"}
+      ]
+    },
+    {
+      "id": "team-three",
+      "summary": "A lead and two engineers ship exactly three versions of one port.",
+      "agents": [{"role": "lead", "cli": "claude"}, {"role": "eng1", "cli": "claude"}, {"role": "eng2", "cli": "codex"}],
+      "title": "eval team {tag}",
+      "ask": {"chat": "space", "text": "@{lead} you lead @{eng1} and @{eng2}. Ship a web port titled '{title}', an animated starfield, in EXACTLY three versions: @{eng1} makes v1, @{eng2} makes v2 (depth and color), @{eng1} makes v3 (a speed control). Work in the port's chat, check each version works, then post a message there that starts with DONE. No more than three versions."},
+      "done_when": {"message_starts": "DONE", "from": "lead", "in": "port:{title}"},
+      "timeout": 1500,
+      "checks": [
+        {"type": "versions", "title": "{title}", "min": 3, "max": 4},
+        {"type": "console_clean", "title": "{title}"},
+        {"type": "spoke_in", "who": ["lead", "eng1", "eng2"], "in": "port:{title}"},
+        {"type": "single_port", "title": "{title}"}
+      ]
+    }
+  ]
+}

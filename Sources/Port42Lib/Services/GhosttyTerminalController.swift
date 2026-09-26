@@ -156,6 +156,7 @@ final class GhosttyTerminalController {
     /// Fired when the CLI says it is waiting on the human (permission, or idle at the prompt).
     /// AppState raises a peek from it. Carries the CLI's own reason so the peek can name it.
     private let onNeedsAttention: (String) -> Void
+    private let onStartupStuck: (String) -> Void
     private var didNotifySessionStart = false
     /// How text reaches the pty: the body, whether to submit it, and a completion fired once the
     /// WHOLE write has landed (see `TerminalSurfaceWriter`). The completion exists because
@@ -179,7 +180,9 @@ final class GhosttyTerminalController {
          drainPending: @escaping () -> [String] = { [] },
          onSessionStarted: @escaping (String?) -> Void = { _ in },
          onSessionEnded: @escaping () -> Void = {},
-         onNeedsAttention: @escaping (String) -> Void = { _ in }) {
+         onNeedsAttention: @escaping (String) -> Void = { _ in },
+         onStartupStuck: @escaping (String) -> Void = { _ in }) {
+        self.onStartupStuck = onStartupStuck
         self.panelId = panelId
         self.config = config
         self.post = post
@@ -289,6 +292,7 @@ final class GhosttyTerminalController {
         case .sessionStarted(let cli):
             log("event=sessionStarted cli=\(cli ?? "?")")
             self.cli = cli ?? self.cli
+            startupStuck = false
             if !cliRunning {
                 cliRunning = true
                 becomeReadyWhenQuiet()
@@ -430,11 +434,66 @@ final class GhosttyTerminalController {
         }
     }
 
+    // MARK: A CLI stuck at a startup prompt (2026-09-26)
+    //
+    // A Codex restarted after a rebuild stopped at a startup dialog, never reported SessionStart,
+    // and every message to it was typed into the dialog and lost, with nothing on screen to say why
+    // (GM hit it twice). Now: if the CLI has not said it started `startupWait` after its surface came
+    // up, it is treated as stuck. The last line on its screen is logged and handed to
+    // `onStartupStuck` (the app tells the person where they talk to it), held messages stay held
+    // rather than being typed into the prompt, and once the prompt is answered (the CLI draws, then
+    // settles) they go in, whether or not SessionStart ever comes.
+    var startupWait: TimeInterval = 30
+    var clearedQuiet: TimeInterval = 3
+    private(set) var startupStuck = false
+    private var outputTail = ""
+    private var outputSinceStuck = 0
+
+    private func watchStartup() {
+        let wait = startupWait
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, !self.cliRunning, !self.startupStuck else { return }
+            self.startupStuck = true
+            self.outputSinceStuck = 0
+            let screen = Self.lastLine(of: self.outputTail)
+            self.log("WARNING: no SessionStart \(Int(wait))s after launch; stuck at: \(screen.debugDescription)")
+            self.onStartupStuck(screen)
+        }
+    }
+
+    /// The last non-empty line of recent output, escape codes stripped: what the prompt says.
+    static func lastLine(of raw: String) -> String {
+        let text = TerminalOutputProcessor.stripANSI(raw)
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        return String((lines.last { !$0.isEmpty } ?? "").prefix(160))
+    }
+
+    /// Output after the stuck notice means the prompt was answered and the CLI is drawing; once it
+    /// settles, what was held goes in.
+    private func noteOutputWhileStuck(_ count: Int) {
+        guard startupStuck, !cliRunning, !inputReady else { return }
+        outputSinceStuck += count
+        let quiet = clearedQuiet
+        let at = now()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(quiet * 1_000_000_000))
+            guard let self, self.startupStuck, !self.cliRunning, !self.inputReady,
+                  let last = self.lastOutputAt, last <= at else { return }
+            self.log("startup prompt answered; releasing held messages")
+            self.startupStuck = false
+            self.inputReady = true
+            self.releaseHeld(reason: "startup prompt answered")
+        }
+    }
+
     private func armHeldFallback() {
         let wait = heldFallback
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard let self, !self.heldUntilRunning.isEmpty else { return }
+            // Never into a startup prompt: that is where they were lost.
+            if self.startupStuck { self.log("held messages kept: the CLI is at a startup prompt"); return }
             self.log("WARNING: no SessionStart after \(Int(wait))s; typing held messages anyway")
             self.releaseHeld(reason: "fallback")
         }
@@ -500,6 +559,7 @@ final class GhosttyTerminalController {
         log(inject == nil ? "surface unbound" : "surface bound")
         injectToSurface = inject
         guard inject != nil else { return }
+        if hooksCapable && !cliRunning { watchStartup() }
         // Fallback for non-hooks tools (no SessionStart event): if nothing has flushed the
         // pending queue shortly after the surface is live, flush it anyway so queued messages
         // aren't stranded. Hooks-capable tools normally flush earlier on sessionStarted.
@@ -527,6 +587,8 @@ final class GhosttyTerminalController {
     /// Feed raw PTY bytes (from the Ghostty tee) into the `<p42>` extractor.
     func receiveTee(_ str: String) {
         lastOutputAt = now()
+        outputTail = String((outputTail + str).suffix(4000))
+        noteOutputWhileStuck(str.count)
         processor.receive(str)
     }
 

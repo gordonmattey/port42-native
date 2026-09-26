@@ -303,7 +303,7 @@ guest asking for anything beyond its grant is refused.
 
 ### Phase 5 · Skills, not a megaprompt (2)
 
-**Detailed plan:** `plan-nautilus-phase5.md` (draft 2026-09-26, four decisions for GM).
+**Detailed plan:** `plan-nautilus-phase5.md`. **Built 2026-09-26**: five skills load per session in every Port42 terminal (typed and teleported included), the brief is six rules (1,298 characters from 4,230), `port42 skills install` for sessions outside Port42; five of five on Dev4.
 
 The generated reference owns which methods exist. A skill packages the concepts: a man page plus a
 small program, composed by an agent the way a shell user composes commands. Port42 ships knowledge,
@@ -369,7 +369,7 @@ Things that would be cool once the five scenarios hold.
   up ten stale companions in prod's port42-app space.
 - **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
   focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
-- **`/imagine`** (GM, 2026-09-25). Type one line ("a shader that reacts to music") and Port42 writes
+- **`/imagine`** (GM, 2026-09-25; moved into the release's scope 2026-09-26, plan in `plan-imagine.md`). Type one line ("a shader that reacts to music") and Port42 writes
   the brief, opens a new space with a lead and two engineers, and briefs the lead; the team builds and
   improves the port in its chat by rounds and reports DONE. The pieces exist and ran live
   (`scripts/scenarios/team.py`); what is new is turning the line into the brief. Product idea;

@@ -380,7 +380,11 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     [ -f "$RELEASE_PROFILE" ] && cp "$RELEASE_PROFILE" "$APP/Contents/embedded.provisionprofile"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-claude-shim"
-    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42"
+    # port42-cli, NOT port42: the CLI was renamed so it stops colliding with the app executable
+    # by case (see bundle_helper), and this line kept the old name. On a case-insensitive disk
+    # `$MACOS/port42` IS the app binary, so it re-signed that while the CLI stayed ad-hoc, and
+    # notarization refused the DMG (2026-09-26).
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-cli"
     # Sign Sparkle framework and all nested components (inside-out)
     if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
         SPARKLE_ENT="$DIR/Sparkle.entitlements"

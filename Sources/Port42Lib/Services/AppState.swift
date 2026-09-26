@@ -865,12 +865,12 @@ public final class AppState: ObservableObject {
 
     private func configureSyncIfNeeded(userId: String) {
         // A test process must never manage real infrastructure: no gateway spawn, no stale-port
-        // reclaim, no sync connect, no ngrok autostart. The failing state of this guard was
+        // reclaim, no sync connect. The failing state of this guard was
         // recorded live on 2026-07-19: a full-suite run walked completeSetup into
         // killProcessOnPort(4242) and killed the running production app.
         guard !AppState.isTestProcess else { return }
 
-        // Always ensure the local gateway is running (ngrok and other proxies connect to it)
+        // Always ensure the local gateway is running
         let gp = GatewayProcess.shared
         var didStartGateway = false
         if !gp.isRunning {
@@ -958,8 +958,8 @@ public final class AppState: ObservableObject {
     }
 
     /// True when running inside a test harness (swift test / xctest). A test process must never
-    /// manage real infrastructure — no gateway spawn, no stale-port reclaim, no sync connect, no
-    /// ngrok autostart. Belt and braces across harness signals: XCTest linked into the process,
+    /// manage real infrastructure — no gateway spawn, no stale-port reclaim, no sync connect.
+    /// Belt and braces across harness signals: XCTest linked into the process,
     /// the XCTest env vars, or the swift-testing env flag.
     nonisolated static let isTestProcess: Bool = {
         // SPM runners: `swift test` executes tests inside swiftpm-testing-helper (swift-testing)
@@ -986,8 +986,8 @@ public final class AppState: ObservableObject {
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         // -sTCP:LISTEN: reclaim means the LISTENer only. Without it, lsof lists every process
         // with ANY socket on the port — including the port's clients — and the 2026-07-19
-        // incident SIGTERMed the running production app, its companions, and ngrok through
-        // exactly this call.
+        // incident SIGTERMed the running production app and its companions through exactly
+        // this call.
         proc.arguments = ["-ti", "tcp:\(port)", "-sTCP:LISTEN"]
         let pipe = Pipe()
         proc.standardOutput = pipe
@@ -1604,6 +1604,20 @@ public final class AppState: ObservableObject {
                                                            spaceId: config.spaceId,
                                                            title: config.companionName,
                                                            reason: reason)
+                                                   },
+                                                   onStartupStuck: { [weak self] screen in
+                                                       guard let self else { return }
+                                                       // Said where the person talks to it: a hidden
+                                                       // or current-space terminal gets no peek.
+                                                       self.shell?.handleNeedsAttention(
+                                                           id: panel.id, spaceId: config.spaceId,
+                                                           title: config.companionName,
+                                                           reason: "waiting at a startup prompt")
+                                                       let says = screen.isEmpty ? "" : " It says: \"\(screen)\"."
+                                                       _ = try? self.postToChat(
+                                                           key: config.spaceId,
+                                                           text: "\(config.companionName) is waiting at a startup prompt in its terminal.\(says) Open it to answer (⌘K finds it if it is hidden); messages to it are held until then.",
+                                                           from: .peer(id: "port42", displayName: "port42", spaceId: config.spaceId))
                                                    })
         terminalControllers[panel.id] = controller
         return controller

@@ -1005,7 +1005,7 @@ public final class PortWindowManager: ObservableObject {
 
     /// Create and configure a WKWebView for a panel. Called once per pop-out.
     private func createPortWebView(for panel: PortPanel) {
-        let config = WKWebViewConfiguration()
+        let config = PortWebViewFactory.configuration()
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
@@ -1257,6 +1257,21 @@ enum PortWebViewFactory {
         return applied
     }
 
+    /// ONE WebKit process pool for every port and browser session (2026-09-26). A configuration
+    /// with no pool makes its own, and making one sets up a whole WebKit process pool on the main
+    /// thread, waiting on a system service as it does: with agents making ports and the system
+    /// busy, Dev4's main thread sat in `WebProcessPool::platformInitialize` → `notify_get_state` and
+    /// every call timed out (sampled). Each web view still gets its own content process, so a port
+    /// that crashes cannot take another with it.
+    @MainActor static let sharedProcessPool = WKProcessPool()
+
+    /// A configuration on the shared pool. Every port web view starts from this.
+    @MainActor static func configuration() -> WKWebViewConfiguration {
+        let config = WKWebViewConfiguration()
+        config.processPool = sharedProcessPool
+        return config
+    }
+
     static func wrapHTML(_ body: String, overflow: String = "auto") -> String {
         let moduleBody = body
             .replacingOccurrences(of: "<script>", with: "<script type=\"module\">")
@@ -1337,9 +1352,23 @@ enum PortWebViewFactory {
         // icon and panel). The page draws no console of its own (GM, 2026-09-25: the in-page ">"
         // toggle and drawer sat on top of the port's own UI).
         const orig = { log: console.log, error: console.error, warn: console.warn };
+        // An Error's message and stack are not enumerable, so JSON.stringify(err) is "{}": a caught
+        // error logged with console.error(err) reached Port42 as "{}", and an agent checking the
+        // console could not tell what broke (a team run, 2026-09-26). Errors keep their stack, and an
+        // object that cannot be stringified (a cycle) falls back to its String form.
+        function fmt(a) {
+            if (a instanceof Error) {
+                const head = (a.name || 'Error') + ': ' + a.message;
+                return a.stack ? (a.stack.indexOf(a.message) >= 0 ? a.stack : head + '\\n' + a.stack) : head;
+            }
+            if (a !== null && typeof a === 'object') {
+                try { return JSON.stringify(a); } catch (_) { return String(a); }
+            }
+            return String(a);
+        }
         function forward(level, args) {
             try {
-                const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                const msg = Array.from(args).map(fmt).join(' ');
                 window.webkit.messageHandlers.portConsole.postMessage({ level: level, message: msg });
             } catch(e) {}
         }
