@@ -121,3 +121,25 @@ mention in a `chat.post` silently reached no one.
 Two ways to close it: reject or slugify a name containing a space at creation time, which matches the
 pattern the autocomplete already feeds (`PortChatPanel.swift:142`); or teach the parser a quoted form
 such as `@"app dev"`. The first is smaller.
+
+**Every terminal port with a new name mints a companion, and nothing reaps them.** GM, 2026-09-26:
+"a new name spawns a new companion... it keeps happening."
+
+`autoRegisterTerminalCompanion` (`AppState.swift:1540`) writes a new `AgentConfig` row for any
+terminal port whose `companionName` is not already a companion, keyed on the panel id
+(`:1543`, `:1551`). The guard is per panel and per name, so it prevents a duplicate for one port; it
+does nothing about volume. Spawn ten terminals with ten titles and the space has ten companions.
+There is no reaper: closing the port does not remove the companion, and nothing reconciles the roster
+against live ports.
+
+Observed tonight: creating one terminal port titled "growth: editor+critic" produced a companion
+named `growth-editor-critic` that outlives it.
+
+This is the roster half of the identity inflation the permission work already measured on the grantee
+half: `ClientRegistry.swift:240` keys a spawned terminal's client id on the port's session id, and
+Dev3 minted 25 grantees in 12 hours, six sharing one name (`security-bridge-authorization.md`). Two
+registries, the same cause, so a fix for one should be designed with the other in view.
+
+Worth deciding rather than patching: a companion is currently created as a side effect of naming a
+window. If a companion is meant to be a durable identity, it should be created by a deliberate act
+and removed when its last port goes.
