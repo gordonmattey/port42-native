@@ -242,7 +242,9 @@ unchanged. Each calibrated by removing the check it pins.
 
 Gates: `RemoteAccessTests`, 11 tests, each calibrated by breaking its check (the one-shot gate, the
 streaming gate, the listing filter, the wake check, the secret check, one table entry, exact-id
-matching); each break failed its own test and no other.
+matching); each break failed its own test and no other. Suite 1248 green, Go green. Harness on Dev2
+(client `nautilus-harness`, space `phase4-harness`): five of five, including scenario 3's hidden
+stage and watching agent, once the harness client held the terminal grant.
 
 ### 4.2 The instance key, and the address that names it
 
