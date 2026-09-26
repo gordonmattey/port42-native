@@ -289,6 +289,15 @@ which creates the watch), working dir, prompt and secrets. The presets and their
 files are gone. The settings card's TRIGGER became RUNS, which hides or shows the live terminal.
 Gates in `NewCompanionCardTests`, calibrated. Not yet looked at by GM.
 
+**Antigravity spike (2026-09-26).** `agy` (installed at `~/.local/bin/agy`) is an interactive terminal
+agent with a print mode (`-p`), resume (`--conversation`, `--continue`) and plugins. It has lifecycle
+hooks, among them SessionStart, Stop, Pre/PostInvocation and PostTool, loaded from a plugin's
+`plugins/<name>/hooks.json` (run with the plugin's directory as cwd), and the hook payload carries a
+`transcriptPath`. So the path is a Port42 plugin for `agy` whose SessionStart and Stop hooks call the
+same notifier (`port42-claude-shim notify …`) Claude's and Codex's do, plus a producer that installs it
+per session. Not built; it is a step of its own (a third `CLIHookProducer`, the plugin, and a live check
+that an `agy` companion registers and its replies post), after which the card offers it.
+
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
 What it would be: each caller that runs `terminal.exec` gets one hidden terminal port of its own,
