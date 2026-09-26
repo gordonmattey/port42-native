@@ -92,6 +92,21 @@ Each step is its own commit: suite green, harness five of five, plans updated.
 *Gates:* the findings recorded here. If either CLI does not load skills as expected, decision 1 is
 revisited before 5.1.
 
+**Spike, 2026-09-26 on Dev4.** A throwaway plugin held one skill whose only content was a word no
+agent could know ("the Port42 spike word"), described as "use when anyone asks for the Port42 spike
+word". Both CLIs answered "what is the Port42 spike word?" with it, without being told the skill's
+name:
+
+- **Claude**: a terminal running `claude --plugin-dir <plugin>` (the shim passes extra arguments
+  through, which is where 5.3 adds it) loaded the skill and replied in the space's chat.
+- **Codex**: the skill in `skills/` of the instance's Codex home, with `codex` typed into a plain
+  Port42 terminal, loaded it; the answer came back through its Stop hook.
+
+Decision 1 holds. Seen on the way: the typed `codex` stopped at a startup dialog GM had to accept,
+and did not register as a companion (no SessionStart reached the app), so a typed Codex could not be
+@mentioned. That is the restarted-Codex dialog already noted in Phase 3, now also on a fresh start;
+to fix with 5.3, since skills in the home change what Codex sees at startup.
+
 ### 5.1 Skill sources and the generator
 
 - `Sources/Port42Lib/Resources/skills/<name>/`: hand-written `SKILL.md`, generated `reference.md`.
