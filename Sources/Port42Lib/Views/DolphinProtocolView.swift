@@ -739,15 +739,14 @@ private struct FrequencyBar: View {
 }
 
 private struct DolphinVideoPlayer: NSViewRepresentable {
-    func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspectFill
+    // A bare layer, not AVPlayerView: see `LoopingVideoView` for the main-thread deadlock.
+    func makeNSView(context: Context) -> LoopingVideoView {
+        let playerView = LoopingVideoView()
 
         if let url = Bundle.port42.url(forResource: "DolphinProtocolLoading", withExtension: "mp4") {
             NSLog("[DolphinProtocol] Video URL resolved: %@", url.path)
             let player = AVPlayer(url: url)
-            playerView.player = player
+            playerView.playerLayer.player = player
             player.isMuted = false
             player.volume = 1.0
             player.play()
@@ -759,7 +758,7 @@ private struct DolphinVideoPlayer: NSViewRepresentable {
         return playerView
     }
 
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+    func updateNSView(_ nsView: LoopingVideoView, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     class Coordinator {

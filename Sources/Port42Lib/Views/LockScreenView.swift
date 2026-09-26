@@ -157,26 +157,54 @@ private struct RippleRing: View {
 
 // MARK: - Looping Video Player
 
+/// A bare player layer: the video and nothing else.
+///
+/// NOT `AVPlayerView` (2026-09-26). AVKit's view carries an `AVPlayerController` that polls the
+/// item's current time ON THE MAIN THREAD, controls hidden or not. When the queue player moved on
+/// to the next video, a media thread tore down the old decoder holding a lock and waited on its
+/// frames, while the main thread waited on that lock: the app froze and every gateway call timed
+/// out (sampled on Dev4 under load, main thread in `-[AVPlayerController updateAtMinMaxTime]` →
+/// `-[AVPlayerItem currentTime]` → mutex wait). A background has no controller to poll.
+public final class LoopingVideoView: NSView {
+    public let playerLayer = AVPlayerLayer()
+
+    public override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer = CALayer()
+        playerLayer.videoGravity = .resizeAspectFill
+        layer?.addSublayer(playerLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    public override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
 public struct DreamscapeVideoLayer: NSViewRepresentable {
     public init() {}
 
-    public func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspectFill
+    public func makeNSView(context: Context) -> LoopingVideoView {
+        let view = LoopingVideoView()
 
         let coordinator = context.coordinator
         let player = AVQueuePlayer()
         coordinator.player = player
         coordinator.enqueueVideos()
 
-        playerView.player = player
+        view.playerLayer.player = player
         player.play()
 
-        return playerView
+        return view
     }
 
-    public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+    public func updateNSView(_ nsView: LoopingVideoView, context: Context) {}
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
