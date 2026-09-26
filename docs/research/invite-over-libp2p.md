@@ -1,7 +1,7 @@
 # The invite, redesigned for libp2p
 
 Against `nautilus` at `51eab10`, 2026-09-26. A design note, not an approved plan. Companion to
-`docs/research-host-mesh.md`, which covers meshing your own machines; this covers giving someone
+`docs/research/host-mesh.md`, which covers meshing your own machines; this covers giving someone
 else access to one thing.
 
 ## What libp2p changes

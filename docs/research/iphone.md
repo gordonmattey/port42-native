@@ -137,7 +137,7 @@ Ten stray `ngrok` references survive the deletion, in `AppState.swift`, `Gateway
 
 A phone joining "your virtual network of hosts" is not an iOS feature. The same primitive serves a
 desk and a laptop, a machine at home and one in a cloud network. Written up separately in
-`docs/research-host-mesh.md`, which also audits what survives of the invite mechanism and why the
+`docs/research/host-mesh.md`, which also audits what survives of the invite mechanism and why the
 guest page cannot be reached today.
 
 ## Recommendation

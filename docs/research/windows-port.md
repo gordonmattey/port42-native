@@ -278,7 +278,7 @@ spawn now fails a test.
 |---|---|---|
 | 1 | Does the neutral kernel compile on Windows? | **Yes, 30 files and 3,818 lines of it**, the same set as Linux. The rest is blocked by the seam list above, not by the platform. |
 | 2 | Does GRDB build on Windows? | **No.** `CSQLite` fails on a missing `sqlite3.h`; Windows ships no system SQLite. Needs a vendored build or a different store. Builds on Linux with `libsqlite3-dev`. |
-| 3 | ConPTY plus a JS terminal for the terminal ports? | **Answered: it is the route.** libghostty cannot back a Windows surface (no renderer backend, `PlatformTag` is macOS and iOS only, and the portable "libghostty" is a different library). Ghostty's own `src/pty.zig` is a working ConPTY reference. Full evidence in `docs/spike-libghostty-windows.md`. |
+| 3 | ConPTY plus a JS terminal for the terminal ports? | **Answered: it is the route.** libghostty cannot back a Windows surface (no renderer backend, `PlatformTag` is macOS and iOS only, and the portable "libghostty" is a different library). Ghostty's own `src/pty.zig` is a working ConPTY reference. Full evidence in `docs/research/libghostty-windows.md`. |
 | 4 | Can WebView2 express the `PortBridge` contract? | Not attempted. |
 | 5 | Does the Go side build on Windows? | **Yes, all three.** `gateway` and `shim` cross-compile untouched. `cli` needed one function: `isInteractive()` used a hand-rolled `TIOCGETA` ioctl, replaced with `term.IsTerminal`. Ten lines, tests still pass, demonstrated on this branch. |
 
@@ -341,7 +341,7 @@ ships `ios-arm64`, `ios-arm64-simulator` and `macos-arm64_x86_64` and nothing el
 Windows door is unbuilt rather than closed: it would mean building libghostty from source for Windows
 and writing a host layer, against today's AppKit `NSView` hosting a Metal surface.
 
-**Answered, 2026-09-25, in `docs/spike-libghostty-windows.md`: no. Use ConPTY plus a JS terminal in
+**Answered, 2026-09-25, in `docs/research/libghostty-windows.md`: no. Use ConPTY plus a JS terminal in
 WebView2.** The spike cross-compiled Ghostty rather than reading about it, and three findings each
 settle it on their own:
 
@@ -385,7 +385,7 @@ codebase, and this one's first step is calling `CreatePseudoConsole`.
 
 ## The recommendation on the boundary
 
-Written up separately and in full in **`docs/recommend-kernel-boundary.md`**, so it can travel on its
+Written up separately and in full in **`docs/research/kernel-boundary.md`**, so it can travel on its
 own. In short: make three mechanical moves (`PortPanel` into `Models`, the geometry constants off
 `ShellState`, `GatewayProcess` behind a protocol), wire `carve.sh` into CI so the boundary is
 enforced rather than asserted, and defer both the `AppState` split and the kernel-language question

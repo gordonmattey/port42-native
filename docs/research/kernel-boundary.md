@@ -4,7 +4,7 @@
 
 Measured on `research-windows-port`, which branches from `nautilus` and carries
 `spikes/windows-kernel/carve.sh` plus a CI workflow that runs it. Evidence in
-`docs/research-windows-port.md`.
+`docs/research/windows-port.md`.
 
 ## The finding
 
