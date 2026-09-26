@@ -23,8 +23,9 @@ relay carries only ciphertext, and a guest that asks for anything beyond its gra
   installed, the port appears as a tile on the other person's desktop. Opened anywhere else, it runs
   in the browser tab. Both people drive it, both driver chips agree, and a stale write is refused
   with `current`. It works from any network, including cafés, offices and phones.
-- **You approve who comes in.** The first time someone opens the link, you see a request with a code
-  that matches the one on their screen. A forwarded or previewed link lets nobody in on its own.
+- **You let people in, like a waiting room.** The first time someone opens the link they type their
+  name and press Join; you see "Ada wants to open 'chart'" with Allow and Deny. A forwarded or
+  previewed link lets nobody in on its own.
 - **Access lists who has what.** Each person or browser you shared with appears in Settings → Access
   with the ports they hold and the rights on each, and revoking takes effect on their next call.
 - **Agents on both machines can work together.** A companion on the other machine drives the shared
@@ -53,8 +54,11 @@ All decided with Gordon on 2026-09-26 except where marked open.
 3. **Port42 runs a default relay; anyone can run their own.** One small Go program in `relay/`, no
    database, stateless beyond who is connected. It needs TLS on 443 and WebSockets and no UDP, so any
    host fits. It learns who connects to whom, from which IPs, when and how much; never content. The
-   invite lists the host's relays, so a self-hosted relay is a Settings entry. **Open: which host and
-   account** (Railway, Fly.io, Render or a VPS), under `relay1.port42.ai`.
+   invite lists the host's relays, so a self-hosted relay is a Settings entry. **Hosted on Railway**
+   (Gordon's account), under `relay1.port42.ai`; Railway terminates TLS on 443 at its edge and the
+   Noise session inside is unaffected. Port 443 is a choice, not a requirement: office, hotel and
+   café networks commonly allow only web ports outbound, so the default relay uses 443, and a
+   self-hosted relay may use any port.
 4. **The per-port invite, both lanes.** An invite names one port and grants that port only (D10).
    Port 0 and spaces are never invitable; a second port is a second invite.
    - **One link, on the page that exists:** `https://port42.ai/invite.html#<coupon>`. The coupon
@@ -63,13 +67,18 @@ All decided with Gordon on 2026-09-26 except where marked open.
    - **The page never acts on load**, because link previews (iMessage on the sender's own phone,
      LinkedIn, Instagram) and mail scanners are reported to run a page's scripts. It clears the
      fragment and offers "Open in Port42" or "Open here".
-   - **Redeeming.** After the guest's click, the page (or the guest's Port42) opens a session to the
-     host through the relay and presents the nonce. The host sees an approval with a six-digit code
-     derived from the session, matching the code on the guest's screen. Approving burns the nonce,
-     enrols the guest's key as a `peer` client and grants that port with those rights. A guest who
-     already holds a grant reconnects without a nonce. **Open for Gordon: always ask** (recommended;
-     it needs the host present) **or let the first opener in without asking** (works with the host
-     away; a previewed or forwarded link can then take the grant).
+   - **Redeeming is a waiting room.** The page shows "Gordon shared 'chart' with you", a name field
+     and Join. After Join, the page (or the guest's Port42) opens a session to the host through the
+     relay, presents the nonce and the typed name, and shows "Waiting for Gordon to let you in". The
+     host gets a request in Port42 (a peek, and a notification if the app is in the background):
+     "Ada wants to open 'chart' (see, use), from Safari on iPhone", with Allow and Deny. Allow burns
+     the nonce, enrols the guest's key as a `peer` client under that name and grants the port with
+     those rights; the guest's page loads the port. Deny tells the guest. While the host has not
+     answered, the request waits as long as the guest's page is open and the invite has not expired.
+     A guest who already holds a grant reconnects straight in. The name is a claim, which is why the
+     host sees it before deciding. **Open for Gordon: always ask** (recommended; needs the host to
+     answer) **or let the first opener in** (works with the host away; a previewed or forwarded link
+     can then take the grant).
    - **A browser guest keeps its key** in that browser, so a refresh is the same guest. Safari clears
      it after seven days without a visit; the guest then needs a new invite. Guests unused for a
      period Gordon sets are reaped from Access.
@@ -85,8 +94,8 @@ All decided with Gordon on 2026-09-26 except where marked open.
    companions, `port.create`, `port.exec` (it runs inside the host's page as that port's own
    principal), `terminal.exec`, `rest.call`, `fs.*` and secrets are refused with a new code,
    `not_granted`. Nothing a remote caller does raises a permission card. Remote access grows into its
-   own permission system, a port being something like a VM (Gordon). **Its first rights, open for
-   Gordon to confirm:**
+   own permission system, a port being something like a VM (Gordon). **Its first rights (confirmed
+   by Gordon):**
    - **`see`**: source, rendered page, console and live events (`getHtml`, `history`, `getDom`,
      `info`, `console`, `subscribe`). A browser guest receives the source, so `see` cannot prevent a
      copy.
@@ -100,10 +109,10 @@ All decided with Gordon on 2026-09-26 except where marked open.
      runs with the host's terminal, so this puts a remote party's text in front of an agent with a
      shell, and each wake spends the host's model tokens.
 
-   **Also open: the shared port's own grants.** The host's copy of the port keeps its machine grants
-   (clipboard, REST), and a guest's input can make it use them. Options: the invite dialog discloses
-   them, or they are suspended while the port is shared. VS Code Live Share shares terminals read-only
-   by default, which argues for suspending.
+   **The shared port's own grants are disclosed (Gordon).** The host's copy of the port keeps its
+   machine grants (clipboard, REST), and a guest's input can make it use them. The invite dialog lists
+   them ("This port can use your clipboard and make web requests. Anyone you let in can make it do
+   so.") before the link is made.
 
    **Named secrets get a per-caller grant.** A companion's ticked secrets write grants for it; any
    other local caller (a port, a plain terminal, a manual client) is asked by a card naming the

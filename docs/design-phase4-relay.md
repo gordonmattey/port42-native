@@ -165,12 +165,15 @@ New, in Go, beside the door it already is:
 - **The page never acts on load.** It reads the coupon, clears it from the address bar
   (`history.replaceState`), and offers "Open in Port42" (`port42://invite#<coupon>`) or "Open here".
   Link previews and mail scanners that run scripts therefore redeem nothing.
-- **Redeeming.** After the guest's click: connect to a relay, open a session to the host, handshake,
-  then send `invite.redeem {nonce}` as the first call. The host checks the nonce is live and shows an
-  approval with a six-digit code derived from the handshake hash; the guest's page shows the same code.
-  On approval the host burns the nonce, creates a `peer` client row for the guest's key if there is
-  none, and grants that port with those rights. A guest who already holds a grant reconnects without
-  a nonce.
+- **Redeeming is a waiting room.** The page shows who shared what, a name field and Join. After
+  Join: connect to a relay, open a session to the host, handshake, then send
+  `invite.redeem {nonce, name}` as the first call, and show "Waiting for <host> to let you in". The
+  host checks the nonce is live and raises a request (a peek, and a notification when the app is in
+  the background): "<name> wants to open '<port>' (<rights>), from <browser and device>", Allow or
+  Deny. Allow burns the nonce, creates a `peer` client row for the guest's key under that name if
+  there is none, grants that port with those rights, and answers the call; the page then loads the
+  port. Deny answers with `refused`. An unanswered request waits while the guest's session is open and
+  the invite is unexpired. A guest who already holds a grant reconnects without a nonce.
 - **The Port42 lane.** `port42://invite#…` opens a card in the guest's Port42 naming the host, the
   port and the rights; accepting runs the same redemption from the guest instance's gateway and places
   a remote tile.
@@ -197,7 +200,7 @@ New, in Go, beside the door it already is:
 | The relay cannot read or alter traffic | Noise end to end; the relay forwards ciphertext |
 | The guest's identity is authenticated | Noise remote static converts from the claimed Ed25519 key |
 | The app never trusts an unverified peer field | HMAC attestation with a stdin-only per-spawn secret; the fields stripped from local doors |
-| A forwarded or previewed link grants nothing by itself | no redemption without a click and the host's approval; the nonce burns on first use |
+| A forwarded or previewed link grants nothing by itself | no redemption without the guest's Join and the host's Allow; the nonce burns on first use |
 | A guest reaches one port | deny by default in the dispatcher; rights per port; no machine methods |
 | Neither side learns the other's IP | only the relay connects to both |
 | Nothing on the Mac is exposed | no listening socket beyond loopback |
@@ -207,9 +210,11 @@ much, never what.
 
 ## Hosting
 
-The relay needs one public hostname with TLS on 443 and WebSockets; no UDP. Railway, Fly.io, Render or
-a small VPS all fit, so this is a choice of account rather than of capability. Default hostname
-`relay1.port42.ai`. Self-hosting is documented: run the binary with a domain, put it in Settings, and
+The relay needs one public hostname with TLS and WebSockets; no UDP. **Railway** (Gordon's account)
+hosts the default, `relay1.port42.ai`, and terminates TLS at its edge on 443; the Noise session
+inside is end to end regardless. 443 because restrictive networks commonly allow only web ports
+outbound; a self-hosted relay may listen on any port. Whether Railway's proxy closes long-lived
+idle WebSockets is measured in 4.0; the relay's 20-second pings are meant to prevent it. Self-hosting is documented: run the binary with a domain, put it in Settings, and
 new invites list it.
 
 ## What is not in this design
