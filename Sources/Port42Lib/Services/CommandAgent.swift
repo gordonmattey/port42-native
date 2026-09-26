@@ -217,17 +217,4 @@ final class CommandAgentHandler {
         }
     }
 
-    func sendShutdown() {
-        let event = CommandAgentEvent(
-            type: "shutdown",
-            spaceId: nil, senderId: nil, senderName: nil,
-            content: nil, mentionedAgents: nil
-        )
-        if let data = try? JSONEncoder().encode(event) {
-            stdinPipe?.fileHandleForWriting.write(data)
-            stdinPipe?.fileHandleForWriting.write("\n".data(using: .utf8)!)
-        }
-        stdinPipe?.fileHandleForWriting.closeFile()
-        process?.terminate()
-    }
 }

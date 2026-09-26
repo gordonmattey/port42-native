@@ -53,7 +53,6 @@ public struct DolphinProtocolView: View {
     @State private var cursorVisible = true
     @State private var revealedLines: Int = 0
     @State private var heartbeatScale: CGFloat = 1.0
-    @State private var bugPulse: CGFloat = 10
 
     // BIOS state
     @State private var biosVisible = false

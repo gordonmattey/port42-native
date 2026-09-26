@@ -65,6 +65,27 @@ guest page's full re-render and the `ngrok-skip-browser-warning` headers belong 
   with nothing in the space to say so. Port42 could post a notice when a turn shows no transcript
   activity for a few minutes. Idea; not built.
 
+## Dead code sweep (2026-09-26)
+
+A scan of every declaration in `Sources` for references outside its own declaration, checked by hand
+(framework callbacks such as GRDB's `databaseTableName`, the terminal's text-input methods and the drop
+delegate are called by name and stay; test hooks stay).
+
+**Batch 1, removed:** seven unused analytics events and `portPoppedOut`, six unused theme tokens, the
+old window paths in `PortWindowManager` (`popOut`, `PortWebViewHost`, `closeWithConfirmation`,
+`toggleAlwaysOnTop`, `persistPermissions`, `extractVersion`), `shellSheetOverlay`, `enterOpenWater`,
+`isLive`, `isSignal`, `noteLabel`, `hasTable`, `isAppleSilicon`, `sendShutdown`, `streamScale`,
+`bugPulse`, and the NDJSON headless-agent pair `AgentProcess` and `AgentProtocol` with their tests.
+
+**Batch 2, after Phase 4 merges** (these files are changing on `nautilus-phase4`): the `ToolExecutor`
+class (the old in-app tool path; never constructed, and the one compiler warning), `aiPaused` /
+`isSuspended` in `PortBridge`, `resolveCall`, `allowedDirectories`, `aiCooldownInterval`,
+`fileResolver`, `registerPortBridge`, `cachePortPermissions` in `AppState`, `directSpaceId`,
+`getDMSpace`, `deletePortPanel` in `DatabaseService`, `isLoaded` in `PortChat`, `secretMetaPrefix` and
+`deleteGatewayRootSecret` in `Port42AuthStore`, the unused state and sign-out helpers in
+`SignOutSheet`, then a re-scan. `PortObject.remoteMachine`/`remotePort` are left for Phase 4 to use or
+drop.
+
 ## Structural (from the list, unchanged)
 
 A port has no storage of its own to ship, no transcript file (chat entries are rows in `port_storage`), and

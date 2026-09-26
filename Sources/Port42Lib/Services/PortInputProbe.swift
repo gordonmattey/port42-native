@@ -78,18 +78,6 @@ public enum PortInputProbe {
         flush()
     }
 
-    /// Record a label that produced NOTHING. Called by the operator's tooling when it moves on, so a
-    /// silent action appears in the tally instead of being absent from it — the difference between
-    /// "this way in does not count" and "we forgot to test it".
-    public static func noteLabel(_ l: String) {
-        let l = l.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !l.isEmpty else { return }
-        lock.lock()
-        if !order.contains(l) { order.append(l); events[l] = [:] }
-        lock.unlock()
-        flush()
-    }
-
     /// Live tally, rewritten in place: `cat` at any moment is the whole measurement, and a
     /// per-keystroke action cannot bury the one label that produced nothing.
     private static func flush() {

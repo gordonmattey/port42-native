@@ -596,13 +596,6 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// Enter open water — the space rung, the desktop where your ports live — animated. The single
-    /// gesture for "follow a port onto the surface": opening a port card in chat, or popping a port
-    /// out, both land the user here rather than staring at the chat with the port off elsewhere.
-    public func enterOpenWater() {
-        withAnimation(.spring(response: 0.4)) { zoom = .space }
-    }
-
     /// Re-home a port to another space (the facade's `move`, plan §3) and clear this desktop's
     /// peek/adoption residue for it — a moved port is native to its new space, not surfaced.
     public func movePort(id: String, toSpace sid: String) {

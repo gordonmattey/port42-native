@@ -191,11 +191,6 @@ final class TerminalOutputProcessor {
             "^\\$\\s", "^>\\s", "^⏺", "file written", "\\.(swift|go|ts|js|py|rs):.*error"
         ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
 
-        func isSignal(_ t: String) -> Bool {
-            let range = NSRange(t.startIndex..., in: t)
-            return signalPatterns.contains { $0.firstMatch(in: t, range: range) != nil }
-        }
-
         func isNoise(_ t: String) -> Bool {
             guard !t.isEmpty else { return true }
             if t.count == 1 { return true }

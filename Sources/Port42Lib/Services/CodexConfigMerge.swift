@@ -70,14 +70,6 @@ enum CodexConfigMerge {
         return lines.joined(separator: "\n")
     }
 
-    /// Does this document already declare `[table]`? Used to keep the caller honest about which
-    /// additions are safe to append.
-    static func hasTable(_ table: String, in toml: String) -> Bool {
-        toml.components(separatedBy: "\n").contains {
-            $0.trimmingCharacters(in: .whitespaces) == "[\(table)]"
-        }
-    }
-
     // MARK: - Hook state (codex's own trust record)
 
     /// Codex records hook trust as `[hooks.state."<defining config path>:<event>:0:0"]` with a

@@ -73,5 +73,4 @@ public struct Driver: Equatable {
     /// this to decide whether a write lands. What refuses a write is CAS against the token.
     public let expires: Date
 
-    public func isLive(at now: Date) -> Bool { now < expires }
 }

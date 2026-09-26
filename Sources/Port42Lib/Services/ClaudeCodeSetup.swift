@@ -302,14 +302,4 @@ public final class ClaudeCodeSetup: ObservableObject {
         }
     }
 
-    private static func isAppleSilicon() -> Bool {
-        var sysinfo = utsname()
-        uname(&sysinfo)
-        let machine = withUnsafePointer(to: &sysinfo.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-                String(cString: $0)
-            }
-        }
-        return machine.hasPrefix("arm64")
-    }
 }

@@ -314,19 +314,6 @@ public struct ShellView: View {
         return false
     }
 
-    /// A classic sheet hosted as a shell overlay: scrim dismisses, card floats on top.
-    @ViewBuilder
-    private func shellSheetOverlay<Content: View>(isPresented: Binding<Bool>,
-                                                  @ViewBuilder content: () -> Content) -> some View {
-        ZStack {
-            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
-                .onTapGesture { isPresented.wrappedValue = false }
-            content()
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.6), radius: 40)
-        }.zIndex(225)
-    }
-
     /// Set up the shell window when the UI appears — the reliable site (the window exists by now,
     /// unlike `applicationDidFinishLaunching`, and it's independent of which unlock/dive path ran).
     /// Routes through the one authoritative helper (takeover or windowed). Retries cover first-frame timing.
