@@ -57,19 +57,27 @@ service is hosted** (decision 3).
    traversal, but Rust beside a Go gateway, and a browser reaches it only through a relay);
    **Tailscale** (both ends must install it and join one tailnet, which fits one person's machines,
    not an invite). No gossipsub or other fan-out mesh: the host is the one source of truth.
-3. **Port42 runs a relay service (decided); where it is hosted is open, and is the blocker.** Two
-   jobs, on one small server that holds no port state:
-   - **Signaling.** Two machines behind routers cannot find each other unaided. Each host keeps one
-     outbound WebSocket to the service, registered under its peer id by signing a challenge. A caller
-     asks for a peer, and the two exchange connection offers and address candidates through it. The
-     service learns who connects to whom, and their addresses. It never sees content.
-   - **TURN.** When no direct path forms (both routers strict), traffic flows through the relay. It
-     carries encrypted bytes it cannot read. TURN over UDP, and over TLS on port 443 for networks
-     that block everything else. Credentials are short-lived and issued by the signaling service only
-     to a registered host or a caller holding a live invite or grant, so it is not an open relay.
-   No Mac is ever given a public address; every connection starts outward. Hosting needs UDP and a
-   public IP, which rules out a platform that forwards only HTTP. Options: Fly.io, or a small VPS.
-   **Open: which, and under which account.**
+3. **Introductions and relaying: open for Gordon, and the blocker.** Gordon wants no server run by
+   Port42. Researched in `research-phase4-transport.md`. Two jobs need a third party that both sides
+   can reach:
+   - **Introduction** (exchanging connection offers). Public Nostr relays can do it, in both lanes,
+     but they are increasingly refusing exactly this traffic and they churn; a project that relied on
+     them moved to its own servers (R).
+   - **Relaying** when no direct path forms. Estimated 12 to 25% of connections with STUN only, 7 to
+     15% with port mapping and IPv6 (I): chiefly guests on networks that block UDP, and cellular guests
+     when the host is behind carrier NAT. Only a TURN relay over TCP/TLS on 443 reaches them.
+   Public STUN, router port mapping and IPv6 need nothing of ours. Options:
+   - **(a) Nothing of ours.** Public Nostr relays and public STUN only. About one guest in ten fails
+     to connect, and introductions fail when the listed relays refuse or have gone.
+   - **(b) Public first, one small service of ours as the fallback** (recommended). A Nostr relay of
+     our own, speaking the standard protocol, listed in every invite beside public ones, plus TURN over
+     UDP and TLS/443. Most connections still go direct and it sees only encrypted bytes. Anyone,
+     including the user, can run the same and list it instead.
+   - **(c) Ours only.** Predictable, and a single point that "no central service" set out to avoid.
+   Hosting (b) or (c) needs UDP and a public IP (Fly.io or a small VPS).
+   No Mac is ever given a public address beyond an optional, time-limited router mapping of one UDP
+   port while something is shared. Its details (only a public mapped address equal to the STUN
+   reflection is used, no permanent leases, cleared at next launch) are in the research doc.
 4. **The per-port invite, both lanes.** An invite names one port and grants that port only (D10).
    Port 0 and spaces are never invitable; a second port is a second invite.
    - **One link, on the page that exists:** `https://port42.ai/invite.html#<coupon>`. The coupon is in
@@ -83,10 +91,15 @@ service is hosted** (decision 3).
      presents the nonce once. The host burns it, creates a `peer` client row for that key if there is
      none, and records one grant: that peer, that port, those rights. The Port42 lane redeems as the
      second instance's key; the browser lane as a key made in the page.
-   - **Until redeemed, the coupon is a bearer secret**: whoever opens it first gets the grant, and
-     the host sees who did in Access and can revoke. That is what lets a link work with the host away.
+   - **Until redeemed, the coupon is a bearer secret.** Link previews (iMessage on the sender's own
+     phone, LinkedIn, Instagram) and mail scanners are reported to load pages and run their scripts,
+     so **the page never redeems on load**: redemption follows a click, and the host confirms the guest
+     by a short code shown on both screens. The page loads no third-party script (today's loads
+     PostHog, which could read the coupon), sets a strict CSP and no referrer, and clears the fragment
+     once read.
    - **A browser guest keeps its key** in that browser (a non-extractable WebCrypto key in
-     IndexedDB), so a refresh is the same guest with the same grant. It is listed in Access as a
+     IndexedDB), so a refresh is the same guest with the same grant. Safari deletes it after seven
+     days without a visit (home-screen web apps excepted), and the guest then needs a new invite. It is listed in Access as a
      browser guest and reaped after a period unused; the period is Gordon's to set.
    - **Default rights: view and drive**, which are `see` and `use` below.
    - **Coordination outside this repo.** The page's source is not in this repository and is to be
@@ -208,6 +221,10 @@ code it guards, on the side that enforces it, and watching it fail. 4.1 comes be
 remote principal is scoped before one can arrive. 4.1 to 4.3 do not depend on 4.0's figures.
 
 ### 4.0 Measure WebRTC before building on it
+
+The full list, ordered, is at the end of `research-phase4-transport.md`: the no-server direct rate
+first, then Nostr introductions, IPv6, preview bots, message limits, the macOS prompt, cost and
+robustness. The items below are the core of it.
 
 Spike code in a scratch directory, not the product tree. Each item says what would change the plan.
 
