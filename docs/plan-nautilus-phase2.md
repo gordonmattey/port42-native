@@ -141,6 +141,19 @@ open port), finds a terminal by title when `port.create` returned an id `ports.l
 and retries its cleanup once because it runs straight after scenario 5's restart. Suite 1142 green.
 **Not yet done: GM's manual pass (below).**
 
+**From GM's first manual pass (2026-09-25), fixed:**
+- **Claude did not resume in a reopened terminal** ("No conversation found with session ID"). Claude
+  stores a session under the project of the directory it ran in and resumes it only from there; the
+  reopened terminal starts in its last cwd. The shim now reads the session's directory from its
+  transcript and runs claude there when resuming (Go gate `TestResumeDirReadsTheSessionsOwnDirectory`,
+  calibrated; checked against the real transcript with a stand-in claude).
+- **The space chat could not be used over a port.** SwiftUI drawn over a hosted web or terminal view
+  does not get the click; the panel is now its own AppKit view (`AppKitLayer`).
+- **Only web ports could be the background.** The "…" menu is on every port; refresh and history
+  stay web-only.
+- **A drop into the rail was blind.** A dashed accent gap shows the slot while dragging a port over
+  the rail or a chip within it, placed among the other chips (`railGapIndex`, tested).
+
 ## Verify, live on Dev3
 
 - The harness passes five of five after every step. Scenario 5 gains two checks: a closed port

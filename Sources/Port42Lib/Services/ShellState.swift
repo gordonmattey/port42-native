@@ -894,6 +894,20 @@ public final class ShellState: ObservableObject {
     /// Which rail zone the in-progress tile drag is currently over (drives the rail highlight); nil
     /// when the drag isn't over the rail.
     @Published public var draggingOverPark: ParkZone?
+    /// The rail slot a drag would land in, while one is over the park zone: the rail draws a gap
+    /// there so the drop is visible before it happens (GM, 2026-09-25).
+    @Published public var railDropSlot: Int?
+    /// The chip being dragged within the rail, if any: the gap is placed among the OTHER chips.
+    @Published public var railDraggingId: String?
+
+    /// Where the drop gap goes in the rail as drawn: before the chip at the returned index, or at the
+    /// end when nil and `slot` is past the last. `slot` counts only the chips other than `dragging`,
+    /// which stays in place while it is dragged. Pure.
+    nonisolated public static func railGapIndex(ids: [String], dragging: String?, slot: Int) -> Int? {
+        let others = ids.filter { $0 != dragging }
+        guard slot < others.count else { return nil }
+        return ids.firstIndex(of: others[slot])
+    }
     /// True while a tile is being dragged/resized — suppresses hover-to-front so tiles you drag OVER
     /// don't pop in front of the one in your hand.
     @Published public var isDraggingTile: Bool = false

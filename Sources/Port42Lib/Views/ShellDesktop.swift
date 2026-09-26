@@ -611,7 +611,9 @@ struct ShellTile: View {
             }
             // Trailing chrome — the SAME controls whether tiled or focused (GM: "literally the same
             // code"). Secondary actions live under "…"; only focus-toggle and close stay visible.
-            if isEditablePort, let bridge = tile.panel?.bridge {
+            // Every port type can be the background (GM, 2026-09-25); refresh and history are for
+            // authored web ports only.
+            if let bridge = tile.panel?.bridge {
                 // Overflow popover (NOT a SwiftUI Menu — Menu won't open reliably inside this
                 // scaled/positioned/animated tile). Holds pause, refresh, history, background.
                 Button { showMore = true } label: {
@@ -624,6 +626,7 @@ struct ShellTile: View {
                     PortMorePopover(
                         bridge: bridge,
                         accent: shell.accent,
+                        editable: isEditablePort,
                         onRefresh: { appState.portWindows.reloadPort(tile.id); showMore = false },
                         onHistory: { showMore = false; showVersions = true },
                         onSetBackground: {
@@ -708,10 +711,19 @@ struct ShellTile: View {
                 if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
+                // Where in the rail it would land, shown as a gap before the drop.
+                if shell.draggingOverPark == .park, let panel = tile.panel {
+                    let count = appState.portWindows.railIds(in: panel.spaceId).filter { $0 != panel.id }.count
+                    let slot = ShellState.railSlot(forY: v.location.y, count: count)
+                    if shell.railDropSlot != slot { shell.railDropSlot = slot }
+                } else if shell.railDropSlot != nil {
+                    shell.railDropSlot = nil
+                }
             }
             .onEnded { v in
                 guard !isFocused else { return }
                 shell.draggingOverPark = nil
+                shell.railDropSlot = nil
                 shell.isDraggingTile = false
                 moveDelta = .zero
                 // Drag-to-keep (Phase 1): pulling a peek into the space ADOPTS it as a tile at
@@ -838,7 +850,14 @@ struct ShellParkRail: View {
                 .frame(height: 14)
                 .foregroundStyle(Port42Theme.textSecondary.opacity(overPark ? 1 : 0.5))
                 .padding(.top, 12)
-            ForEach(railPanels, id: \.id) { chip($0) }   // parked/floating ports incl. the chat panel
+            // Parked ports, with a highlighted gap where a drag would land.
+            let ids = railPanels.map(\.id)
+            let gapAt = shell.railDropSlot.map { ShellState.railGapIndex(ids: ids, dragging: shell.railDraggingId, slot: $0) }
+            ForEach(Array(railPanels.enumerated()), id: \.element.id) { i, p in
+                if gapAt == .some(i) { dropGap }
+                chip(p).opacity(shell.railDraggingId == p.id ? 0.4 : 1)
+            }
+            if shell.railDropSlot != nil, gapAt == .some(nil) { dropGap }
             Spacer(minLength: 12)
             closeZone(height: ShellState.closeZoneHeight(area.height), active: overClose)
         }
@@ -848,6 +867,17 @@ struct ShellParkRail: View {
         .overlay(Rectangle().fill(shell.accent.opacity(overPark ? 0.6 : 0.15)).frame(width: 1), alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: shell.railDropSlot)
+    }
+
+    /// The slot a drag will land in: an accent gap one chip tall.
+    private var dropGap: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .stroke(shell.accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            .background(shell.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+            .frame(height: ShellState.railChipHeight)
+            .padding(.horizontal, 6)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 
     private func chip(_ p: PortPanel) -> some View {
@@ -868,10 +898,19 @@ struct ShellParkRail: View {
         .buttonStyle(.plain).help("Restore \(p.title) (drag to reorder)")
         .padding(.horizontal, 6)
         // Drag a chip up or down the rail to reorder it; a click still restores it.
-        .highPriorityGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named("desktop")).onEnded { v in
-            let count = appState.portWindows.railIds(in: p.spaceId).count
-            appState.portWindows.moveInRail(id: p.id, to: ShellState.railSlot(forY: v.location.y, count: count - 1))
-        })
+        .highPriorityGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named("desktop"))
+            .onChanged { v in
+                if shell.railDraggingId != p.id { shell.railDraggingId = p.id }
+                let count = appState.portWindows.railIds(in: p.spaceId).count
+                let slot = ShellState.railSlot(forY: v.location.y, count: count - 1)
+                if shell.railDropSlot != slot { shell.railDropSlot = slot }
+            }
+            .onEnded { v in
+                shell.railDropSlot = nil
+                shell.railDraggingId = nil
+                let count = appState.portWindows.railIds(in: p.spaceId).count
+                appState.portWindows.moveInRail(id: p.id, to: ShellState.railSlot(forY: v.location.y, count: count - 1))
+            })
         // Source of the restore morph: the tile animates its position out of this chip's frame.
         .matchedGeometryEffect(id: "restore-\(p.id)", in: restoreNS, properties: .position, anchor: .center, isSource: true)
     }
@@ -1275,15 +1314,19 @@ struct PortVersionsPopover: View {
 struct PortMorePopover: View {
     @ObservedObject var bridge: PortBridge
     let accent: Color
+    /// An authored web port: refresh and history apply. Any port can be the background.
+    let editable: Bool
     let onRefresh: () -> Void
     let onHistory: () -> Void
     let onSetBackground: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row("Refresh", icon: "arrow.clockwise", action: onRefresh)
-            row("History…", icon: "clock.arrow.circlepath", action: onHistory)
-            Divider().opacity(0.4)
+            if editable {
+                row("Refresh", icon: "arrow.clockwise", action: onRefresh)
+                row("History…", icon: "clock.arrow.circlepath", action: onHistory)
+                Divider().opacity(0.4)
+            }
             // Set-only: clearing is a shell-level action (the "reset background" control in the top
             // chrome), not something that belongs on a random port.
             row("Set as background", icon: "photo", action: onSetBackground)

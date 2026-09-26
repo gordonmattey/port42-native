@@ -79,4 +79,14 @@ struct RailOrderTests {
         #expect(ShellState.railSlot(forY: 0, count: 3) == 0)
         #expect(PortWindowManager.railInserting("x", into: ["a", "b"], at: 99) == ["a", "b", "x"])
     }
+
+    @Test("the drop gap sits before the chip it will precede, counting only the other chips")
+    func gapIndex() {
+        let ids = ["a", "b", "c"]
+        #expect(ShellState.railGapIndex(ids: ids, dragging: nil, slot: 0) == 0)
+        #expect(ShellState.railGapIndex(ids: ids, dragging: nil, slot: 3) == nil, "past the end: after the last")
+        // Dragging "a" down to between b and c: slot 1 among [b, c] is c, drawn at index 2.
+        #expect(ShellState.railGapIndex(ids: ids, dragging: "a", slot: 1) == 2)
+        #expect(ShellState.railGapIndex(ids: ids, dragging: "a", slot: 2) == nil)
+    }
 }

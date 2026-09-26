@@ -92,6 +92,33 @@ func sessionIDArgs(home, id string) []string {
 	return []string{"--session-id", id}
 }
 
+// resumeDir is the directory a resumed session belongs to, read from its transcript, or "" if it
+// cannot be read. Claude stores a session under the project of the directory it ran in and only
+// finds it to resume from that directory: a reopened Port42 terminal that has since cd'd elsewhere got
+// "No conversation found with session ID" for its own session (2026-09-25).
+func resumeDir(home, id string) string {
+	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", id+".jsonl"))
+	if len(matches) == 0 {
+		return ""
+	}
+	f, err := os.Open(matches[0])
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for n := 0; n < 200 && sc.Scan(); n++ {
+		var line struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &line) == nil && line.Cwd != "" {
+			return line.Cwd
+		}
+	}
+	return ""
+}
+
 // userChoosesSession reports whether the person's own arguments already pick a session, in which case
 // Port42's per-port pin must stay out of the way.
 func userChoosesSession(args []string) bool {
@@ -146,7 +173,18 @@ func runClaude() {
 	// Unless the person chose a session themselves: `claude --resume X` typed into a Port42 terminal
 	// used to fail, because the pin added a second session flag claude refuses to combine with it.
 	home, _ := os.UserHomeDir()
-	argv = append(argv, sessionPin(home, os.Getenv("PORT42_CLAUDE_SESSION_ID"), os.Args[1:])...)
+	pin := sessionPin(home, os.Getenv("PORT42_CLAUDE_SESSION_ID"), os.Args[1:])
+	argv = append(argv, pin...)
+	// Resuming: run in the session's own directory, or claude cannot find it (see resumeDir).
+	if len(pin) == 2 && pin[0] == "--resume" {
+		if dir := resumeDir(home, pin[1]); dir != "" {
+			if cwd, _ := os.Getwd(); cwd != dir {
+				if err := os.Chdir(dir); err == nil {
+					fmt.Fprintf(os.Stderr, "[port42-claude-shim] resuming this port's session in %s\n", dir)
+				}
+			}
+		}
+	}
 	argv = append(argv, os.Args[1:]...)
 
 	if err := syscall.Exec(real, argv, sanitizeEnv(os.Environ())); err != nil {

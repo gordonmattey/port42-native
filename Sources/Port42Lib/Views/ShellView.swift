@@ -165,10 +165,15 @@ public struct ShellView: View {
             if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = appState.currentSpace?.id {
                 VStack {
                     HStack {
-                        PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                        // Hosted in its own AppKit view, so it wins clicks and scrolls over the ports
+                        // beneath it: SwiftUI drawn over a hosted web or terminal view does not
+                        // (GM, 2026-09-25: a full space chat could not be used where it covered one).
+                        AppKitLayer(content:
+                            PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                                .frame(width: 440, height: 360)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1)))
                             .frame(width: 440, height: 360)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1))
                             .shadow(color: .black.opacity(0.5), radius: 24)
                             .id(sid)
                         Spacer()

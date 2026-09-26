@@ -445,3 +445,21 @@ func TestSessionPinStepsAsideForTheUsersChoice(t *testing.T) {
 		t.Fatalf("no pin without an id, got %v", got)
 	}
 }
+
+func TestResumeDirReadsTheSessionsOwnDirectory(t *testing.T) {
+	home := t.TempDir()
+	proj := filepath.Join(home, ".claude", "projects", "-Users-someone")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"type":"summary","summary":"x"}` + "\n" + `{"type":"user","cwd":"/Users/someone","message":{}}` + "\n"
+	if err := os.WriteFile(filepath.Join(proj, "abc.jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resumeDir(home, "abc"); got != "/Users/someone" {
+		t.Fatalf("resumeDir = %q, want the transcript's cwd", got)
+	}
+	if got := resumeDir(home, "missing"); got != "" {
+		t.Fatalf("resumeDir for a missing session = %q, want empty", got)
+	}
+}

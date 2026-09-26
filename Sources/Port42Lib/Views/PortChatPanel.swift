@@ -166,3 +166,11 @@ struct PortChatPanel: View {
         }
     }
 }
+
+/// SwiftUI content in its own AppKit view. A panel laid over a hosted web or terminal view must be a
+/// real NSView above it to win the click and the scroll; plain SwiftUI drawn on top does not.
+struct AppKitLayer<Content: View>: NSViewRepresentable {
+    let content: Content
+    func makeNSView(context: Context) -> NSHostingView<Content> { NSHostingView(rootView: content) }
+    func updateNSView(_ view: NSHostingView<Content>, context: Context) { view.rootView = content }
+}
