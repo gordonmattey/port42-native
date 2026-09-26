@@ -863,6 +863,13 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             guard allowed.contains(secretName) else {
                 throw BridgeError.permissionDenied("companion does not have access to secret '\(secretName)'")
             }
+        } else if let secretName, p.kind != .human {
+            // EVERY OTHER CALLER needs its own grant for each secret (nautilus Phase 4, 4.1). A port, a
+            // plain terminal or a hand-added client used to reach every named secret once it held the
+            // REST grant. A companion's grants are the secrets ticked on its card, above.
+            guard await appState.ensureSecretGrant(secretName, for: p) else {
+                throw BridgeError.permissionDenied("secret '\(secretName)'")
+            }
         }
 
         var request = URLRequest(url: parsed)
@@ -1374,12 +1381,18 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         for c in appState.companions { creatorNames[c.id] = c.displayName }
         for c in appState.clientRegistry.clients() { creatorNames[c.id] = c.name }
 
+        // For a caller on another machine: the ports it holds any right on. nil for everyone else.
+        let remotePorts: Set<String>? = p.kind == .remote ? appState.remotePorts(of: p.id) : nil
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
                    cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
                    surfaceBound: Bool?) {
             if !filterCaps.isEmpty && !filterCaps.allSatisfy({ capabilities.contains($0) }) { return }
             if let filterSpace, spaceId != filterSpace { return }
+            // A caller on another machine sees only the ports it holds a right on, and nothing about
+            // where they sit on this machine: no space, creator, directory or position.
+            let remote = remotePorts != nil
+            if let remotePorts, !remotePorts.contains(id) { return }
             var o: [String: BridgeValue] = [
                 "id": .string(id), "title": .string(title),
                 "capabilities": .array(capabilities.map { .string($0) }),
@@ -1390,6 +1403,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 // call for is a token nobody uses.
                 "token": .string(activity.token(for: id)),
             ]
+            if remote { entries.append(.object(o)); return }
             if let spaceId { o["spaceId"] = .string(spaceId) }
             if let createdBy {
                 o["createdBy"] = .string(createdBy)

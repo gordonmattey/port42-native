@@ -34,15 +34,19 @@ public final class PermissionRequest: Identifiable, ObservableObject {
     public let id = UUID()
     public let permission: PortPermission
     public let principal: Principal
+    /// What exactly is asked for, when the permission alone does not say: the named secret a caller
+    /// wants to use (`rest.call`). Part of the coalescing key, so two different secrets are two cards.
+    public let detail: String?
     fileprivate var continuations: [CheckedContinuation<Bool, Never>] = []
 
     /// How many awaiters ride this request. Continuations stay private; the count is observable so
     /// a caller (or a test settling on registration) can see coalescing without touching them.
     public var awaiterCount: Int { continuations.count }
 
-    fileprivate init(permission: PortPermission, principal: Principal) {
+    fileprivate init(permission: PortPermission, principal: Principal, detail: String?) {
         self.permission = permission
         self.principal = principal
+        self.detail = detail
     }
 
     /// Resume every awaiter exactly once. The list is cleared first so a double-answer (Esc racing
@@ -96,13 +100,14 @@ public final class PermissionCoordinator: ObservableObject {
     ///
     /// Coalesces on (principal.id, permission): a repeat ask for something already pending joins
     /// the existing request instead of clobbering its continuation.
-    public func request(_ permission: PortPermission, from principal: Principal) async -> Bool {
+    public func request(_ permission: PortPermission, from principal: Principal,
+                        detail: String? = nil) async -> Bool {
         await withCheckedContinuation { continuation in
-            if let existing = find(permission, principal) {
+            if let existing = find(permission, principal, detail) {
                 existing.continuations.append(continuation)
                 return
             }
-            let req = PermissionRequest(permission: permission, principal: principal)
+            let req = PermissionRequest(permission: permission, principal: principal, detail: detail)
             req.continuations.append(continuation)
             if current == nil {
                 current = req
@@ -112,9 +117,13 @@ public final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func find(_ permission: PortPermission, _ principal: Principal) -> PermissionRequest? {
-        if let c = current, c.permission == permission, c.principal.id == principal.id { return c }
-        return queued.first { $0.permission == permission && $0.principal.id == principal.id }
+    private func find(_ permission: PortPermission, _ principal: Principal,
+                      _ detail: String?) -> PermissionRequest? {
+        func same(_ r: PermissionRequest) -> Bool {
+            r.permission == permission && r.principal.id == principal.id && r.detail == detail
+        }
+        if let c = current, same(c) { return c }
+        return queued.first(where: same)
     }
 
     /// Answer the current card and advance the queue.

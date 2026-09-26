@@ -997,6 +997,43 @@ public final class DatabaseService {
         }
     }
 
+    /// A remote caller's rights on one port (nautilus Phase 4). Same table as machine grants: the
+    /// port's key is the object, the right is the permission, and there is no zone.
+    public func remoteRights(grantee: String, portKey: String) throws -> Set<RemoteRight> {
+        try dbQueue.read { db in
+            let raw = try String.fetchAll(
+                db, sql: "SELECT permission FROM grants WHERE grantee = ? AND object = ? AND zone = ''",
+                arguments: [grantee, portKey])
+            return Set(raw.compactMap(RemoteRight.init(rawValue:)))
+        }
+    }
+
+    /// The ports a remote caller holds any right on.
+    public func remotePorts(grantee: String) throws -> Set<String> {
+        let rights = RemoteRight.allCases.map(\.rawValue)
+        return try dbQueue.read { db in
+            Set(try String.fetchAll(
+                db, sql: """
+                         SELECT DISTINCT object FROM grants WHERE grantee = ? AND zone = ''
+                           AND permission IN (\(databaseQuestionMarks(count: rights.count)))
+                         """,
+                arguments: StatementArguments([grantee] + rights)))
+        }
+    }
+
+    /// Replace a remote caller's rights on one port. An empty set revokes them all.
+    public func saveRemoteRights(_ rights: Set<RemoteRight>, grantee: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM grants WHERE grantee = ? AND object = ? AND zone = ''",
+                           arguments: [grantee, portKey])
+            for r in rights {
+                try db.execute(
+                    sql: "INSERT INTO grants (grantee, object, zone, permission, grantedAt) VALUES (?, ?, '', ?, ?)",
+                    arguments: [grantee, portKey, r.rawValue, Date()])
+            }
+        }
+    }
+
     /// Every grant, for the permission manager. Newest grantee activity first is decided in the
     /// view; this is the raw set.
     public func allGrants() throws -> [GrantRow] {

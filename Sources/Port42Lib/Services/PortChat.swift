@@ -96,7 +96,11 @@ extension AppState {
         chats.received(key, entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
-        routeChat(key: key, entry: entry)
+        // A caller on another machine wakes this machine's companions only when its invite says so:
+        // a companion runs with this machine's terminal, and a wake spends this user's model.
+        if p.kind != .remote || remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
+            routeChat(key: key, entry: entry)
+        }
         return entry
     }
 

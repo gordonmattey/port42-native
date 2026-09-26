@@ -64,7 +64,9 @@ struct BridgeHelpTests {
     /// as the manual's first line taught, and no port ever appeared (audit F12).
     @Test("every agent-facing manual teaches port_create and never teaches the fence as a way to make a port")
     func manualsTeachPortCreateNotFences() throws {
-        for name in ["ports-core", "ports-context", "llms-preamble"] {
+        // ports-core.txt was folded into the ports skill in Phase 5.2; the skill's manual is
+        // ports-context.txt (`SkillCatalog.manual()`).
+        for name in ["ports-context", "llms-preamble"] {
             let url = try #require(Bundle.module.url(forResource: name, withExtension: "txt"))
             let text = try String(contentsOf: url, encoding: .utf8)
             #expect(text.contains("port_create") || text.contains("port.create"),

@@ -222,6 +222,28 @@ nobody without `wake agents` and the named companion with it. A plain terminal a
 a secret they hold no grant for and served one they do. Local callers pass the existing suite
 unchanged. Each calibrated by removing the check it pins.
 
+**Built 2026-09-26.** As planned, with four choices made in the code:
+
+- **One table, not a field per method.** `RemoteAccess.table` (`RemoteAccess.swift`) classifies every
+  registry method as `.port(param, right)`, `.listing` or `.never`, so the whole remote surface reads
+  in one screen, and a method missing from it is `.never`. A gate fails until a new method is
+  classified.
+- **A port acting on itself is never remote.** `port.publish`, `setTitle`, `setCapabilities`,
+  `info` and `presentation` are refused: a guest running a copy of a port in its browser is not that
+  port, and the host's copy publishes and describes itself.
+- **Storage is never remote yet.** It keys on the caller, so a guest would read its own empty bucket
+  rather than the port's; settled with the browser lane (4.7).
+- **Rights share the `grants` table** (the port's key as object, the right as permission, no zone), so
+  no migration. Secret grants use the object `secret:<name>` with `rest`; a companion's secrets stay
+  the ones ticked on its card. The card names the secret (`PermissionRequest.detail`), and two
+  secrets are two cards.
+- A remote listing omits space, creator, directory and position. A refusal reads the same whether
+  the port exists or not, and a port is named by exact id only.
+
+Gates: `RemoteAccessTests`, 11 tests, each calibrated by breaking its check (the one-shot gate, the
+streaming gate, the listing filter, the wake check, the secret check, one table entry, exact-id
+matching); each break failed its own test and no other.
+
 ### 4.2 The instance key, and the address that names it
 
 - The Ed25519 key (decision 8), handed to the gateway on stdin with the host credential and the MAC

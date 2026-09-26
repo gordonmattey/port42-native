@@ -2,11 +2,10 @@ import Foundation
 
 // MARK: - Principal
 //
-// Who is calling a bridge method. This replaces the label-shaped identity the gateway used: it
-// authenticates a real `peer.ID`, then `AppState.onCallReceived` flattens it to "remote-<prefix>" and
-// keys permissions on that string (todo: "the protocol already has an authenticated principal and
-// throws it away"). A Principal carries a stable identity, so a permission becomes a statement about
-// WHO, not about what a caller is called.
+// Who is calling a bridge method. A Principal carries a stable identity, so a permission becomes a
+// statement about WHO, not about what a caller is called. A gateway caller's identity comes from the
+// credential it presented, verified in `AppState.resolveGatewayCaller` and nowhere else; a caller
+// from another machine is `.remote`, keyed on the peer key the gateway authenticated.
 //
 // Phase 3 finished the promotion: `PermissionRequester` (the accidental first draft that rode the
 // permission coordinator) is gone, and the coordinator takes a Principal directly. One caller
@@ -18,9 +17,13 @@ public struct Principal: Equatable {
         case port
         /// An in-app companion's tool use. `id` is the companion (createdBy) id.
         case companion
-        /// A gateway caller (Claude Code, curl, an external agent). `id` is the authenticated
-        /// `peer.ID` (Phase 3); today the label still flows in until that lands.
+        /// A gateway caller on THIS machine (Claude Code, curl, an external agent). `id` is the
+        /// client id its credential names, verified by the app.
         case peer
+        /// A caller on ANOTHER machine, through a relay (nautilus Phase 4). `id` is its peer key,
+        /// authenticated by the transport and attested to the app. Denied by default: it reaches only
+        /// the ports it holds rights on (`RemoteAccess`), and never raises a permission card.
+        case remote
         /// THE LOCAL HUMAN. `id` is `AppUser.id`. Added for right-of-way (L2.d): until the lease,
         /// nothing needed to authorize FOR the person — permissions are asked OF them — so the
         /// person had no principal at all. A lease holder must be able to be the human, or a
@@ -86,6 +89,12 @@ public struct Principal: Equatable {
     /// whose grants are global to the principal rather than scoped to a space.
     public static func peer(id: String, displayName: String, spaceId: String? = nil) -> Principal {
         Principal(id: id, displayName: displayName, spaceId: spaceId, kind: .peer)
+    }
+
+    /// A caller on another machine. `peer` is its peer key and the grantee; `displayName` is the
+    /// name it was enrolled under. Its grants are rights on ports, never machine capabilities.
+    public static func remote(peer: String, displayName: String) -> Principal {
+        Principal(id: peer, displayName: displayName, spaceId: nil, kind: .remote)
     }
 
     /// THE LOCAL HUMAN. `id` is `AppUser.id`.

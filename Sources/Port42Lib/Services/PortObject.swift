@@ -95,6 +95,7 @@ public enum PortGrantDisplay {
     /// which is why port 0 is not called "desktop" or anything else invented.
     public static func objectLabel(_ object: String) -> String {
         if object == PortObject.machinePortKey { return "Port42" }
+        if object.hasPrefix("secret:") { return "the secret '\(object.dropFirst("secret:".count))'" }
         guard let slash = object.firstIndex(of: "/") else { return "a port" }
         let peer = String(object[object.startIndex..<slash])
         let port = String(object[object.index(after: slash)...])

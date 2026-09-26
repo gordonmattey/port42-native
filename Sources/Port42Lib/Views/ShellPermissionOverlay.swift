@@ -45,6 +45,14 @@ struct ShellPermissionOverlay: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if let detail = request.detail {
+                    Text(detail)
+                        .font(Port42Theme.monoBold(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 // Narrate the macOS dialogs that follow, BEFORE they land (the mic case fires two
                 // more consent sheets — Microphone, then Speech Recognition).
                 if let followUp = request.systemFollowUp {

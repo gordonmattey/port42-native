@@ -35,6 +35,8 @@ extension AppState {
         if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
             throw refusal
         }
+        // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
+        try authorizeRemote(canonical, principal: principal, args: args)
 
         #if DEBUG
         // I1.1 (plan §B). Recorded BEFORE the permission gate, so a call that is about to be
@@ -519,6 +521,8 @@ extension AppState {
         if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
             throw refusal
         }
+        // The SAME remote gate as the one-shot path.
+        try authorizeRemote(canonical, principal: principal, args: args)
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,
                             grants: grants(grantee: principal.id, on: .machine,

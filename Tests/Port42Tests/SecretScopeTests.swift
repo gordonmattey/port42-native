@@ -56,11 +56,17 @@ struct SecretScopeTests {
         #expect(e?.code != BridgeErrorCode.permissionDenied.wire, "got \(String(describing: e))")
     }
 
-    @Test("a caller that is no companion is not scoped here (that is the per-caller grant, Phase 4)")
+    @Test("a caller that is no companion is asked for the secret by name, and refused if denied (Phase 4)")
     @MainActor
-    func plainPeerUnchanged() async throws {
+    func plainPeerIsAsked() async throws {
         let (w, _) = try terminalCompanion(secrets: [])
-        let e = await restCall(w, as: .peer(id: "someone-else", displayName: "x", spaceId: nil), secret: "bank")
-        #expect(e?.code != BridgeErrorCode.permissionDenied.wire)
+        let peer = Principal.peer(id: "someone-else", displayName: "x", spaceId: nil)
+        let pending = Task { @MainActor in await restCall(w, as: peer, secret: "bank") }
+        for _ in 0..<200 where w.state.permissions.current == nil { await Task.yield() }
+        let card = try #require(w.state.permissions.current, "a plain client reached a secret with no grant")
+        #expect(card.detail?.contains("bank") == true)
+        w.state.permissions.resolveCurrent(granted: false)
+        let e = await pending.value
+        #expect(e?.code == BridgeErrorCode.permissionDenied.wire, "got \(String(describing: e))")
     }
 }
