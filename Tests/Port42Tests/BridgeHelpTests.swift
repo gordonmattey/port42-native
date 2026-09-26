@@ -64,7 +64,10 @@ struct BridgeHelpTests {
     /// as the manual's first line taught, and no port ever appeared (audit F12).
     @Test("every agent-facing manual teaches port_create and never teaches the fence as a way to make a port")
     func manualsTeachPortCreateNotFences() throws {
-        for name in ["ports-core", "ports-context", "llms-preamble"] {
+        // ports-core.txt is gone (bd55ec9): the port manual is ports-context.txt, which the ports
+        // skill's manual.md renders. A clean build has no ports-core to find; an incremental one
+        // kept the deleted file in its bundle, which is how this passed there.
+        for name in ["ports-context", "llms-preamble"] {
             let url = try #require(Bundle.module.url(forResource: name, withExtension: "txt"))
             let text = try String(contentsOf: url, encoding: .utf8)
             #expect(text.contains("port_create") || text.contains("port.create"),
