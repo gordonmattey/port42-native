@@ -510,24 +510,34 @@ struct ShellTile: View {
         VStack(spacing: 0) {
             // Chrome by state (a chrome swap never remakes the hosted view — Spike 1).
             if isPeeking, let peek { peekHeader(peek) } else { titleBar }
-            // The chat slides down from the companion bar and pushes the body down.
-            if chatPanelH > 0, let key = chatKey {
-                PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
-                    .frame(width: liveSize.width, height: chatPanelH)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            if consolePanelH > 0, let key = consoleKey {
-                PortConsolePanel(key: key, accent: tileAccent)
-                    .frame(width: liveSize.width, height: consolePanelH)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
             // The body stays mounted through peek/tile/focus: state changes only resize this
             // SAME view — no placeholder, no second mount, the webview never detaches.
             ShellTileBody(shell: shell, appState: appState, tile: tile)
-            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH - chatPanelH - consolePanelH))
+            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
+            // The chat and console slide down OVER the port from its title bar. They used to push the
+            // port down, which resized it, so a shader redrew squeezed every time the chat opened (GM,
+            // 2026-09-25). Hosted in their own AppKit view, so they take clicks over a web or terminal
+            // port, which plain SwiftUI drawn on top does not.
+            .overlay(alignment: .top) {
+                if chatPanelH + consolePanelH > 0 {
+                    AppKitLayer(content: VStack(spacing: 0) {
+                        if chatPanelH > 0, let key = chatKey {
+                            PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
+                                .frame(width: liveSize.width, height: chatPanelH)
+                        }
+                        if consolePanelH > 0, let key = consoleKey {
+                            PortConsolePanel(key: key, accent: tileAccent)
+                                .frame(width: liveSize.width, height: consolePanelH)
+                        }
+                    })
+                    .frame(width: liveSize.width, height: chatPanelH + consolePanelH)
+                    .shadow(color: .black.opacity(0.45), radius: 12, y: 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
         }
         .frame(width: liveSize.width, height: liveSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))

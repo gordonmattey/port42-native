@@ -126,9 +126,13 @@ extension AppState {
                 members.insert(agent.id)
             }
         }
+        // Everyone in this chat hears a person's or a client's plain post (never a companion's).
+        let inChat = senderIsCompanion ? [] : ChatRouting.members(
+            of: (try? db.chatEntries(chat: key, after: 0, limit: 200)) ?? [],
+            companions: companions.filter(\.openInTerminal).map(\.displayName))
         routeMentionsToTerminals(content: entry.text, senderName: entry.fromName, spaceId: spaceId,
                                  implicitCompanion: implicit, replyChat: key,
-                                 source: chatSourceLabel(key: key, panel: panel))
+                                 source: chatSourceLabel(key: key, panel: panel), members: inChat)
         // Headless companions: the ones mentioned, or every member when a PERSON posts without a
         // mention. A companion's post wakes only whom it names, so two companions cannot loop.
         let headless = ChatRouting.headlessTargets(
@@ -193,9 +197,13 @@ public enum ChatRouting {
 
     /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
     /// port's own companion. Never the sender, so a companion cannot wake itself.
-    public static func targets(text: String, senderName: String, portCompanion: String?) -> [String] {
+    public static func targets(text: String, senderName: String, portCompanion: String?,
+                               members: [String] = []) -> [String] {
         var keys = MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() }
         if let own = portCompanion?.lowercased(), !own.isEmpty { keys.append(own) }
+        // A plain post (no mention) reaches everyone in the chat. The caller passes `members` only
+        // for a post that may wake them: a person's or a client's, never a companion's.
+        if MentionParser.extractMentions(from: text).isEmpty { keys += members.map { $0.lowercased() } }
         var seen = Set<String>()
         return keys.filter { $0 != senderName.lowercased() && seen.insert($0).inserted }
     }
@@ -207,6 +215,23 @@ public enum ChatRouting {
         let hasMention = !MentionParser.extractMentions(from: text).isEmpty
         let pool = hasMention ? mentioned : (senderIsPerson ? members : [])
         return pool.filter { !$0.openInTerminal && $0.displayName.lowercased() != senderName.lowercased() }
+    }
+
+    /// Who is in a chat: the companions @mentioned in it or who have posted in it, in order of first
+    /// appearance, restricted to `companions` (the ones that exist). GM, 2026-09-25: once you
+    /// @mention someone in a chat, they are in it, so you can talk to all of them without naming each.
+    public static func members(of entries: [PortChatEntry], companions: [String]) -> [String] {
+        let known = Dictionary(uniqueKeysWithValues: companions.map { ($0.lowercased(), $0) })
+        var seen = Set<String>(), out: [String] = []
+        func add(_ name: String) {
+            let k = name.lowercased()
+            if let real = known[k], seen.insert(k).inserted { out.append(real) }
+        }
+        for e in entries {
+            add(e.fromName)
+            for m in MentionParser.extractMentions(from: e.text) { add(String(m.dropFirst())) }
+        }
+        return out
     }
 
     /// Where a terminal companion's reply is posted: the chat that asked it, else its terminal's own

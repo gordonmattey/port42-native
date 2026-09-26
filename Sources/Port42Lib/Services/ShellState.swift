@@ -942,6 +942,8 @@ public final class ShellState: ObservableObject {
     /// The space's own chat, dropped down from the top bar. A space is a port, so its chat is the
     /// same panel every port carries (docs/design-chat-port.md).
     @Published public var spaceChatOpen = false
+    /// The space's chat zoomed to a full view, like a focused port (GM, 2026-09-25).
+    @Published public var spaceChatExpanded = false
 
     /// Clicking a companion in the dock/member list. A CLI companion (claude/gemini, `openInTerminal`)
     /// launches/reveals its terminal port; a headless one is reached in the space's chat.

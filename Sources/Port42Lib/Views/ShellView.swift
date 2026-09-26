@@ -163,24 +163,41 @@ public struct ShellView: View {
             // across; sections to be revisited for the shell over time).
             // The space's chat, dropped down from the top bar under the space name.
             if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = appState.currentSpace?.id {
-                VStack {
-                    HStack {
-                        // Hosted in its own AppKit view, so it wins clicks and scrolls over the ports
-                        // beneath it: SwiftUI drawn over a hosted web or terminal view does not
-                        // (GM, 2026-09-25: a full space chat could not be used where it covered one).
-                        AppKitLayer(content:
-                            PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
-                                .frame(width: 440, height: 360)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1)))
-                            .frame(width: 440, height: 360)
-                            .shadow(color: .black.opacity(0.5), radius: 24)
-                            .id(sid)
-                        Spacer()
+                GeometryReader { geo in
+                    // Drop-down size, or zoomed to a full view like a focused port.
+                    let expanded = shell.spaceChatExpanded
+                    let w = expanded ? max(440, geo.size.width - 120) : 440
+                    let h = expanded ? max(360, geo.size.height - topInset - 50 - 110) : 360
+                    VStack {
+                        HStack {
+                            // Hosted in its own AppKit view, so it wins clicks and scrolls over the ports
+                            // beneath it: SwiftUI drawn over a hosted web or terminal view does not
+                            // (GM, 2026-09-25: a full space chat could not be used where it covered one).
+                            AppKitLayer(content:
+                                PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                                    .frame(width: w, height: h)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                                    .overlay(alignment: .topTrailing) {
+                                        Button {
+                                            withAnimation(.spring(response: 0.4)) { shell.spaceChatExpanded.toggle() }
+                                        } label: {
+                                            Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                                .font(.system(size: 10)).foregroundStyle(Port42Theme.textSecondary)
+                                                .frame(width: 22, height: 22).contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain).help(expanded ? "Back to the drop-down" : "Full view")
+                                        .padding(6)
+                                    })
+                                .frame(width: w, height: h)
+                                .shadow(color: .black.opacity(0.5), radius: 24)
+                                .id(sid)
+                            Spacer(minLength: 0)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer()
+                    .padding(.top, topInset + 50).padding(.leading, 60)
                 }
-                .padding(.top, topInset + 50).padding(.leading, 60)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(150)
             }

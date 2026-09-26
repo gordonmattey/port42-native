@@ -67,15 +67,18 @@ struct PortChatPanel: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if list.isEmpty {
                             Text("No messages yet. What you say here belongs to this port.")
                                 .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                                 .padding(.top, 8)
                         }
-                        ForEach(list, id: \.seq) { e in
-                            row(e).id(e.seq)
-                        }
+                        // ONE selectable text for the whole transcript, so a drag copies any number of
+                        // messages (GM, 2026-09-25: one Text per message allowed copying one at a time).
+                        Text(Self.transcript(list))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Color.clear.frame(height: 1).id(list.last?.seq ?? 0)
                     }
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,16 +145,22 @@ struct PortChatPanel: View {
         return Array(MentionParser.autocomplete(query: "@" + q, agents: appState.companions).prefix(5))
     }
 
-    private func row(_ e: PortChatEntry) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Circle().fill(ShellDock.avatarColor(e.fromId).gradient).frame(width: 6, height: 6)
-            Text(e.fromName.isEmpty ? e.fromId : e.fromName)
-                .font(Port42Theme.monoBold(10)).foregroundStyle(Port42Theme.textPrimary)
-            Text(e.text)
-                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary.opacity(0.9))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    /// The whole transcript as one attributed text: each message is its sender (in the sender's
+    /// color, bold) then the text, one blank line between messages. Copying a selection gives
+    /// "name  text" lines a person can paste anywhere.
+    static func transcript(_ entries: [PortChatEntry]) -> AttributedString {
+        var out = AttributedString()
+        for (i, e) in entries.enumerated() {
+            var name = AttributedString((e.fromName.isEmpty ? e.fromId : e.fromName) + "  ")
+            name.font = Port42Theme.monoBold(10)
+            name.foregroundColor = ShellDock.avatarColor(e.fromId)
+            var body = AttributedString(e.text + (i == entries.count - 1 ? "" : "\n\n"))
+            body.font = Port42Theme.mono(11)
+            body.foregroundColor = Port42Theme.textPrimary.opacity(0.9)
+            out += name
+            out += body
         }
+        return out
     }
 
     private func send() {

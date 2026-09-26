@@ -337,4 +337,52 @@ struct PortChatTests {
         #expect(ta.contains("-"), "a codename like swift-fox")
         withExtendedLifetime(w.state) {}
     }
+
+    // MARK: - Who is in a chat (GM, 2026-09-25)
+
+    func e(_ seq: Int, _ from: String, _ text: String, kind: String = "human") -> PortChatEntry {
+        PortChatEntry(seq: seq, at: Date(), text: text, fromId: from, fromName: from, fromKind: kind)
+    }
+
+    @Test("a chat's members are the companions mentioned in it or posting in it, once each")
+    func chatMembers() {
+        let entries = [e(1, "gordon", "@swift-fox lead this with @nimble-wren and @keen-owl"),
+                       e(2, "swift-fox", "on it", kind: "companion"), e(3, "gordon", "@ghost hi")]
+        #expect(ChatRouting.members(of: entries, companions: ["swift-fox", "nimble-wren", "keen-owl"])
+                == ["swift-fox", "nimble-wren", "keen-owl"], "a name that is not a companion is ignored")
+    }
+
+    @Test("a plain post reaches the chat's members; a post with a mention reaches only the mentioned")
+    func plainPostReachesMembers() {
+        #expect(ChatRouting.targets(text: "how's it going?", senderName: "gordon", portCompanion: nil,
+                                    members: ["swift-fox", "keen-owl"]) == ["swift-fox", "keen-owl"])
+        #expect(ChatRouting.targets(text: "@keen-owl just you", senderName: "gordon", portCompanion: nil,
+                                    members: ["swift-fox", "keen-owl"]) == ["keen-owl"])
+    }
+
+    @Test("after a person mentions a companion in a chat, their plain posts reach it (routeChat)")
+    func mentionedCompanionHearsPlainPosts() throws {
+        let w = try makeParityWorld()
+        var a = AgentConfig.createCommand(ownerId: try #require(w.state.currentUser?.id), displayName: "swift-fox",
+                                          command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        a.openInTerminal = true
+        try w.state.db.saveAgent(a)
+        w.state.companions = [a]
+        let person = Principal.human(id: "u", displayName: "gordon", spaceId: w.space.id)
+        _ = try w.state.postToChat(key: w.space.id, text: "@swift-fox build it", from: person)
+        w.state.chatReplyTargets = [:]
+        _ = try w.state.postToChat(key: w.space.id, text: "also make it blue", from: person)
+        #expect(w.state.chatReplyTargets["swift-fox"] == w.space.id, "the member did not hear the plain post")
+        // A companion's plain post does not wake members, so companions cannot loop.
+        w.state.chatReplyTargets = [:]
+        _ = try w.state.postToChat(key: w.space.id, text: "done", from: .companion(id: "x", displayName: "keen-owl", spaceId: w.space.id))
+        #expect(w.state.chatReplyTargets["swift-fox"] == nil)
+        withExtendedLifetime(w.state) {}
+    }
+
+    @Test("the transcript is one text, so a drag copies several messages")
+    func transcriptIsOneText() {
+        let t = PortChatPanel.transcript([e(1, "gordon", "first"), e(2, "swift-fox", "second")])
+        #expect(String(t.characters) == "gordon  first\n\nswift-fox  second")
+    }
 }

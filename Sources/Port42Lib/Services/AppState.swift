@@ -955,7 +955,7 @@ public final class AppState: ObservableObject {
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     func routeMentionsToTerminals(content: String, senderName: String, spaceId: String,
                                   implicitCompanion: AgentConfig? = nil, replyChat: String? = nil,
-                                  source: String? = nil) {
+                                  source: String? = nil, members: [String] = []) {
         // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
@@ -965,7 +965,7 @@ public final class AppState: ObservableObject {
         // Explicit @mentions, then the implicit companion (a terminal port's own). Never the
         // sender's own terminal: a companion @mentioning itself would self-inject and could loop.
         let keys = ChatRouting.targets(text: content, senderName: senderName,
-                                       portCompanion: implicitCompanion?.displayName)
+                                       portCompanion: implicitCompanion?.displayName, members: members)
         guard !keys.isEmpty else { return }
 
         // Prefix the sender with "@" so terminal companions see usernames in the same
