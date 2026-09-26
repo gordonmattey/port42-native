@@ -174,3 +174,18 @@ is **deleted** (`:1707`), so a companion can be removed while its terminal keeps
 name.** `AgentConfig` has an id and `spawnNativeTerminalPort` already accepts `companionId`
 (`:1733`). Matching a terminal to its companion on id would survive any rename, fold or reap.
 Matching on a mutable human-facing string cannot.
+
+**No cap on tool results reaching an agent's context, on the live path.** The only cap in the tree,
+`ToolExecutor.maxToolResultBytes`, guards the deleted in-app path, and both callers of `capForModel`
+are inside dead code. The live path, `RemoteToolExecutor`, applies none.
+
+`port.console`'s documented defaults (`tail=100`, `maxLineLength=4000`) can therefore return 400,000
+characters into the context of an agent that the companion prompt explicitly instructs to call it.
+This is a defect rather than a trade, and it is a smaller change than any of the token-efficiency
+designs it would otherwise be weighed against.
+
+**`ports-core.txt` has no consumer.** 1,425 tokens, described in code as "the ONLY port knowledge
+that rides in every companion system prompt". Nothing reads it.
+
+**`llms-cli.txt` documents a CLI that is not shipped.** 538 tokens describing a Python CLI; the
+shipped one is Go. No consumer either.

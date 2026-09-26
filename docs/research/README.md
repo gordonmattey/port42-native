@@ -130,3 +130,18 @@ site, so the gateway answers `timed_out` after 30 seconds.
 Unverified: the cross-port `port.exec` escalation from a web guest. It should work on the code path
 (`guestpage.go:95-99` forwards any method name) but was not executed. Testing it needs a dev instance
 and a minted client.
+
+## Token efficiency (2026-09-26)
+
+[token-efficiency.md](token-efficiency.md). Measured with Claude's own `count_tokens` against
+`claude-opus-5`, not an approximation.
+
+**86% of what a companion spends before doing any work is the ports manual.** Across ten turns a
+Claude companion pays 189,304 input tokens, of which 162,954 is `help topic:"ports"`, which Port42's
+own instruction block calls REQUIRED READING. Inside the manual's 18,106 tokens, 13,995 is the
+registry describing itself for the third and fourth time. The lever is the `PublishedDocs` rule that
+already exists in the tree, applied to the manual.
+
+**Tools cost nothing here, so tool selectors save nothing.** 54 generated schemas would cost 11,380
+and have no consumer, because the CLI was chosen over MCP and the in-app model was deleted. Recorded
+so the lever is not reopened.
