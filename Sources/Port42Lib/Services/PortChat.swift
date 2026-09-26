@@ -45,7 +45,7 @@ public struct PortChatEntry: Equatable {
     func storedJSON() -> String {
         let o: [String: Any] = ["at": at.timeIntervalSince1970, "text": text,
                                 "fromId": fromId, "fromName": fromName, "fromKind": fromKind]
-        let data = (try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])) ?? Data("{}".utf8)
+        let data = (SafeJSON.data(o, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
@@ -124,7 +124,12 @@ extension AppState {
         // A post in a terminal port's own chat wakes its companion without a mention, unless the
         // post is ANOTHER companion's: companions must @mention each other, or two of them replying
         // into each other's chats would wake each other forever.
+        // Port42's own notices ("x is waiting at a startup prompt", a watch paused, a budget spent)
+        // count as a companion's post here: they reach only whom they @mention. They used to reach
+        // every member of the chat as a client's plain post, so each notice in an imagine space woke
+        // the whole team (Dev4, 2026-09-26).
         let senderIsCompanion = entry.fromKind == Principal.Kind.companion.rawValue
+            || entry.fromId == ChatRouting.port42SenderId
             || companions.contains { $0.displayName.lowercased() == entry.fromName.lowercased() }
         let implicit = ChatRouting.wakesOwnCompanion(senderIsCompanion: senderIsCompanion) ? own.flatMap { name in
             companions.first { $0.displayName.lowercased() == name.lowercased() && $0.openInTerminal }
@@ -173,9 +178,14 @@ extension AppState {
 public enum ChatRouting {
     /// The line a companion's terminal receives: who said it, where, and what. A companion reads
     /// which chat a message came from here, and its reply goes back to that chat.
+    ///
+    /// The sender is written as its mention (`CompanionName.mention`), so an agent that copies it to
+    /// reply writes a mention that arrives: "app dev" is `[@app%20dev]`, not `[@app dev]`, which would
+    /// be read as a mention of `app`.
     public static func terminalLine(sender: String, source: String?, text: String) -> String {
-        guard let source, !source.isEmpty else { return "[@\(sender)]: \(text)\r" }
-        return "[@\(sender) in \(source)]: \(text)\r"
+        let who = CompanionName.mention(sender)
+        guard let source, !source.isEmpty else { return "[\(who)]: \(text)\r" }
+        return "[\(who) in \(source)]: \(text)\r"
     }
 
     /// A port's chat names the port's id as well as its title, so a companion can post there
@@ -198,14 +208,29 @@ public enum ChatRouting {
             guard before.isWhitespace else { return nil }       // an email, not a mention
         }
         let tail = draft[draft.index(after: at)...]
-        guard tail.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
+        guard tail.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "%" }) else { return nil }
         return String(tail)
     }
 
-    /// The draft with the @name being typed completed to `name`, followed by a space.
+    /// A message as a person reads it: an escaped mention (`@app%20dev`) is shown as the name
+    /// (`@app dev`). Display only; the stored text keeps the escape, which agents need to write it.
+    public static func displayText(_ text: String) -> String {
+        guard text.contains("%"), let re = try? NSRegularExpression(
+            pattern: #"(?<![a-zA-Z0-9.%])@(?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*"#) else { return text }
+        var out = text
+        for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let r = Range(m.range, in: out) else { continue }
+            let token = String(out[r])
+            if token.contains("%"), let decoded = token.removingPercentEncoding { out.replaceSubrange(r, with: decoded) }
+        }
+        return out
+    }
+
+    /// The draft with the @name being typed completed to `name`'s mention (escaped, see
+    /// `CompanionName.mention`), followed by a space.
     public static func complete(_ draft: String, with name: String) -> String {
         guard mentionQuery(in: draft) != nil, let at = draft.lastIndex(of: "@") else { return draft }
-        return String(draft[..<at]) + "@" + name + " "
+        return String(draft[..<at]) + CompanionName.mention(name) + " "
     }
 
     /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
@@ -223,6 +248,9 @@ public enum ChatRouting {
 
     /// The headless (non-terminal) companions a post wakes: those it mentions; with no mention,
     /// every member, but only when a person posted. Never the sender.
+    /// The id Port42 posts its own notices under.
+    public static let port42SenderId = "port42"
+
     public static func headlessTargets(mentioned: [AgentConfig], members: [AgentConfig], text: String,
                                        senderName: String, senderIsPerson: Bool) -> [AgentConfig] {
         let hasMention = !MentionParser.extractMentions(from: text).isEmpty
@@ -312,8 +340,11 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             o["space_id"] = .string(sid)
             o["space_name"] = .string(space.name)
             let me = o["name"]
-            o["companions"] = .array(appState.companions(forSpace: sid)
-                .map(\.displayName).filter { BridgeValue.string($0) != me }.map { .string($0) })
+            let others = appState.companions(forSpace: sid).map(\.displayName).filter { BridgeValue.string($0) != me }
+            o["companions"] = .array(others.map { .string($0) })
+            // How to @mention each, in the same order: a space or other character is escaped
+            // (`app dev` is `@app%20dev`).
+            o["mentions"] = .array(others.map { .string(CompanionName.mention($0)) })
         }
         return .object(o)
     }

@@ -137,6 +137,7 @@ public enum RemoteAccess {
         "companions.unwatch": .never,
         "companions.watches": .never,
         "imagine.start": .never,
+        "imagine.budget": .never,
         // Invites are made and managed here; a guest redeems at the remote door, not through these.
         "invite.create": .never,
         "invite.list": .never,

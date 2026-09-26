@@ -159,6 +159,16 @@ public struct ShellView: View {
                 }.zIndex(215)
             }
 
+            // Quick imagine (⌘I): one line starts a team in a new space.
+            if shell.showImagine {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { shell.showImagine = false }
+                    ImagineBox(isPresented: $shell.showImagine, appState: appState)
+                        .padding(.top, 120)
+                }.zIndex(216)
+            }
+
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
             // The space's chat, dropped down from the top bar under the space name.
@@ -233,6 +243,9 @@ public struct ShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
             shell.showQuickSwitcher.toggle()          // ⌘K — migrated from the classic app
         }
+        .onReceive(NotificationCenter.default.publisher(for: .imagineRequested)) { _ in
+            shell.showImagine.toggle()
+        }
         // The switcher changed the space → land on the desktop rung (galaxy/focus would
         // otherwise linger over the new space). Scoped to switcher closes, so a space
         // change from galaxy management (e.g. delete) never yanks the ladder.
@@ -297,6 +310,7 @@ public struct ShellView: View {
         if shell.showNewCompanion { shell.showNewCompanion = false; return true }
         if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
+        if shell.showImagine { shell.showImagine = false; return true }
         return false
     }
 
@@ -361,6 +375,7 @@ public struct ShellView: View {
                 case .cycleBackward:    shell.cycleStep(forward: false)
                 case .jumpSpace(let i): shell.jumpToSpace(index: i)
                 case .quickSwitcher:    shell.showQuickSwitcher.toggle()
+                case .imagine:          shell.showImagine.toggle()
                 }
                 return nil
             }

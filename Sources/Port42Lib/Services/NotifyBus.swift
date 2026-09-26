@@ -64,7 +64,7 @@ public struct PortNotify: Equatable {
     }
 
     public func jsonString() -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: toJSONObject(),
+        guard let data = SafeJSON.data(toJSONObject(),
                                                      options: [.fragmentsAllowed]),
               let json = String(data: data, encoding: .utf8) else { return nil }
         return json

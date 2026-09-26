@@ -442,7 +442,9 @@ BRIDGE API REFERENCE:
     EVERY error carries a `code` you can branch on, and a `message` for a human. The codes are a
     closed set, so matching one is safe:
       RETRY WITH e.current   token_required · stale_write
-      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · js_syntax
+      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · too_large (the result
+                             would not fit in one frame (2 MB): ask for less, e.g. a tail, a
+                             limit or a selector) · js_syntax
       THE TARGET             not_found (no such port/session/window) · no_surface (it exists but
                              has nothing live to write to yet — wait or respawn) · port_paused
       CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
@@ -451,7 +453,9 @@ BRIDGE API REFERENCE:
                              path they never picked: they pick a file) · not_granted (you are on
                              another machine and your invite does not cover this; the host sends
                              a new one) · invite_invalid (the invite is used, expired, withdrawn
-                             or needs the right code; ask for a new one)
+                             or needs the right code; ask for a new one) · budget_spent (an
+                             imagine team's version budget: the lead posts DONE, or the person
+                             raises it)
       ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                              client in Settings -> Access and you send it as `Authorization:
                              Bearer <token>`) · auth_revoked (it knew you and the user withdrew

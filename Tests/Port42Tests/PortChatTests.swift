@@ -223,6 +223,8 @@ struct PortChatTests {
         #expect(ChatRouting.terminalLine(sender: "gordon", source: "#genesis", text: "hi")
                 == "[@gordon in #genesis]: hi\r")
         #expect(ChatRouting.terminalLine(sender: "gordon", source: nil, text: "hi") == "[@gordon]: hi\r")
+        #expect(ChatRouting.terminalLine(sender: "app dev", source: nil, text: "hi") == "[@app%20dev]: hi\r",
+                "the sender is written as a mention an agent can copy to reply")
         #expect(ChatRouting.sourceLabel(space: "genesis") == "#genesis")
         #expect(ChatRouting.sourceLabel(port: "shader", ownTerminal: true) == "your terminal's chat")
         #expect(ChatRouting.sourceLabel(port: "shader") == "the chat of port 'shader'")
@@ -377,6 +379,12 @@ struct PortChatTests {
         w.state.chatReplyTargets = [:]
         _ = try w.state.postToChat(key: w.space.id, text: "done", from: .companion(id: "x", displayName: "keen-owl", spaceId: w.space.id))
         #expect(w.state.chatReplyTargets["swift-fox"] == nil)
+        // Port42's own notice wakes no member; one that @mentions a companion still reaches it.
+        let port42 = Principal.peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: w.space.id)
+        _ = try w.state.postToChat(key: w.space.id, text: "swift-fox is waiting at a startup prompt", from: port42)
+        #expect(w.state.chatReplyTargets["swift-fox"] == nil, "a Port42 notice woke a member")
+        _ = try w.state.postToChat(key: w.space.id, text: "@swift-fox the budget is spent", from: port42)
+        #expect(w.state.chatReplyTargets["swift-fox"] == w.space.id, "a Port42 notice lost its mention")
         withExtendedLifetime(w.state) {}
     }
 

@@ -59,6 +59,9 @@ extension AppState {
             }
         }
 
+        // An imagine team past its version budget is refused here, before the token moves.
+        try imagineBudgetGate(method: canonical, args: args, principal: principal)
+
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
@@ -68,6 +71,7 @@ extension AppState {
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
         let value = try await method.run(principal, args)
         try failIfErrorResult(value, method: canonical)
+        imagineBudgetNotice(method: canonical, args: args, principal: principal)
         if method.replacesState { announceStateChange(port: key, method: canonical) }
         return withToken(tokenAfter(key), value)
     }
@@ -527,8 +531,7 @@ extension AppState {
         }
         if let target = remoteTarget(canonical, principal: principal, args: args) {
             return try await forwardRemote(canonical, to: target, args: args, onStream: { event in
-                if let data = try? JSONSerialization.data(withJSONObject: event, options: [.fragmentsAllowed]),
-                   let text = String(data: data, encoding: .utf8) { yield(text) }
+                if let text = SafeJSON.string(event, options: [.fragmentsAllowed]) { yield(text) }
             })
         }
         // The SAME remote gate as the one-shot path.

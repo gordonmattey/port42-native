@@ -142,6 +142,8 @@ public final class GatewayDoor: NSObject, ObservableObject {
     /// reaches `onCallReceived`. With no handler installed it is refused.
     public var onRemoteCallReceived: (@MainActor (RemoteClaim, String, [String: Any],
                                                   (@MainActor (Any) -> Void)?) async -> Any)?
+    /// The host credential sent at identify. Nil: the running gateway's (tests set their own).
+    var hostCredentialOverride: String?
 
     private var url: URL?
     private var senderId: String?
@@ -170,11 +172,14 @@ public final class GatewayDoor: NSObject, ObservableObject {
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         urlSession = session
         let task = session.webSocketTask(with: URLRequest(url: url))
+        // The gateway takes frames up to its own limit; URLSession's default is half that, and a
+        // bigger call closed the door with "Message too long" (GatewayStallTests).
+        task.maximumMessageSize = Self.maxFrameBytes
         webSocket = task
         task.resume()
         // The local gateway needs no challenge, so identify at once rather than waiting for `no_auth`.
         send(DoorEnvelope(type: "identify", senderId: senderId, senderName: senderName, isHost: true,
-                          hostCredential: GatewayProcess.shared.hostCredential))
+                          hostCredential: hostCredentialOverride ?? GatewayProcess.shared.hostCredential))
         receiveLoop()
         p42log("[door] connecting to \(url.absoluteString)")
     }
@@ -276,7 +281,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
             } else {
                 result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire]
             }
-            send(Self.frame("response", callId: callId, to: senderId, content: Self.jsonContent(from: result)))
+            send(Self.response(callId: callId, to: senderId, content: Self.jsonContent(from: result)))
         }
     }
 
@@ -297,8 +302,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
         let id = "out-" + UUID().uuidString
         let frame: [String: Any] = ["type": "remote_call", "call_id": id, "method": method, "args": args,
                                     "to_peer": peer, "relays": relays]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let text = String(data: data, encoding: .utf8) else {
+        guard let text = SafeJSON.string(frame) else {
             throw BridgeError.badArg("these arguments cannot be sent to another instance")
         }
         return try await withTaskCancellationHandler {
@@ -342,6 +346,21 @@ public final class GatewayDoor: NSObject, ObservableObject {
         }
     }
 
+    /// The gateway's per-frame read limit (`maxMessageSize` in gateway.go). A frame over it closes
+    /// the host's connection there, and its caller waits until it times out.
+    static let maxFrameBytes = 2 * 1024 * 1024
+
+    /// A call's response, or a `too_large` error in its place when it would not fit in one frame.
+    static func response(callId: String, to target: String, content: String) -> DoorEnvelope {
+        let frame = frame("response", callId: callId, to: target, content: content)
+        let size = (try? JSONEncoder().encode(frame).count) ?? 0
+        guard size > maxFrameBytes else { return frame }
+        let refusal = ["error": "the result is \(size) bytes, over the \(maxFrameBytes)-byte limit of one frame. "
+                           + "Ask for less: a tail, a limit, a selector, or one part at a time.",
+                       "code": BridgeErrorCode.tooLarge.wire]
+        return Self.frame("response", callId: callId, to: target, content: jsonContent(from: refusal))
+    }
+
     static func frame(_ type: String, callId: String, to target: String, content: String) -> DoorEnvelope {
         var e = DoorEnvelope(type: type)
         e.callId = callId
@@ -356,7 +375,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
     /// queue for good.
     static func jsonContent(from value: Any) -> String {
         if let str = value as? String { return str }
-        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+        if let data = SafeJSON.data(value),
            let json = String(data: data, encoding: .utf8) { return json }
         return "{\"error\":\"unserializable result\"}"
     }

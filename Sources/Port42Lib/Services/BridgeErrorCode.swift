@@ -80,6 +80,11 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     case staleWrite = "stale_write"
     /// A path that would leave the data directory.
     case pathEscape = "escape"
+    /// A result too big for one gateway frame. The caller asks for less.
+    case tooLarge = "too_large"
+    /// An imagine team's write past its version budget (docs/plan-imagine.md). Not `wrong_state`:
+    /// the team cannot change this state itself, the person raises the budget.
+    case budgetSpent = "budget_spent"
 
     // MARK: The transport itself failed (slice-02, Part 0's ERRORS row)
     //
@@ -189,10 +194,10 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     public var repair: Repair {
         switch self {
         case .tokenRequired, .staleWrite:                   return .retryWithCurrent
-        case .missingArg, .badArg, .unknownMethod, .jsSyntax: return .fixYourCall
+        case .missingArg, .badArg, .unknownMethod, .jsSyntax, .tooLarge: return .fixYourCall
         case .notFound, .noSurface, .portPaused:            return .theTarget
         case .wrongState:                                   return .changeStateRetry
-        case .permissionDenied, .accessDenied, .notGranted, .inviteInvalid: return .askTheUser
+        case .permissionDenied, .accessDenied, .budgetSpent, .notGranted, .inviteInvalid: return .askTheUser
         case .authRequired, .authRevoked:                   return .enrolFirst
         case .timedOut, .aiTimeout, .jsTimeout:             return .waitOrAllowLonger
         case .unsupported:                                  return .doNotRetry
@@ -220,6 +225,8 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .unsupported:     return "this macOS cannot do it; no user action fixes it"
         case .scriptError:     return "your AppleScript/JXA"
         case .pathEscape:      return "path left the data directory"
+        case .tooLarge:        return "the result would not fit in one frame (2 MB): ask for less, e.g. a tail, a limit or a selector"
+        case .budgetSpent:     return "an imagine team's version budget: the lead posts DONE, or the person raises it"
         case .noHost:          return "Port42 is not running, or not connected to this gateway — start it"
         case .hostOffline:     return "it was there and its connection dropped; retry shortly"
         case .transportFailed: return "the gateway could not hand your call over; retry"

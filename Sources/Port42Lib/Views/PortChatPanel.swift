@@ -154,7 +154,7 @@ struct PortChatPanel: View {
             var name = AttributedString((e.fromName.isEmpty ? e.fromId : e.fromName) + "  ")
             name.font = Port42Theme.monoBold(10)
             name.foregroundColor = ShellDock.avatarColor(e.fromId)
-            var body = AttributedString(e.text + (i == entries.count - 1 ? "" : "\n\n"))
+            var body = AttributedString(ChatRouting.displayText(e.text) + (i == entries.count - 1 ? "" : "\n\n"))
             body.font = Port42Theme.mono(11)
             body.foregroundColor = Port42Theme.textPrimary.opacity(0.9)
             out += name
@@ -169,7 +169,7 @@ struct PortChatPanel: View {
         draft = ""
         error = nil
         Task {
-            do { try await appState.postToChatAsPerson(key: key, text: text) }
+            do { try await appState.submitChatInput(key: key, text: text) }
             catch let e as BridgeError { error = e.message; draft = text }
             catch { self.error = error.localizedDescription; draft = text }
         }

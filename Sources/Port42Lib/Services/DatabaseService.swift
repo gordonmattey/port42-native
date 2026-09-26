@@ -873,6 +873,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v56-imagine-team-port") { db in
+            // /imagine makes the port at bootstrap (GM, 2026-09-26): the team's port, so the budget can
+            // leave its placeholder out of the count.
+            try db.alter(table: "imagine_teams") { t in t.add(column: "port", .text) }
+        }
+
         migrator.registerMigration("v56-peer-clients") { db in
             // Nautilus Phase 4, 4.2: a client may be another instance or a browser guest, recognized
             // by its peer id rather than a token. Nullable, since every other kind has none.
@@ -1785,9 +1791,9 @@ public final class DatabaseService {
     public func saveImagineTeam(_ t: ImagineTeam) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
-                INSERT OR REPLACE INTO imagine_teams (spaceId, lead, eng1, eng2, title, versions, startedAt, stoppedAt)
+                INSERT OR REPLACE INTO imagine_teams (spaceId, lead, eng1, eng2, title, versions, startedAt, port)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [t.spaceId, t.lead, t.eng1, t.eng2, t.title, t.versions, t.startedAt, t.stoppedAt])
+                """, arguments: [t.spaceId, t.lead, t.eng1, t.eng2, t.title, t.versions, t.startedAt, t.port])
         }
     }
 
@@ -1795,8 +1801,7 @@ public final class DatabaseService {
         try dbQueue.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM imagine_teams WHERE spaceId = ?", arguments: [spaceId]).map {
                 ImagineTeam(spaceId: $0["spaceId"], lead: $0["lead"], eng1: $0["eng1"], eng2: $0["eng2"],
-                            title: $0["title"], versions: $0["versions"], startedAt: $0["startedAt"],
-                            stoppedAt: $0["stoppedAt"])
+                            title: $0["title"], versions: $0["versions"], startedAt: $0["startedAt"], port: $0["port"])
             }
         }
     }
@@ -2029,14 +2034,14 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.posY = panel.position.map { Double($0.y) }
         if !panel.positions.isEmpty {
             let obj = panel.positions.mapValues { ["x": Double($0.x), "y": Double($0.y)] }
-            self.positions = (try? JSONSerialization.data(withJSONObject: obj))
+            self.positions = (SafeJSON.data(obj))
                 .flatMap { String(data: $0, encoding: .utf8) }
         }
         let perms = panel.bridge.grantedPermissions
         self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
         self.userTitle = panel.userTitle
         if !panel.storedCapabilities.isEmpty,
-           let json = try? JSONSerialization.data(withJSONObject: panel.storedCapabilities),
+           let json = SafeJSON.data(panel.storedCapabilities),
            let str = String(data: json, encoding: .utf8) {
             self.capabilities = str
         }
@@ -2046,7 +2051,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.presentation = panel.presentation
         self.z = panel.z
         if !panel.adoptedSpaceIds.isEmpty,
-           let json = try? JSONSerialization.data(withJSONObject: panel.adoptedSpaceIds),
+           let json = SafeJSON.data(panel.adoptedSpaceIds),
            let str = String(data: json, encoding: .utf8) {
             self.adoptedSpaceIds = str
         }

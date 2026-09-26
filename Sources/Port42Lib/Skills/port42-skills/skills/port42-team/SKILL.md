@@ -9,12 +9,16 @@ description: Use when working with other agents in Port42: handing work off, rev
 
     port42 whoami
 
-It lists the companions you can @mention. Use those exact names; never invent or guess one.
+It lists the companions you can @mention, and in `mentions` how to write each: a name with a space
+or other character is escaped (`app dev` is `@app%20dev`). Use those; never invent or guess a name.
 
 ## Rooms
 
-- Every port has a chat, and the work on a port belongs in its chat. The space's chat is for asks and
-  one-line answers ("made 'mic shader', id X"), not the details.
+- Start and coordinate in the space's chat, where the person follows the team: asks, plans and a
+  line for each step.
+- Work on a port that exists happens in its chat: hand-offs, reports and checks. Hand off there with
+  `port42 chat.post port=<its id>`; replies come back to it.
+- A companion's terminal chat is its own line to the person. Never post into another companion's.
 - Read the room before you act: `port42 chat.read port=<id>`.
 - Post with `port42 chat.post port=<id> text="..."` when you start something on your own; a reply to
   a message you were sent is posted for you.

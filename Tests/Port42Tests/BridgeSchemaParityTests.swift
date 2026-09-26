@@ -136,9 +136,10 @@ struct BridgeSchemaParityTests {
         // + companions_watch, companions_unwatch, companions_watches (Phase 3.3). = 57.
         // + companions_create (the new-companion card as an API, Phase 3.7). = 58.
         // + imagine_start (/imagine, docs/plan-imagine.md). = 59.
-        // + invite_create, invite_list, invite_revoke (a per-port invite, nautilus Phase 4.5). = 62.
-        // + invite_accept (joining another instance's port, Phase 4.6). = 63.
-        #expect(checked == 63, "expected 63 parity-set methods, checked \(checked)")
+        // + imagine_stop, imagine_budget (/imagine I.3). = 61.
+        // - imagine_stop (/imagine is a bootstrap; nothing closes a team's terminals, GM). = 60.
+        // + invite_create, invite_list, invite_revoke, invite_accept (nautilus Phase 4.5, 4.6). = 64.
+        #expect(checked == 64, "expected 64 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

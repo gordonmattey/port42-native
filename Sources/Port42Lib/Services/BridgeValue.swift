@@ -70,7 +70,7 @@ public indirect enum BridgeValue: Equatable {
             return [["type": "image", "source": ["type": "base64", "media_type": mime, "data": base64]]]
         default:
             let obj = toJSONObject()
-            if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.fragmentsAllowed, .sortedKeys]),
+            if let d = SafeJSON.data(obj, options: [.fragmentsAllowed, .sortedKeys]),
                let s = String(data: d, encoding: .utf8) {
                 return [["type": "text", "text": s]]
             }

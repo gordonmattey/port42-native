@@ -109,7 +109,10 @@ struct SkillCatalogTests {
             try String(contentsOf: Self.pluginRoot().appendingPathComponent("skills/\(s.name)/SKILL.md"), encoding: .utf8)
         }.joined(separator: "\n").split(whereSeparator: \.isWhitespace).joined(separator: " ")
         for phrase in ["port42 whoami", "exact name", "port42 chat.read port=", "port42 chat.post port=",
-                       "port42 ports.list", "work on it rather than making a second", "keep the details in the port's chat",
+                       "port42 ports.list", "work on it rather than making a second",
+                       // Where agents talk (GM, 2026-09-26): coordinate in the space's chat, a port's chat when
+                       // working on it together, never another companion's terminal chat.
+                       "coordinate with others in the space's chat", "never post into another companion's terminal chat",
                        "port42 port.patch", "=@file", "port42 port.console", "port42 port.getDom",
                        "token_required", "stale_write", "current", "port42 companions.watch",
                        "Do not also post it", "never guess", "another tool's token"] {

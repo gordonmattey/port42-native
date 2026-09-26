@@ -7,7 +7,7 @@ import Foundation
 /// Auto-registered CLI terminals took the port's TITLE verbatim, and a title is prose. The live
 /// teleport run produced a companion called `teleport: main`, and codex terminals produced
 /// `codex probe` and `codex 146`. All of them joined the space correctly and none of them could be
-/// addressed, because `MentionParser` accepts `@[a-zA-Z][a-zA-Z0-9-]*` and stops at the first space
+/// addressed, because `MentionParser` accepted only `@[a-zA-Z][a-zA-Z0-9-]*` and stopped at the first space
 /// or colon. It read as "the session never became a companion" when it had.
 ///
 /// This is the inverse of the parser, and it lives beside it so the two cannot drift: whatever the
@@ -15,27 +15,21 @@ import Foundation
 /// names (spaces to hyphens); this extends the rule to the other addressable noun.
 public enum CompanionName {
 
-    /// Fold a human title into something `@mentionable`, or nil if nothing usable survives.
+    /// How a companion is @mentioned: its name exactly as the person typed it, with every character a
+    /// mention cannot carry percent-encoded, as in a URL. `app dev` is `@app%20dev`; `scout` is
+    /// `@scout`. The name itself is never changed (GM, 2026-09-26: no hyphen folding).
     ///
-    /// Every run of characters the parser rejects becomes a single hyphen, and a leading non-letter
-    /// is dropped, because the parser demands a letter first — a companion called `146` could not be
-    /// addressed no matter how it was spelled.
-    public static func mentionable(_ raw: String) -> String? {
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        var out = ""
-        var lastWasHyphen = true          // leading hyphens are never useful
-        for scalar in raw.unicodeScalars {
-            if allowed.contains(scalar) {
-                out.unicodeScalars.append(scalar)
-                lastWasHyphen = false
-            } else if !lastWasHyphen {
-                out.append("-")
-                lastWasHyphen = true
-            }
+    /// A mention ends at the first character outside letters, digits and `-`, so a space in a name
+    /// must be escaped in the mention; the parser decodes it back. A first character that is not a
+    /// letter is encoded too, since the parser needs a letter or an escape to start a mention.
+    public static func mention(_ name: String) -> String {
+        var out = "@"
+        for (i, ch) in name.enumerated() {
+            let plain = ch.isASCII && (ch.isLetter || (i > 0 && (ch.isNumber || ch == "-")))
+            if plain { out.append(ch) }
+            else { for b in String(ch).utf8 { out += String(format: "%%%02X", b) } }
         }
-        while out.hasSuffix("-") { out.removeLast() }
-        while let f = out.first, !f.isLetter { out.removeFirst() }
-        return out.isEmpty ? nil : out
+        return out
     }
 }
 
@@ -67,7 +61,8 @@ public enum CompanionProtocol {
     your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply \
     via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another \
     companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ \
-    (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name \
+    (@<their name>, written as whoami's mentions give it: any character but a letter, digit or - is \
+    %-escaped, so a space is %20). That @mention is the ONLY thing that delivers your message to them — a bare name \
     is just text they never receive. So end a hand-off with the @mention, e.g. "Built the login form, \
     @<their name> please review."
     """
@@ -92,7 +87,9 @@ public enum CompanionProtocol {
     /// proved to have changed nothing. Extracting shared prose is a refactor; a refactor that
     /// quietly reworded a live system prompt would be a behaviour change wearing a refactor's
     /// clothes. `CompanionProtocolTests` compares `rules` against this, character for character.
-    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ (@<their name>). That @mention is the ONLY thing that delivers your message to them — a bare name is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @<their name> please review.\""
+    /// Updated deliberately on 2026-09-26 (GM): mentions escape every character a mention cannot
+    /// carry, so the rules say how.
+    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their exact name with a leading @ (@<their name>, written as whoami's mentions give it: any character but a letter, digit or - is %-escaped, so a space is %20). That @mention is the ONLY thing that delivers your message to them — a bare name is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @<their name> please review.\""
 
     /// The sentence fragments a surface must carry to count as stating the protocol. Used by the
     /// anti-drift test rather than comparing whole strings, so wording can be improved in one place
@@ -112,8 +109,10 @@ public enum MentionParser {
     /// Supports both `@Name` and namespaced `@Name@Owner` formats.
     /// Ignores email addresses (word@domain). Deduplicates results.
     public static func extractMentions(from content: String) -> [String] {
-        // Match @Name or @Name@Owner (but not email: requires non-word char before @)
-        let pattern = #"(?<![a-zA-Z0-9.])@([a-zA-Z][a-zA-Z0-9-]*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
+        // Match @Name or @Name@Owner (but not email: requires non-word char before @). A name may carry
+        // percent escapes (`@app%20dev`, see `CompanionName.mention`); the result is decoded, so it
+        // compares equal to the companion's name as typed.
+        let pattern = #"(?<![a-zA-Z0-9.%])@((?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let range = NSRange(content.startIndex..., in: content)
@@ -124,7 +123,8 @@ public enum MentionParser {
 
         for match in matches {
             guard let fullRange = Range(match.range, in: content) else { continue }
-            let mention = String(content[fullRange])
+            let raw = String(content[fullRange])
+            let mention = raw.removingPercentEncoding ?? raw
             if !seen.contains(mention) {
                 seen.insert(mention)
                 result.append(mention)
@@ -139,7 +139,8 @@ public enum MentionParser {
         let lowered = query.lowercased()
         if lowered == "@" { return agents }
         // Strip leading @ since displayName doesn't include it
-        let stripped = lowered.hasPrefix("@") ? String(lowered.dropFirst()) : lowered
+        let bare = lowered.hasPrefix("@") ? String(lowered.dropFirst()) : lowered
+        let stripped = bare.removingPercentEncoding ?? bare
         return agents.filter { $0.displayName.lowercased().hasPrefix(stripped) }
     }
 }

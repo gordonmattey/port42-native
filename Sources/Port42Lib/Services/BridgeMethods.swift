@@ -233,7 +233,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
                 throw BridgeError(code: .noSurface, message: "terminal '\(id)' has no live surface")
             }
-            let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
+            let str = (data as? String) ?? (String(data: (SafeJSON.data(data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
             // AWAITED: a push is not finished until its Enter has landed, and the response's token
             // is read after this returns. Fire-and-forget handed back a token the deferred Enter
             // then moved, so threading it was refused every time (measured in Dev3).
@@ -243,7 +243,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             guard let wv = webView(ref.id ?? ref.messageId ?? id) else {
                 throw BridgeError.notFound("port '\(id)'")
             }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
+            guard let jsonData = SafeJSON.data(data, options: [.fragmentsAllowed]),
                   let jsonStr = String(data: jsonData, encoding: .utf8) else {
                 throw BridgeError.badArg("could not serialize data to JSON")
             }
@@ -884,7 +884,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         if let body = optString("body") {
             request.httpBody = body.data(using: .utf8)
         } else if let bodyObj = optObject("body"),
-                  let jsonData = try? JSONSerialization.data(withJSONObject: bodyObj) {
+                  let jsonData = SafeJSON.data(bodyObj) {
             request.httpBody = jsonData
         }
         if request.httpBody != nil, request.value(forHTTPHeaderField: "Content-Type") == nil {

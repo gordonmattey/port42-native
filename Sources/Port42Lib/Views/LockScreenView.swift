@@ -187,20 +187,28 @@ public final class LoopingVideoView: NSView {
     }
 }
 
+/// The dreamscape clips, looped behind the lock screen.
+///
+/// ONE ITEM, NO TRANSITIONS (2026-09-26). This used to be an `AVQueuePlayer` topped up from an
+/// end-of-item notification on the main thread, observed for every player item in the app. Twice
+/// the app froze at the switch from one clip to the next: sampled on Dev4 with the main thread in
+/// AVFoundation's own advance callback (`_advanceCurrentItemAccordingToFigPlaybackItem`), and before
+/// that inserting the next item, each waiting on a queue that waited on the new item's timebase, while
+/// every gateway call timed out. Now the clips are loaded off the main thread into one composition,
+/// played as a single item, and looped by an asynchronous seek to its start, so the player never
+/// changes item.
 public struct DreamscapeVideoLayer: NSViewRepresentable {
     public init() {}
 
+    static let clips = ["dreamscape", "dream-architect"]
+
     public func makeNSView(context: Context) -> LoopingVideoView {
         let view = LoopingVideoView()
-
-        let coordinator = context.coordinator
-        let player = AVQueuePlayer()
-        coordinator.player = player
-        coordinator.enqueueVideos()
-
+        let player = AVPlayer()
+        player.isMuted = true
+        player.actionAtItemEnd = .none
         view.playerLayer.player = player
-        player.play()
-
+        context.coordinator.start(player)
         return view
     }
 
@@ -208,50 +216,45 @@ public struct DreamscapeVideoLayer: NSViewRepresentable {
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// The clips back to back, as one asset. Loaded with the async API, so no file is read on the
+    /// caller's thread.
+    static func composition(_ urls: [URL]) async throws -> AVComposition {
+        let comp = AVMutableComposition()
+        for url in urls {
+            let asset = AVURLAsset(url: url)
+            let duration = try await asset.load(.duration)
+            _ = try await asset.loadTracks(withMediaType: .video)
+            try await comp.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: asset, at: comp.duration)
+        }
+        return comp
+    }
+
     public class Coordinator: NSObject {
-        var player: AVQueuePlayer?
+        private var player: AVPlayer?
         private var observation: NSObjectProtocol?
+        private var loading: Task<Void, Never>?
 
-        func enqueueVideos() {
-            guard let player else { return }
-
-            let videoNames = ["dreamscape", "dream-architect"]
-            var items: [AVPlayerItem] = []
-            for name in videoNames {
-                if let url = Bundle.port42.url(forResource: name, withExtension: "mp4") {
-                    items.append(AVPlayerItem(asset: AVAsset(url: url)))
+        func start(_ player: AVPlayer) {
+            self.player = player
+            let urls = DreamscapeVideoLayer.clips.compactMap { Bundle.port42.url(forResource: $0, withExtension: "mp4") }
+            guard !urls.isEmpty else { return }
+            loading = Task { @MainActor [weak self] in
+                guard let comp = try? await DreamscapeVideoLayer.composition(urls), let self, let player = self.player,
+                      !Task.isCancelled else { return }
+                let item = AVPlayerItem(asset: comp)
+                self.observation = NotificationCenter.default.addObserver(
+                    forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+                ) { [weak player] _ in
+                    player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: { _ in })
                 }
-            }
-
-            guard !items.isEmpty else { return }
-
-            for item in items {
-                player.insert(item, after: nil)
-            }
-
-            observation = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let self, let player = self.player else { return }
-                guard notification.object is AVPlayerItem else { return }
-
-                if player.items().count <= 1 {
-                    for name in videoNames {
-                        if let url = Bundle.port42.url(forResource: name, withExtension: "mp4") {
-                            let newItem = AVPlayerItem(asset: AVAsset(url: url))
-                            player.insert(newItem, after: nil)
-                        }
-                    }
-                }
+                player.replaceCurrentItem(with: item)
+                player.play()
             }
         }
 
         deinit {
-            if let observation {
-                NotificationCenter.default.removeObserver(observation)
-            }
+            loading?.cancel()
+            if let observation { NotificationCenter.default.removeObserver(observation) }
             player?.pause()
         }
     }

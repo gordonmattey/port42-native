@@ -231,15 +231,30 @@ public final class AppState: ObservableObject {
             guard let self, let key = self.chatKey(for: watch.portUdid) else { return }
             _ = try? self.postToChat(key: key, text: "@\(companion.displayName)'s watch on this port paused after "
                 + "\(service.ceilingPerHour) wakes in an hour. Watch it again to resume.",
-                from: .peer(id: "port42", displayName: "port42", spaceId: nil))
+                from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: nil))
         }
         return service
     }()
 
+    /// Is this terminal the companion's? By the companion's id, which a rename cannot break; by name
+    /// only for a terminal made before its config carried the id. Matching by name alone spawned a
+    /// second terminal after a rename (the old one still ran under the old name).
+    func terminal(_ config: TerminalPortConfig?, isFor companion: AgentConfig) -> Bool {
+        guard let config else { return false }
+        if let id = config.companionId, !id.isEmpty { return id == companion.id }
+        return config.companionName.caseInsensitiveCompare(companion.displayName) == .orderedSame
+    }
+
+    /// The name a terminal's companion answers to now, so a rename applies at once; else the name
+    /// the terminal was made with.
+    func currentName(of config: TerminalPortConfig) -> String {
+        if let id = config.companionId, !id.isEmpty, let c = companions.first(where: { $0.id == id }) { return c.displayName }
+        return config.companionName
+    }
+
     /// Hide or show a companion's running terminal now, as its RUNS setting just changed.
     func setCompanionHidden(_ companion: AgentConfig, hidden: Bool) {
-        let key = companion.displayName.lowercased()
-        for panel in portWindows.panels where panel.terminalConfig?.companionName.lowercased() == key {
+        for panel in portWindows.panels where terminal(panel.terminalConfig, isFor: companion) {
             if hidden { portWindows.minimize(panel.id) } else { _ = portWindows.restore(panel.id) }
         }
     }
@@ -921,7 +936,6 @@ public final class AppState: ObservableObject {
             // GM: no backward compatibility wanted here. So: fold, and where folding collides with a
             // row that already carries the folded name, delete the unaddressable one rather than
             // keep two.
-            self.reconcileCompanionHandles()
 
             // D9: Port42 keeps no model-provider credential; delete the copies the engine left.
             Port42AuthStore.shared.removeEngineCredentials()
@@ -1125,9 +1139,8 @@ public final class AppState: ObservableObject {
         let key = name.lowercased()
         ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
         companionWatches.turnStarted(companionName: name)
-        if let controller = terminalControllers.values.first(where: {
-            $0.config.companionName.lowercased() == key
-        }), controller.isSurfaceBound {
+        if let controller = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) }),
+           controller.isSurfaceBound {
             // Live terminal: inject now AND arm the next turnComplete so only this reply is posted.
             controller.inject(line)
             setTerminalTyping(name: name, spaceId: spaceId)
@@ -1152,14 +1165,17 @@ public final class AppState: ObservableObject {
     /// (ensureTerminalLive alone no-ops when the terminal is already live).
     func focusTerminal(companionName: String) {
         let key = companionName.lowercased()
-        guard let panel = portWindows.panels.first(where: { $0.terminalConfig?.companionName.lowercased() == key }) else { return }
+        let companion = companions.first { $0.displayName.lowercased() == key }
+        guard let panel = portWindows.panels.first(where: { p in
+            companion.map { terminal(p.terminalConfig, isFor: $0) } ?? (p.terminalConfig?.companionName.lowercased() == key)
+        }) else { return }
         if panel.isBackground { _ = portWindows.restore(panel.id) } else { portWindows.bringToFront(panel.id) }
     }
 
     func ensureTerminalLive(companion: AgentConfig, spaceId: String) {
         let key = companion.displayName.lowercased()
         // Already has a live controller → nothing to do.
-        if terminalControllers.values.contains(where: { $0.config.companionName.lowercased() == key }) {
+        if terminalControllers.values.contains(where: { terminal($0.config, isFor: companion) }) {
             return
         }
         // A panel already exists for this companion: restore it if backgrounded (minimized),
@@ -1167,7 +1183,7 @@ public final class AppState: ObservableObject {
         // A panel already exists for this companion: it is mid-build, and its controller will appear
         // shortly. A HIDDEN one stays hidden: it used to be restored here, so waking a hidden
         // companion while its terminal started put it back on the desktop (nautilus 3.7).
-        if portWindows.panels.contains(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
+        if portWindows.panels.contains(where: { terminal($0.terminalConfig, isFor: companion) }) {
             return
         }
         // No panel at all → fully closed → spawn a fresh terminal port.
@@ -1612,24 +1628,27 @@ public final class AppState: ObservableObject {
             // The companion replied → clear its "typing…" indicator (and cancel the safety
             // timeout). Native terminal companions are skipped by launchAgents (which is what
             // clears typing for LLM/command agents), so without this the indicator hangs forever.
-            self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
+            // Its CURRENT name: a rename applies to a live terminal at once.
+            let name = self.currentName(of: config)
+            self.clearTerminalTyping(name: name, spaceId: config.spaceId)
             // The turn is over: what its watches held while it ran goes now, as one.
-            defer { self.companionWatches.turnEnded(companionName: config.companionName) }
-            let companion = self.companions.first(where: { $0.displayName == config.companionName })
+            defer { self.companionWatches.turnEnded(companionName: name) }
+            let companion = self.companions.first(where: { c in config.companionId.map { $0 == c.id } ?? false })
+                ?? self.companions.first(where: { $0.displayName == name })
             let who: Principal = companion.map {
                 .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
-            } ?? .peer(id: terminalClientId, displayName: config.companionName, spaceId: config.spaceId)
+            } ?? .peer(id: terminalClientId, displayName: name, spaceId: config.spaceId)
             // The chat that asked, else this terminal's own chat (a turn typed into the terminal).
             // Posting there also routes the reply's @mentions, so a hand-off is never lost.
-            let asked = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased())
+            let asked = self.chatReplyTargets.removeValue(forKey: name.lowercased())
             let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
             do { try self.postToChat(key: chat, text: content, from: who) }
             catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
-        let drainKey = config.companionName.lowercased()
         let drainPending: () -> [String] = { [weak self] in
             guard let self else { return [] }
+            let drainKey = self.currentName(of: config).lowercased()
             let lines = self.pendingTerminalInjections[drainKey] ?? []
             self.pendingTerminalInjections[drainKey] = nil
             return lines
@@ -1680,20 +1699,6 @@ public final class AppState: ObservableObject {
                                                            spaceId: config.spaceId,
                                                            title: config.companionName,
                                                            reason: reason)
-                                                   },
-                                                   onStartupStuck: { [weak self] screen in
-                                                       guard let self else { return }
-                                                       // Said where the person talks to it: a hidden
-                                                       // or current-space terminal gets no peek.
-                                                       self.shell?.handleNeedsAttention(
-                                                           id: panel.id, spaceId: config.spaceId,
-                                                           title: config.companionName,
-                                                           reason: "waiting at a startup prompt")
-                                                       let says = screen.isEmpty ? "" : " It says: \"\(screen)\"."
-                                                       _ = try? self.postToChat(
-                                                           key: config.spaceId,
-                                                           text: "\(config.companionName) is waiting at a startup prompt in its terminal.\(says) Open it to answer (⌘K finds it if it is hidden); messages to it are held until then.",
-                                                           from: .peer(id: "port42", displayName: "port42", spaceId: config.spaceId))
                                                    })
         terminalControllers[panel.id] = controller
         return controller
@@ -1787,7 +1792,7 @@ public final class AppState: ObservableObject {
     /// titled terminals, because `spawnNativeTerminalPort` sets `companionName: title` for
     /// non-companion spawns.
     func resolveTerminalController(idOrName: String) -> GhosttyTerminalController? {
-        let cands = terminalControllers.map { (id: $0.key, name: $0.value.config.companionName) }
+        let cands = terminalControllers.map { (id: $0.key, name: currentName(of: $0.value.config)) }
         return AppState.resolveTerminalId(idOrName, candidates: cands).flatMap { terminalControllers[$0] }
     }
 
@@ -1797,7 +1802,7 @@ public final class AppState: ObservableObject {
     /// identity (id / udid / messageId), so each caller uses the key its accessor keys on. The DB probe
     /// is lazy: it runs only when the live tables miss (never on the hot push/exec path).
     func resolvePortRef(_ idOrAddress: String) -> PortRef? {
-        let terminals = terminalControllers.map { (id: $0.key, name: $0.value.config.companionName) }
+        let terminals = terminalControllers.map { (id: $0.key, name: currentName(of: $0.value.config)) }
         let panels = portWindows.panels.map {
             PortCandidate(id: $0.id, udid: $0.udid, messageId: $0.messageId, title: $0.title, portType: $0.portType)
         }
@@ -1870,51 +1875,6 @@ public final class AppState: ObservableObject {
         return userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
     }
 
-    /// Fold every companion handle, and reap the rows that folding makes redundant.
-    ///
-    /// Pure over the DB and safe to run on every boot: a database whose handles are already folded
-    /// changes nothing, because folding a folded name is a no-op.
-    ///
-    /// The reap is deliberately narrow. A row is deleted ONLY when its own name is unaddressable AND
-    /// a row already exists under the folded name — i.e. it is a duplicate of something reachable.
-    /// A named companion the user created with a space in it is RENAMED, not deleted: it becomes
-    /// addressable for the first time, which is the fix, and losing it would be data loss for a
-    /// cosmetic problem.
-    @discardableResult
-    func reconcileCompanionHandles() -> (folded: Int, reaped: Int) {
-        guard let all = try? db.getAllAgents() else { return (0, 0) }
-        var live = Set(all.map(\.displayName))
-        var folded = 0, reaped = 0
-
-        for agent in all {
-            guard let handle = CompanionName.mentionable(agent.displayName),
-                  handle != agent.displayName else { continue }   // already addressable
-
-            if live.contains(handle) {
-                // Something reachable already answers to this handle. The unaddressable row is a
-                // duplicate of it, not a distinct companion.
-                try? db.deleteAgent(id: agent.id)
-                live.remove(agent.displayName)
-                reaped += 1
-                p42log("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
-                      agent.displayName, handle)
-            } else {
-                var renamed = agent
-                renamed.displayName = handle
-                try? db.saveAgent(renamed)
-                live.remove(agent.displayName)
-                live.insert(handle)
-                folded += 1
-                p42log("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
-            }
-        }
-
-        if folded + reaped > 0 {
-            companions = (try? db.getAllAgents()) ?? companions
-            refreshSpaceCompanions()
-        }
-        return (folded, reaped)
-    }
 
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
@@ -1933,7 +1893,7 @@ public final class AppState: ObservableObject {
         // live teleport run produced `teleport: main`; codex produced `codex probe`. Both joined
         // their space and neither could be @mentioned, which read as never having joined at all.
         // The port keeps its human title; only the handle is folded.
-        let companionName = CompanionName.mentionable(rawCompanionName) ?? rawCompanionName
+        let companionName = rawCompanionName
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -2152,6 +2112,22 @@ public final class AppState: ObservableObject {
     }
 
     public func updateCompanion(_ companion: AgentConfig) {
+        // A RENAME reaches the live terminal at once: routing and attribution resolve the current
+        // name from the companion's id (`currentName(of:)`), and here the tile's title and the
+        // terminal's client name follow. Two companions cannot share a name.
+        if let old = companions.first(where: { $0.id == companion.id }), old.displayName != companion.displayName {
+            guard !companions.contains(where: { $0.id != companion.id
+                    && $0.displayName.caseInsensitiveCompare(companion.displayName) == .orderedSame }) else {
+                p42log("[Port42] rename refused: a companion named '%@' already exists", companion.displayName)
+                return
+            }
+            for panel in portWindows.panels where terminal(panel.terminalConfig, isFor: old) {
+                if panel.title == old.displayName { _ = portWindows.renamePort(id: panel.udid, title: companion.displayName) }
+                for (client, pid) in terminalClientPanels where pid == panel.id {
+                    clientRegistry.register(id: client, name: companion.displayName, kind: .child)
+                }
+            }
+        }
         do {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()   // spaceCompanions (derived) reflects the rename/edit
