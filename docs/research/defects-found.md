@@ -107,3 +107,17 @@ gate new stream calls is false.
 (`CommandAgent.swift:100-108`), which sources the user's profile. Measured: `claude` authenticates
 from an inherited `ANTHROPIC_API_KEY`. So D9's "the CLI authenticates under its own sign-in" holds
 only for the environment Port42 hands the child, which Port42 chooses.
+
+**A companion can be given a name it can never be mentioned by.** `MentionParser`'s pattern is
+`@([a-zA-Z][a-zA-Z0-9-]*…)` (`AgentRouting.swift:121`), and the file's own comment at `:10` states it
+"stops at the first space". Hyphens are in the character class; spaces are not. So a companion named
+`app dev` cannot be reached: `@app dev` parses as a mention of `app`, which does not exist, and `dev`
+becomes ordinary text.
+
+The failure mode is the bad one. Nothing rejects the name at creation, nothing warns, and the message
+looks addressed while reaching nobody. Observed 2026-09-26 in `#port42-app`, where an `@app dev`
+mention in a `chat.post` silently reached no one.
+
+Two ways to close it: reject or slugify a name containing a space at creation time, which matches the
+pattern the autocomplete already feeds (`PortChatPanel.swift:142`); or teach the parser a quoted form
+such as `@"app dev"`. The first is smaller.
