@@ -23,6 +23,7 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerPortLiveMethods(into: &r, appState: appState)
     registerChatMethods(into: &r, appState: appState)       // chat.* (PortChat.swift)
     registerInviteMethods(into: &r, appState: appState)     // invite.* (Invites.swift)
+    registerAcceptMethods(into: &r, appState: appState)     // invite.accept (Invites.swift)
     registerWatchMethods(into: &r, appState: appState)      // companions.watch* (CompanionWatch.swift)
     registerCompanionCreate(into: &r, appState: appState)   // companions.create (CompanionWatch.swift)
     registerImagineMethods(into: &r, appState: appState)    // imagine.* (Imagine.swift)

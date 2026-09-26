@@ -4,6 +4,15 @@ The methods for making and changing ports. Generated from the running app's regi
 Call any of them with `port42 <method> key=value` (`key:=<json>` for numbers, booleans,
 arrays and objects; `key=@<file>` for a file's contents).
 
+## invite.accept
+
+Accept an invite someone sent you: this instance joins their port. Returns { address, title, rights }. Then call methods on the port by its address, e.g. port.getHtml id=port42://<peer>/<port>.
+
+        code (string): The six-digit code, if the invite needs one.
+        link (string, required): The invite link (https://port42.ai/invite.html#…).
+
+    port42 invite.accept link=… code=…
+
 ## invite.create
 
 Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.

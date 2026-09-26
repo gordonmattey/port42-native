@@ -300,3 +300,73 @@ extension AppState {
         try? db.revokeInvite(id: id)
     }
 }
+
+// MARK: - Accepting an invite, and reaching a port on another instance (nautilus Phase 4, 4.6)
+
+extension AppState {
+
+    /// Redeem an invite made by another instance, as this instance, and remember the port. Returns
+    /// the port's address: `port42://<host>/<port>`.
+    func acceptInvite(_ linkOrCoupon: String, code: String?) async throws -> (address: PortAddress, title: String, rights: [RemoteRight]) {
+        let fragment = linkOrCoupon.split(separator: "#", maxSplits: 1).last.map(String.init) ?? linkOrCoupon
+        guard let c = InviteCoupon.decode(fragment) else { throw BridgeError.badArg("that is not an invite link") }
+        if c.host == localPeerID { throw BridgeError.badArg("that invite is for a port on this instance") }
+        var args: [String: Any] = ["nonce": c.nonce, "name": currentUser?.displayName ?? "a Port42"]
+        if let code, !code.isEmpty { args["code"] = code }
+        let out = try await door.remoteCall(to: c.host, relays: c.relays, method: "invite.redeem", args: args)
+        let o = out as? [String: Any] ?? [:]
+        let rights = ((o["rights"] as? [String]) ?? c.rights).compactMap(RemoteRight.init(rawValue:))
+        let title = (o["title"] as? String) ?? c.portTitle
+        try db.upsertRemotePort(.init(peerKey: c.host, portKey: c.port, title: title, rights: rights,
+                                      relays: c.relays, hostName: c.hostName))
+        return (PortAddress(peerID: c.host, spaceId: nil, portId: c.port), title, rights)
+    }
+
+    /// If a local caller names a port on ANOTHER instance, the call to forward: the address and the
+    /// argument that named it. nil for a local port, for a remote caller (never forwarded on), and for a
+    /// method that does not act on a named port.
+    func remoteTarget(_ method: String, principal: Principal, args: BridgeArgs) -> (addr: PortAddress, param: String)? {
+        guard principal.kind != .remote, case .port(let param, _) = RemoteAccess.reach(method),
+              let raw = args.string(param), let addr = PortAddress.parse(raw),
+              let peer = addr.peerID, peer != localPeerID else { return nil }
+        return (addr, param)
+    }
+
+    /// Forward a call to the instance that holds the port, through its relays.
+    func forwardRemote(_ method: String, to target: (addr: PortAddress, param: String), args: BridgeArgs,
+                       onStream: (@MainActor (Any) -> Void)? = nil) async throws -> BridgeValue {
+        guard let peer = target.addr.peerID,
+              let row = ((try? db.remotePorts()) ?? []).first(where: { $0.peerKey == peer }) else {
+            throw BridgeError.notFound("no invite from that instance: accept one first")
+        }
+        var forwarded = args.dictionary
+        forwarded[target.param] = target.addr.portId
+        let out = try await door.remoteCall(to: peer, relays: row.relays, method: method, args: forwarded,
+                                            onStream: onStream)
+        return BridgeValue.fromJSONObject(out)
+    }
+}
+
+@MainActor
+func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
+    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code"],
+        description: "Accept an invite someone sent you: this instance joins their port. Returns { address, title, rights }. Then call methods on the port by its address, e.g. port.getHtml id=port42://<peer>/<port>.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "link": ["type": "string", "description": "The invite link (https://port42.ai/invite.html#…)."],
+                "code": ["type": "string", "description": "The six-digit code, if the invite needs one."],
+            ],
+            "required": ["link"],
+        ]) { p, args in
+        // Joining connects this machine to someone else's, so an agent or client asks first.
+        if p.kind != .human {
+            guard await appState.ensurePermission(.share, for: p) else {
+                throw BridgeError.permissionDenied(PortPermission.share.rawValue)
+            }
+        }
+        let joined = try await appState.acceptInvite(try args.requireString("link"), code: args.string("code"))
+        return .object(["address": .string(joined.address.canonical), "title": .string(joined.title),
+                        "rights": .array(joined.rights.map { .string($0.rawValue) })])
+    }
+}

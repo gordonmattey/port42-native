@@ -437,6 +437,34 @@ regenerated. Suite 1289 green, Go green under `-race`, harness five of five on D
 the outbound path over the fake transport. *Live:* Dev2 and Dev6: scenario 4 in Port42 on a chart and
 a chat port, and a companion on each side messaging the other with `wake agents` granted.
 
+**4.6a built 2026-09-26: this instance calling a port on another.** The app sends a `remote_call`
+(`to_peer`, `relays`, and an ordinary call) on its host connection; the gateway dials that peer
+through those relays as a guest with this instance's key, keeps one session per peer, and hands each
+`response`, `stream` and `error` back on the app's call id, failing any still waiting when a session
+ends (`gateway/outbound.go`). Only the proven host may ask. In the app, `GatewayDoor.remoteCall`
+awaits the reply and passes stream events on; `invite.accept {link, code?}` redeems as this instance
+under the person's name and records the port and its relays (migration v58, `remote_ports`); and the
+dispatcher forwards any call whose port argument names another instance, replacing the address with
+the port's own id, so `window.port42`, the `port42` CLI and companions reach a remote port with the
+same verbs. The other instance's rights decide; a remote caller's call is never forwarded on.
+`build.sh` gains `--dev6` (gateway 4248) and `--dev7` (4249).
+
+Gates: `outbound_test.go` (3: two instances through one relay, a stream event and the response
+routed back on the caller's id, the session reused; an unreachable peer is `host_offline` at once;
+only the host may call out) and `RemotePortTests` (5). Calibrated: any caller calling out, no session
+reuse, the offline code collapsed, replies dropped, no forwarding, a remote caller forwarded on, the
+port id not substituted, a refusal taken as success, the accepted port not recorded. A calibration of
+the Swift side hung once because the test's scripted gateway answered an unexpected call with
+silence; it now answers with an error, so a broken gate fails instead of hanging. Suite 1294 green,
+Go green under `-race`.
+
+**Still to run live:** Dev2 and Dev6 on this Mac. Dev6 needs its first-run setup and a harness client
+enrolled by hand before it can be driven.
+
+**The link scheme, open:** every Port42 instance registers `port42://`, so a clicked
+`port42://invite#…` opens whichever instance macOS picks. The live test uses `invite.accept`; the
+click and ⌘K accept path (4.6b) needs an answer to this.
+
 ### 4.7 The browser lane
 
 - `port42.ai/invite.html` gains the coupon handling, "Open here" and the bundled script (decision 6),

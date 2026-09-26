@@ -82,6 +82,10 @@ type Envelope struct {
 	// by `routeRemoteCall`, and stripped from anything that arrives on `/ws` or `/call`.
 	RemotePeer   string `json:"remote_peer,omitempty"`
 	RemoteAttest string `json:"remote_attest,omitempty"`
+	// ToPeer and Relays, on a host's `remote_call`, name the other instance and where it can be
+	// reached (4.6). A field of its own: `remote_peer` is stripped from everything on `/ws`.
+	ToPeer string   `json:"to_peer,omitempty"`
+	Relays []string `json:"relays,omitempty"`
 }
 
 // Peer is one WebSocket connection: the app's host connection, or a caller.
@@ -152,6 +156,8 @@ type Gateway struct {
 	attestKey string
 	// remotes are the live remote sessions, by the id the host replies to.
 	remotes map[string]*remoteConn
+	// outbound holds this instance's sessions to other instances, for the host's remote calls.
+	outbound *outbound
 }
 
 // SetHostCredential is called once, from the watch-parent goroutine, before any peer can identify.
@@ -326,6 +332,14 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.routeResponse(ctx, peer, env)
 		case "stream":
 			g.routeStream(ctx, peer, env)
+		case "remote_call":
+			// Only the app may send this instance's key out to call another.
+			if !provenHost {
+				peer.Send(ctx, Envelope{Type: "error", Error: "only the host makes remote calls",
+					Code: CodeUnknownMethod, CallID: env.CallID})
+				continue
+			}
+			go g.handleRemoteCall(context.Background(), peer, env)
 		default:
 			peer.Send(ctx, Envelope{Type: "error", Error: "unknown type: " + env.Type,
 				Code: CodeUnknownMethod, CallID: env.CallID})

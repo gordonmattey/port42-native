@@ -141,6 +141,7 @@ public enum RemoteAccess {
         "invite.create": .never,
         "invite.list": .never,
         "invite.revoke": .never,
+        "invite.accept": .never,
 
         // NEVER for now: storage keys on the caller, so a guest would read its own empty bucket, not
         // the port's. Settled with the browser lane (4.7), which is where a port's storage calls first

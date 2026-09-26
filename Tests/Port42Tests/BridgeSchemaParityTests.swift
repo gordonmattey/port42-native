@@ -137,7 +137,8 @@ struct BridgeSchemaParityTests {
         // + companions_create (the new-companion card as an API, Phase 3.7). = 58.
         // + imagine_start (/imagine, docs/plan-imagine.md). = 59.
         // + invite_create, invite_list, invite_revoke (a per-port invite, nautilus Phase 4.5). = 62.
-        #expect(checked == 62, "expected 62 parity-set methods, checked \(checked)")
+        // + invite_accept (joining another instance's port, Phase 4.6). = 63.
+        #expect(checked == 63, "expected 63 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

@@ -902,6 +902,21 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v58-remote-ports") { db in
+            // Nautilus Phase 4, 4.6: the ports on OTHER instances this one has been invited to, with
+            // the relays each host is reached through (from the invite).
+            try db.create(table: "remote_ports") { t in
+                t.column("peerKey", .text).notNull()
+                t.column("portKey", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("rights", .text).notNull()
+                t.column("relays", .text).notNull()     // comma-separated wss:// URLs
+                t.column("hostName", .text).notNull()
+                t.column("addedAt", .datetime).notNull()
+                t.primaryKey(["peerKey", "portKey"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1072,6 +1087,40 @@ public final class DatabaseService {
                 db, sql: "SELECT permission FROM grants WHERE grantee = ? AND object = ? AND zone = ''",
                 arguments: [grantee, portKey])
             return Set(raw.compactMap(RemoteRight.init(rawValue:)))
+        }
+    }
+
+    // MARK: - Ports on other instances (nautilus Phase 4, 4.6)
+
+    public struct RemotePortRow: Equatable {
+        public let peerKey: String
+        public let portKey: String
+        public let title: String
+        public let rights: [RemoteRight]
+        public let relays: [String]
+        public let hostName: String
+    }
+
+    public func upsertRemotePort(_ r: RemotePortRow) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO remote_ports (peerKey, portKey, title, rights, relays, hostName, addedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(peerKey, portKey) DO UPDATE SET title = excluded.title, rights = excluded.rights,
+                    relays = excluded.relays, hostName = excluded.hostName
+                """, arguments: [r.peerKey, r.portKey, r.title, r.rights.map(\.rawValue).joined(separator: ","),
+                                   r.relays.joined(separator: ","), r.hostName, Date()])
+        }
+    }
+
+    public func remotePorts() throws -> [RemotePortRow] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM remote_ports ORDER BY addedAt").map { r in
+                RemotePortRow(peerKey: r["peerKey"], portKey: r["portKey"], title: r["title"],
+                              rights: (r["rights"] as String).split(separator: ",").compactMap { RemoteRight(rawValue: String($0)) },
+                              relays: (r["relays"] as String).split(separator: ",").map(String.init),
+                              hostName: r["hostName"])
+            }
         }
     }
 

@@ -193,6 +193,10 @@ public final class GatewayDoor: NSObject, ObservableObject {
     func send(_ envelope: DoorEnvelope) {
         guard let data = try? JSONEncoder().encode(envelope),
               let text = String(data: data, encoding: .utf8) else { return }
+        sendText(text)
+    }
+
+    private func sendText(_ text: String) {
         if let sendOverride { sendOverride(text); return }
         webSocket?.send(.string(text)) { error in
             if let error { p42log("[door] send error: \(error)") }
@@ -226,6 +230,10 @@ public final class GatewayDoor: NSObject, ObservableObject {
         guard let data = text.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(DoorEnvelope.self, from: data) else {
             p42log("[door] undecodable frame")
+            return
+        }
+        if let id = envelope.callId, pendingRemote[id] != nil {
+            settleRemote(id, envelope)
             return
         }
         switch envelope.type {
@@ -269,6 +277,64 @@ public final class GatewayDoor: NSObject, ObservableObject {
                 result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire]
             }
             send(Self.frame("response", callId: callId, to: senderId, content: Self.jsonContent(from: result)))
+        }
+    }
+
+    // MARK: - Calling another instance (nautilus Phase 4, 4.6)
+
+    private struct PendingRemote {
+        let resume: (Result<Any, Error>) -> Void
+        let onStream: (@MainActor (Any) -> Void)?
+    }
+    private var pendingRemote: [String: PendingRemote] = [:]
+
+    /// Call `method` on another instance, reached through `relays`, as this instance. The gateway
+    /// dials it (Noise, this instance's key) and hands back every frame for the call. A streaming
+    /// method's events go to `onStream`; the call returns with the final response, or throws the
+    /// other instance's refusal. Cancelling the task stops waiting.
+    public func remoteCall(to peer: String, relays: [String], method: String, args: [String: Any],
+                           onStream: (@MainActor (Any) -> Void)? = nil) async throws -> Any {
+        let id = "out-" + UUID().uuidString
+        let frame: [String: Any] = ["type": "remote_call", "call_id": id, "method": method, "args": args,
+                                    "to_peer": peer, "relays": relays]
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let text = String(data: data, encoding: .utf8) else {
+            throw BridgeError.badArg("these arguments cannot be sent to another instance")
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any, Error>) in
+                pendingRemote[id] = PendingRemote(resume: { cont.resume(with: $0) }, onStream: onStream)
+                sendText(text)
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if let p = self.pendingRemote.removeValue(forKey: id) { p.resume(.failure(CancellationError())) }
+            }
+        }
+    }
+
+    private func settleRemote(_ id: String, _ envelope: DoorEnvelope) {
+        func content() -> Any? {
+            guard let c = envelope.payload?.content else { return nil }
+            return (try? JSONSerialization.jsonObject(with: Data(c.utf8), options: [.fragmentsAllowed])) ?? c
+        }
+        switch envelope.type {
+        case "stream":
+            if let value = content() { pendingRemote[id]?.onStream?(value) }
+        case "response":
+            guard let p = pendingRemote.removeValue(forKey: id) else { return }
+            let value = content() ?? NSNull()
+            if let o = value as? [String: Any], let code = o["code"] as? String, let message = o["error"] as? String {
+                p.resume(.failure(BridgeError(rawCode: code, message: message)))
+            } else {
+                p.resume(.success(value))
+            }
+        case "error":
+            guard let p = pendingRemote.removeValue(forKey: id) else { return }
+            p.resume(.failure(BridgeError(rawCode: envelope.code ?? BridgeErrorCode.transportFailed.wire,
+                                          message: envelope.error ?? "the other instance could not be reached")))
+        default:
+            break
         }
     }
 

@@ -35,6 +35,10 @@ extension AppState {
         if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
             throw refusal
         }
+        // A port on ANOTHER instance: the call goes there, as this instance (nautilus Phase 4, 4.6).
+        if let target = remoteTarget(canonical, principal: principal, args: args) {
+            return try await forwardRemote(canonical, to: target, args: args)
+        }
         // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
         try authorizeRemote(canonical, principal: principal, args: args)
 
@@ -520,6 +524,12 @@ extension AppState {
         }
         if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
             throw refusal
+        }
+        if let target = remoteTarget(canonical, principal: principal, args: args) {
+            return try await forwardRemote(canonical, to: target, args: args, onStream: { event in
+                if let data = try? JSONSerialization.data(withJSONObject: event, options: [.fragmentsAllowed]),
+                   let text = String(data: data, encoding: .utf8) { yield(text) }
+            })
         }
         // The SAME remote gate as the one-shot path.
         try authorizeRemote(canonical, principal: principal, args: args)

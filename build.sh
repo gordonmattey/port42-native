@@ -58,6 +58,8 @@ NO_DMG=false
 DEV2=false
 DEV3=false
 DEV4=false
+DEV6=false
+DEV7=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -67,6 +69,8 @@ for arg in "$@"; do
         --dev2)    DEV2=true ;;
         --dev3)    DEV3=true ;;
         --dev4)    DEV4=true ;;
+        --dev6)    DEV6=true ;;
+        --dev7)    DEV7=true ;;
     esac
 done
 
@@ -82,6 +86,14 @@ elif $DEV2; then
     # Second isolated dev instance, alongside Port42Dev — for fresh-boot / onboarding tests.
     APP_DIR_NAME="Port42Dev2"; EXEC="Port42Dev2"; BUNDLE_ID="com.port42.dev2"
     DISPLAY_NAME="Port42 Dev2"; GW_PORT="4244"; DATA_DIR="Port42Dev2"; INVITE_NAME="com.port42.dev2.invite"; DEV_ISO=true
+elif $DEV6; then
+    # Sixth and seventh isolated dev instances (nautilus Phase 4): a second Port42 on this Mac, so
+    # one instance can share a port with another through the relay.
+    APP_DIR_NAME="Port42Dev6"; EXEC="Port42Dev6"; BUNDLE_ID="com.port42.dev6"
+    DISPLAY_NAME="Port42 Dev6"; GW_PORT="4248"; DATA_DIR="Port42Dev6"; INVITE_NAME="com.port42.dev6.invite"; DEV_ISO=true
+elif $DEV7; then
+    APP_DIR_NAME="Port42Dev7"; EXEC="Port42Dev7"; BUNDLE_ID="com.port42.dev7"
+    DISPLAY_NAME="Port42 Dev7"; GW_PORT="4249"; DATA_DIR="Port42Dev7"; INVITE_NAME="com.port42.dev7.invite"; DEV_ISO=true
 elif $DEV4; then
     # Fourth isolated dev instance. Added 2026-07-30 as the standing test target, so Dev/Dev2/Dev3
     # can keep running whatever they are running (companion loops, long sessions) while changes are
