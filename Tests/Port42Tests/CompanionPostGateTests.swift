@@ -6,10 +6,12 @@ struct CompanionPostGateTests {
 
     // MARK: armed gate (hooks companions)
 
-    @Test("turnComplete does NOT post unless a space message was injected (armed)")
-    func turnCompleteRequiresArming() {
+    /// GM's multi-agent test, 2026-09-25: a turn typed straight into the terminal was never posted,
+    /// so its @mention hand-off went nowhere. Every turn posts now; the app picks the chat.
+    @Test("a turn typed straight into the terminal is posted too")
+    func unarmedTurnPosts() {
         var gate = CompanionPostGate(hooksCapable: true)
-        #expect(gate.onTurnComplete("private terminal reply") == [])   // never armed
+        #expect(gate.onTurnComplete("done, @nimble-wren take a pass") == ["done, @nimble-wren take a pass"])
     }
 
     @Test("arming stays armed so a multi-turn reply posts every turn")
@@ -22,10 +24,11 @@ struct CompanionPostGateTests {
         #expect(gate.onTurnComplete("second turn of the same reply") == ["second turn of the same reply"])
     }
 
-    @Test("turnComplete still never posts before any message is injected")
-    func unarmedNeverPosts() {
+    @Test("the same reply is still posted once, armed or not")
+    func unarmedStillDeduped() {
         var gate = CompanionPostGate(hooksCapable: true)
-        #expect(gate.onTurnComplete("private, nothing injected yet") == [])
+        #expect(gate.onTurnComplete("same") == ["same"])
+        #expect(gate.onTurnComplete("same") == [])
     }
 
     @Test("strips a leading [name]: prefix the companion echoes onto its own reply")

@@ -15,15 +15,14 @@ struct CompanionPostGate {
 
     mutating func arm() { armed = true }
 
-    /// `turnComplete`: broadcast a reply once a message has been injected. Stays armed across
-    /// turns — a companion's reply to ONE injected message often spans MULTIPLE turns (iterative
-    /// tool work fires a Stop per turn). Disarming on the first turn dropped every later turn (the
-    /// "reply drafted but never sent" bug). Re-arming on each new inject is idempotent. (Trade-off:
-    /// once talked to via chat, the companion's later turns post too — including, in principle,
-    /// text typed directly into its terminal. Acceptable for a chat-driven dev companion.)
+    /// `turnComplete`: EVERY turn's reply is posted (nautilus, GM's multi-agent test 2026-09-25).
+    /// It used to post only once a chat message had been injected ("armed"), so a turn the person
+    /// typed straight into the terminal was never posted, and the @mentions in it, the companion's
+    /// hand-offs, silently went nowhere. Where it is posted is the app's decision
+    /// (`ChatRouting.replyDestination`): the chat that asked, else the terminal's own chat, which
+    /// is the session's transcript. `armed` is kept for the log.
     mutating func onTurnComplete(_ text: String) -> [String] {
-        guard armed else { return [] }
-        return emit(text)
+        emit(text)
     }
 
     /// tee `<p42>` tag: FALLBACK for non-hooks tools only. A tag is a deliberate post, so it is
@@ -72,6 +71,24 @@ struct TerminalWrite {
     /// Press Enter after the text lands. A companion's message always does; a `port.push` does it
     /// only when the caller's data ended with a newline, which is what its schema always said.
     let submit: Bool
+    /// Deliver the body as ONE bracketed paste rather than as keystrokes.
+    var paste: Bool = false
+    /// Clear the input line first (Ctrl-U), for an unsent first-run prefill still sitting there.
+    var clearFirst: Bool = false
+    /// Seconds between the body and the Enter.
+    var enterDelay: Double = 0.08
+
+    /// How a companion's message is delivered (GM's multi-agent test, 2026-09-25). A short single
+    /// line typed as keys submits reliably. A long or multi-line one typed as keys did not: Claude
+    /// Code read part of the burst as a paste, dropped about 1,100 characters of one message, split
+    /// another at a newline, and swallowed the Enter that followed 80ms later. So those go as one
+    /// bracketed paste, which the TUI takes whole, and Enter waits longer the longer the paste.
+    static let keysLimit = 200
+    static func message(_ body: String, clearFirst: Bool = false) -> TerminalWrite {
+        let asPaste = body.count > keysLimit || body.contains("\n") || body.contains("\r")
+        let delay = asPaste ? min(1.5, 0.25 + Double(body.count) / 4000) : 0.08
+        return TerminalWrite(text: body, submit: true, paste: asPaste, clearFirst: clearFirst, enterDelay: delay)
+    }
 
     /// Strip the trailing newline run, and report whether there was one.
     ///
@@ -252,6 +269,7 @@ final class GhosttyTerminalController {
             log("event=approvalRequired tool=\(tool)")
         case .inputSubmitted(let prompt):
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
+            prefillPending = false   // the person sent whatever was in the box
         case .sessionStarted:
             log("event=sessionStarted")
             // CLI is up → deliver any messages queued while it was (re)spawning.
@@ -278,8 +296,15 @@ final class GhosttyTerminalController {
         gate.arm()
         log("inject + armed: \(line.prefix(80).debugDescription)")
         if injectToSurface == nil { log("  WARNING: no surface bound — inject dropped") }
-        injectToSurface?(TerminalWrite(text: TerminalWrite.trimming(line).body, submit: true)) {}
+        let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
+        prefillPending = false
+        injectToSurface?(write) {}
     }
+
+    /// A first-run prefill was typed and not yet sent: the next message clears it first, or the
+    /// message is appended to it ("what is this place?[@gordon]: hi").
+    private(set) var prefillPending = false
+    func notePrefill() { prefillPending = true }
 
     /// Write raw input to the surface WITHOUT arming the post gate. This is the path for
     /// `port.push` / `port_push` to a terminal: a caller driving the terminal directly should not

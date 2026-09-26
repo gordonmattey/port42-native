@@ -293,6 +293,13 @@ gateway is Go, so an Iroh implementation runs as a sidecar speaking the same sea
 `port42://space/<spaceId>/<portId>`; the remote form needs the peer id; and with every scope a port,
 the space segment may reduce to a port id.
 
+**Open (GM, 2026-09-25): the Signal Protocol for what is stored and forwarded.** Signal's protocol
+gives per-message forward secrecy and works when the other side is offline; Signal's network is not
+peer-to-peer (every message goes through its servers). The transport here, libp2p or Iroh, already
+encrypts end to end between two live peers (Noise, or QUIC with TLS), so live port traffic does not
+need it. Where it could fit is a chat message or invite held for an offline peer by a relay that
+cannot read it. To evaluate with this phase's relay design; not a replacement for the transport.
+
 **Open:** libp2p's reported hole-punch rate is about 70% against Iroh's 90%, and "p2p is viable" needs
 about 80% direct; milestone C measures it on real networks. Where the guest page is served from once
 the gateway is not publicly reachable.

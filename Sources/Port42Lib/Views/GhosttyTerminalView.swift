@@ -614,9 +614,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // Both halves are writes, so both count: the Enter lands up to 80ms after the body, and
             // in that window the human may have typed. Counting only the body would leave a token
             // that looks current at the exact moment the line is submitted.
-            v.write(w.text, mode: .keys)
+            if w.clearFirst { v.write("\u{15}", mode: .keys) }   // Ctrl-U: clear the unsent line
+            v.write(w.text, mode: w.paste ? .paste : .keys)
             guard w.submit else { done(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak coord] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + w.enterDelay) { [weak coord] in
                 coord?.view?.write("\r", mode: .keys)
                 // AFTER the Enter, never before: a caller awaiting this is awaiting the token that
                 // Enter moves. Reporting completion early is the defect this replaced.

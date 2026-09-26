@@ -238,4 +238,41 @@ struct PortChatTests {
         #expect(ChatRouting.complete("hey @ec", with: "Echo") == "hey @Echo ")
         #expect(ChatRouting.complete("no mention", with: "Echo") == "no mention")
     }
+
+    // MARK: - GM's multi-agent test, 2026-09-25: replies are never dropped, and companions cannot loop
+
+    @Test("a reply goes to the chat that asked, else the terminal's own chat, never nowhere")
+    func replyDestination() {
+        #expect(ChatRouting.replyDestination(asked: "port-shader", ownTerminalChat: "term-1") == "port-shader")
+        #expect(ChatRouting.replyDestination(asked: nil, ownTerminalChat: "term-1") == "term-1")
+    }
+
+    @Test("another companion's post in a terminal's chat does not wake its companion without a mention")
+    func companionsMustMention() {
+        #expect(ChatRouting.wakesOwnCompanion(senderIsCompanion: false), "a person or client wakes it")
+        #expect(!ChatRouting.wakesOwnCompanion(senderIsCompanion: true), "a companion must @mention")
+    }
+
+    @Test("a companion's post in a terminal chat wakes only whom it mentions (routeChat, end to end)")
+    func noCompanionLoop() throws {
+        let w = try makeParityWorld()
+        // Two terminal companions, A with a terminal port whose chat B posts into.
+        var a = AgentConfig.createCommand(ownerId: "u", displayName: "alpha", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        a.openInTerminal = true
+        var b = AgentConfig.createCommand(ownerId: "u", displayName: "beta", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        b.openInTerminal = true
+        w.state.companions = [a, b]
+        let panelId = w.state.spawnNativeTerminalPort(command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
+                                                      title: "alpha", companionName: "alpha", companionId: a.id,
+                                                      systemPrompt: nil, postCard: false)
+        let key = try #require(w.state.portWindows.panels.first { $0.id == panelId }?.udid)
+        // beta posts into alpha's terminal chat with no mention: alpha must not be woken.
+        w.state.pendingTerminalInjections = [:]
+        _ = try w.state.postToChat(key: key, text: "here is my update", from: .companion(id: b.id, displayName: "beta", spaceId: w.space.id))
+        #expect(w.state.chatReplyTargets["alpha"] == nil, "a companion's plain post woke the terminal's companion")
+        // The person posting there does wake alpha.
+        _ = try w.state.postToChat(key: key, text: "alpha, go", from: .human(id: "u", displayName: "gordon", spaceId: w.space.id))
+        #expect(w.state.chatReplyTargets["alpha"] == key)
+        withExtendedLifetime(w.state) {}
+    }
 }

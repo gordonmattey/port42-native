@@ -1448,22 +1448,15 @@ public final class AppState: ObservableObject {
             // clears typing for LLM/command agents), so without this the indicator hangs forever.
             self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
             let companion = self.companions.first(where: { $0.displayName == config.companionName })
-            // Asked from a port's chat: the reply goes back to that chat, as the companion.
-            if let chat = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased()) {
-                let who: Principal = companion.map {
-                    .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
-                } ?? .peer(id: terminalClientId, displayName: config.companionName, spaceId: config.spaceId)
-                do { try self.postToChat(key: chat, text: content, from: who) }
-                catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
-                return
-            }
-            // Not asked from a chat (typed straight into the terminal, or a queued ask): the reply
-            // goes to the space's own chat.
             let who: Principal = companion.map {
                 .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
             } ?? .peer(id: terminalClientId, displayName: config.companionName, spaceId: config.spaceId)
-            do { try self.postToChat(key: config.spaceId, text: content, from: who) }
-            catch { NSLog("[chat] reply to space %@ failed: %@", config.spaceId, error.localizedDescription) }
+            // The chat that asked, else this terminal's own chat (a turn typed into the terminal).
+            // Posting there also routes the reply's @mentions, so a hand-off is never lost.
+            let asked = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased())
+            let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
+            do { try self.postToChat(key: chat, text: content, from: who) }
+            catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainKey = config.companionName.lowercased()
@@ -1484,6 +1477,7 @@ public final class AppState: ObservableObject {
             // (and its first-run trust prompt), which drops or misdirects the characters.
             if !config.initialInput.isEmpty {
                 self.portWindows.prefillTerminal(id: panel.id, text: config.initialInput)
+                self.terminalControllers[panel.id]?.notePrefill()
             }
         }
         let onSessionEnded: () -> Void = { [weak self] in

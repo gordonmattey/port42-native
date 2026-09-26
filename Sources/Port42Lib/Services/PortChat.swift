@@ -108,9 +108,14 @@ extension AppState {
         let own = panel?.terminalConfig?.companionName
         let spaceId = panel?.spaceId ?? (spaces.contains { $0.id == key } ? key : currentSpace?.id)
         guard let spaceId else { return }
-        let implicit = own.flatMap { name in
+        // A post in a terminal port's own chat wakes its companion without a mention, unless the
+        // post is ANOTHER companion's: companions must @mention each other, or two of them replying
+        // into each other's chats would wake each other forever.
+        let senderIsCompanion = entry.fromKind == Principal.Kind.companion.rawValue
+            || companions.contains { $0.displayName.lowercased() == entry.fromName.lowercased() }
+        let implicit = ChatRouting.wakesOwnCompanion(senderIsCompanion: senderIsCompanion) ? own.flatMap { name in
             companions.first { $0.displayName.lowercased() == name.lowercased() && $0.openInTerminal }
-        }
+        } : nil
         // A mention adds that companion to the space, as it always has.
         var members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
         let mentioned = AgentRouter.findTargetAgents(content: entry.text, agents: companions,
@@ -199,6 +204,16 @@ public enum ChatRouting {
         let pool = hasMention ? mentioned : (senderIsPerson ? members : [])
         return pool.filter { !$0.openInTerminal && $0.displayName.lowercased() != senderName.lowercased() }
     }
+
+    /// Where a terminal companion's reply is posted: the chat that asked it, else its terminal's own
+    /// chat. Never dropped.
+    public static func replyDestination(asked: String?, ownTerminalChat: String) -> String {
+        asked ?? ownTerminalChat
+    }
+
+    /// Whether a post in a terminal port's own chat wakes that terminal's companion without a
+    /// mention: yes for a person or an outside client, no for another companion.
+    public static func wakesOwnCompanion(senderIsCompanion: Bool) -> Bool { !senderIsCompanion }
 
     /// Record where a routed companion's next reply goes. A port chat names itself; the old space
     /// chat names nothing, and clears any port chat an earlier mention left, so the latest ask wins.
