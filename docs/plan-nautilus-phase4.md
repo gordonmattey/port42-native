@@ -12,8 +12,8 @@ this phase (Dev6, Dev7 and on, 2026-09-26). Dev3, Dev4 and prod are never built,
 
 **Gordon's review, 2026-09-26.** Approved: 2 (no gossipsub), 3 (Port42 runs a relay), 5 (remote
 callers scoped, local unchanged), 6 (the guest page is `port42.ai/invite.html`), 10 (more dev
-instances on this Mac), 4 (i) and (ii), 7, and 4.0 as the first step. Open: 1 (Gordon asked why the
-space segment goes), the remote rights in 5, and where the relay is hosted.
+instances on this Mac), 1, 4 (i) and (ii), 7, and 4.0 as the first step. Reopened by Gordon: 2 (is
+libp2p the right transport). Open: the remote rights in 5, and where the relay is hosted.
 
 ## Goal
 
@@ -41,9 +41,10 @@ Settled ones are stated so they can be checked. The rest are for Gordon, each wi
 **The one blocker is decision 3**: crossing NAT reliably, and reaching a browser at all, needs a relay
 Port42 operates.
 
-1. **Address grammar (for Gordon).** Recommended: the remote form is `port42://<peer>/<portId>`, and
-   the peer is written as a lowercase base32 CID (`bafz…`), the form libp2p provides for case-blind
-   contexts. Three reasons. Every scope is a port and a port id is unique within an instance, so the
+1. **Address grammar (decided, Gordon 2026-09-26).** The remote form is `port42://<peer>/<portId>`.
+   The peer is the lowercase base32 of the instance's Ed25519 public key, so the address names the
+   instance and not a transport: libp2p, Iroh and a WebRTC design each derive their own id from that
+   key (decision 2). Three reasons for dropping the space. Every scope is a port and a port id is unique within an instance, so the
    space segment adds nothing. A space segment goes stale when a port moves space, and it hands a
    guest the id of a space it was not given. And a URL host is lowercased by many parsers and
    linkifiers, which breaks a base58 peer id (`12D3KooW…`). The local form `port42://space/<s>/<p>`
@@ -53,8 +54,28 @@ Port42 operates.
    so it is unique on its machine and in practice everywhere, and the resolver already finds a port
    by id with no space (a nil space means any, `PortResolution.swift`). A space names where a port
    sits, which is an attribute that can change, not part of its name.
-2. **Transport: go-libp2p in the gateway, behind a four-verb seam, without gossipsub (for Gordon).**
-   libp2p first and Iroh as a swap are D5 and D6, settled. The seam is listen, dial, peer id and open
+2. **Transport: reopened by Gordon, 2026-09-26 ("is libp2p the right solution here?").** What it
+   has to do: connect a Mac behind a router to another Mac behind a router, and a browser to a Mac
+   behind a router, with no Mac given a public address and nothing central holding state. Three
+   candidates do that and one does half:
+   - **libp2p** (Go, in the gateway). Peer-id addressing, Noise, mDNS, relay v2, DCUtR, and a
+     browser path through js-libp2p. Measured in our bundle (spike F). Hole punching about 70%
+     (reported). Large and general; this phase uses a small part of it.
+   - **Iroh** (Rust, a sidecar). Dial by public key over QUIC, relays over HTTPS that pass
+     restrictive networks, hole punching about 90% (reported), public relays run by its maker and
+     self-hostable. A browser reaches it through a relay only (reported). No Go binding.
+   - **WebRTC** (pion, Go, in the gateway). What browsers speak natively, so the browser lane needs
+     no libp2p in the page. ICE hole punching is what video calls rely on; TURN is the relay. Needs a
+     signaling service, which the relay host runs. We define the identity binding (the DTLS
+     fingerprint signed by the instance key).
+   - **Tailscale** (`tsnet`, Go). Strong traversal, but both ends must belong to a tailnet, so it
+     suits a mesh of one's own machines and not an invite to a stranger or a browser.
+   Recommended: the seam is transport-neutral already, so **4.0 becomes a bake-off**: libp2p, Iroh
+   and WebRTC on the same two NATed Macs and the same browser, direct rate and relay behavior
+   recorded, and the transport chosen on our numbers rather than the projects' (D-a's argument). 4.1
+   to 4.3 do not depend on the answer and proceed meanwhile.
+   Written before the reopening, and still the design if libp2p is chosen:
+   libp2p first and Iroh as a swap are D5 and D6. The seam is listen, dial, peer id and open
    a stream, the four verbs `plan-shell-only.md` names. Recommended change to slice-02: **no
    gossipsub in this phase.** A subscription is a stream from the host to the subscriber carrying the
    door's existing `stream` frames. The host is the one source of truth, a stream is ordered and
@@ -116,7 +137,9 @@ Port42 operates.
    - **`edit`**: change the port itself (`update`, `patch`, `restore`, `rename`, `setTitle`). Using an
      app and changing its image are different rights, so `edit` is separate and off by default.
    - **`wake agents`**: whether the guest's chat posts and events can wake the host's companions
-     (@mentions, Phase 3 watches). Off by default. A companion runs with the host's terminal and
+     (@mentions, Phase 3 watches). Gordon, 2026-09-26: a remote agent must at least be able to message
+     the host's agents, and should drive the port. So it is a right, off by default in an invite and
+     granted per invite. A woken companion is told the message came from a remote peer. A companion runs with the host's terminal and
      grants, so a guest's text reaching it is a prompt injection into an agent with a shell, and a
      wake spends the host's model tokens.
    - **What the port can do on the host, driven by a guest.** A guest's own calls get nothing of the
@@ -127,8 +150,8 @@ Port42 operates.
      remote grant.
    - **Limits.** Per-peer rate and message size at the gateway, as `/ws` has today, and expiry and
      revoke on every grant.
-   Recommended for this phase: `see`, `use` and `edit`, with `wake agents` refused outright, and the
-   invite dialog's disclosure. A remote caller is **denied by default**. Every registry method declares what it
+   Recommended for this phase: `see`, `use`, `edit` and `wake agents`, the last off unless the invite
+   grants it, and the invite dialog's disclosure. A remote caller is **denied by default**. Every registry method declares what it
    acts on: a port argument, a listing, the machine (port 0), or nothing. A remote principal may call
    only port methods, only on ports it holds a grant for, within the grant's rights. Listings return
    only its granted ports. Machine capabilities, spaces, companions, `port.create`, `port.exec`,
@@ -245,6 +268,11 @@ remote principal is scoped before one can arrive.
 
 No product code. Each item states what would change the plan.
 
+- **The transport bake-off (decision 2).** Two Macs on different networks, neither with a public
+  address, and a browser on a third. libp2p, Iroh and WebRTC each: whether a direct path forms, time
+  to it, round trip, and what the relay carries when it does not. Same networks and attempts for all
+  three, one row per attempt.
+
 - **The browser lane.** A static page with js-libp2p dials a go-libp2p host behind a home NAT through
   a relay on a public host. Measured: which of secure WebSocket through the relay, WebRTC to the
   host, and WebTransport connect, in Chrome and in Safari; round trip and throughput on each. **If a
@@ -269,7 +297,7 @@ Local, no wire. A remote principal can be built in a test without one.
   actor it reports (for example `<peer>/claude`) is display only, since this host cannot verify it.
 - **Port grants.** The object slot gets its first non-zero use: `grants(grantee, .port(key), rights)`
   with the rights `see`, `use` and `edit` of decision 5. Nothing else is grantable to a remote caller
-  in this phase, and a remote caller's chat post or event wakes no companion.
+  in this phase, and a remote caller's chat post or event wakes a companion only with `wake agents`.
 - **The gate, in the dispatcher**, before the permission gate: a remote principal calling a method
   that is not `.port`, or naming a port it holds no grant for, or needing a right it lacks, is
   refused with `not_granted`. `.listing` methods filter their result. `port.exec` is refused.
