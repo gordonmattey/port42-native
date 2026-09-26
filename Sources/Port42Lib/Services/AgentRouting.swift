@@ -83,31 +83,39 @@ public enum CompanionProtocol {
     /// its own instance's port, and a session nobody started falls back to prod's.
     public static let envGateway = "${PORT42_GATEWAY_PORT:-\(GatewayProcess.defaultPort)}"
 
-    /// `gateway` is spliced into the example URL as is: a number, or `envGateway`.
+    /// `gateway` is spliced into the curl fallback as is: a number, or `envGateway`.
+    ///
+    /// Agents call Port42 with the `port42` CLI (GM, 2026-09-26: tools by the CLI, not MCP): one
+    /// short command per call, no quoting, no jq, and HTML sent from a file with `=@file`. Each
+    /// terminal Port42 starts has its own instance's CLI first on PATH, calling as that session.
     public static func chats(gateway: String) -> String {
         let call = "curl -s http://127.0.0.1:\(gateway)/call -H \"Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")\""
         return """
-        FIRST, FIND OUT WHO AND WHERE YOU ARE: \(call) -d '{"method":"whoami"}' returns your name, your \
+        TO CALL PORT42, use the port42 command, which calls as you: port42 <method> key=value, with \
+        key:=<json> for numbers and objects and key=@<file> to send a file's contents. port42 help api \
+        lists every method and its arguments; port42 help ports is the port manual. A refused call \
+        prints {error, code} and exits 1; a stale write's "current" is the token to retry with. (If \
+        port42 is not found, the same call is \(call) -d '{"method":"<method>","args":{...}}'.) \
+        FIRST, FIND OUT WHO AND WHERE YOU ARE: port42 whoami returns your name, your \
         space, your terminal port and its chat, and the companions you can @mention. \
         CHATS: every port in Port42 has a chat, and so does every space. A message reaches you as \
         [@sender in <where>]: text, where <where> is the chat it came from: a #space, your terminal's \
         chat, or a port's chat with its id. Work on a port belongs in that port's chat: read it with \
-        \(call) -d '{"method":"chat.read","args":{"port":"<port id>"}}' and post to it with \
-        \(call) -d '{"method":"chat.post","args":{"port":"<port id>","text":"..."}}', which is posted as \
-        you. To reach another companion, @mention it in a chat by the exact name whoami lists; never \
-        guess a name, and a role like "the reviewer" is not a name. BEFORE YOU MAKE A \
-        PORT, look in ports.list for one with that title in your space; if it is there, work on it \
-        rather than making a second. WHEN YOU MAKE A PORT FOR SOMEONE, \
+        port42 chat.read port=<port id> and post to it with port42 chat.post port=<port id> text="...", \
+        which is posted as you. To reach another companion, @mention it in a chat by the exact name \
+        whoami lists; never guess a name, and a role like "the reviewer" is not a name. BEFORE YOU \
+        MAKE A PORT, look in port42 ports.list for one with that title in your space; if it is there, \
+        work on it rather than making a second. WHEN YOU MAKE A PORT FOR SOMEONE, \
         answer where they asked with one line naming the port and its id, and hold the rest of that \
         work's conversation, details and follow-ups in the port's own chat. \
-        TO CHANGE A PORT: read it with port.getHtml {"id"}, take its token from ports.list (every entry \
-        carries one), then port.patch {"id","search","replace","token"} for a targeted edit or port.update \
-        {"id","html","token"} to replace it; each write returns the next token. Always write HTML to a file and \
-        build the request from it, never inline: jq -n --rawfile h port.html --arg id <port id> --arg t <token> \
-        '{method:"port.update",args:{id:$id,html:$h,token:$t}}' | \(call) --data @- \
+        TO CHANGE A PORT: read it with port42 port.getHtml id=<port id>, take its token from \
+        port42 ports.list (every entry carries one), then port42 port.patch id=<port id> \
+        search=@old.txt replace=@new.txt token=<token> for a targeted edit, or port42 port.update \
+        id=<port id> html=@port.html token=<token> to replace it; each write returns the next token. \
+        Always write HTML to a file and send it with =@file, never inline. \
         WHEN YOU MAKE OR CHANGE A PORT, CHECK IT WORKS before you say it is done: read its console \
-        (\(call) -d '{"method":"port.console","args":{"id":"<port id>"}}') for errors, and its DOM \
-        (port.getDom) for the controls you added, then say what you checked.
+        (port42 port.console id=<port id>) for errors, and its DOM (port42 port.getDom id=<port id>) \
+        for the controls you added, then say what you checked.
         """
     }
 

@@ -109,17 +109,21 @@ identity, as the model says; the grant stays on port 0 as today.
 *Gates:* two callers' commands run in two different ports; a caller's second command reuses its port;
 output, exit code and timeout behave as before; the port is listed hidden with its creator.
 
-### 3.6 Port42 as native tools, not curl
+### 3.6 Port42 as a command, not curl (built 2026-09-26)
 
-Companions reach Port42 by curl, so Codex asks for approval on every call and each call is a shell
-round trip. Port42 runs an MCP server generated from the registry (the tool list already is, as
-`generatedToolDefinitions`) and registers it in each companion's session: Claude through its MCP
-config, Codex through `[mcp_servers]` in its per-session config. `whoami`, `chat.post`,
-`port.create` and the rest become tool calls, authenticated as the companion. The stale
-`port42-mcp.js` (hardcoded port 4242, removed methods) is replaced.
+Companions reached Port42 by curl, so every call was a quoted shell line (and HTML went through jq),
+and Codex asked for approval on each. GM chose the CLI over MCP: `port42 <method> key=value` calls
+any registry method as the calling session (`$PORT42_TOKEN_FILE`, `$PORT42_GATEWAY_PORT`), with
+`key:=json` for values, `key=@file` for a file's contents (HTML never passes through quoting), and
+`port42 help api` / `port42 help ports` from the live app, so a new method needs no CLI change. A
+refusal prints `{error, code, current}` and exits 1. Each terminal gets its own instance's CLI first
+on PATH, after the user's startup files too, since `~/.local/bin/port42` belongs to whichever
+instance installed last. The companion prompt, Codex's AGENTS.md and the instruction block teach
+`port42`, with curl as a one-line fallback.
 
-*Gates:* the MCP tool list equals the registry's generated one; a call through it is attributed to
-the companion's client; both CLIs' session configs name the server.
+*Gates:* Go tests for the argument forms and the rule that a session calls as itself; a real-zsh
+test that a terminal runs its own CLI in interactive and login shells when the user's rc puts a
+decoy first; the chat guidance names the CLI calls. Each calibrated by removing its fix.
 
 **Fixed 2026-09-26: instances shared the instruction files.** Every instance rewrote the Port42 block in
 the user's `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` at launch with its own gateway port, so the

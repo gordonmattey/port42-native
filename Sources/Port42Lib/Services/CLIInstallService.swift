@@ -31,7 +31,7 @@ public final class CLIInstallService: ObservableObject {
     /// So this follows the convention the other two bundled helpers already use
     /// (`port42-gateway`, `port42-claude-shim`). The name the USER types is separate; see
     /// `commandBaseName`.
-    public static let bundledExecutableName = "port42-cli"
+    public nonisolated static let bundledExecutableName = "port42-cli"
 
     /// The base of the command name installed on PATH. Deliberately distinct from
     /// `bundledExecutableName`: what the user types is `port42`, and what sits in the bundle cannot
@@ -87,7 +87,7 @@ public final class CLIInstallService: ObservableObject {
     }
 
     /// The bundled CLI, resolved the same way as the gateway and the shim.
-    public static func bundledCLIPath() -> String? {
+    public nonisolated static func bundledCLIPath() -> String? {
         if let path = Bundle.main.url(forAuxiliaryExecutable: bundledExecutableName)?.path {
             return path
         }

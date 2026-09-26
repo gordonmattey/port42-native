@@ -27,9 +27,21 @@ func main() {
 	case "teleport":
 		os.Exit(runTeleport(os.Args[2:]))
 	case "help", "--help", "-h":
+		// `help api` and `help ports` are the live registry and port manual, from the app.
+		if len(os.Args) > 2 {
+			topic := os.Args[2]
+			var words []string
+			if topic != "api" {
+				words = []string{"topic=" + topic}
+			}
+			os.Exit(runMethod("help", words, os.Stdout, os.Stderr, os.Stdin))
+		}
 		usage(os.Stdout)
 		os.Exit(0)
 	default:
+		if isMethod(os.Args[1]) {
+			os.Exit(runMethod(os.Args[1], os.Args[2:], os.Stdout, os.Stderr, os.Stdin))
+		}
 		fmt.Fprintf(os.Stderr, "port42: unknown command %q\n\n", os.Args[1])
 		usage(os.Stderr)
 		os.Exit(2)
@@ -40,8 +52,21 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `port42 — the Port42 command line
 
 Usage:
+  port42 <method> [args]    Call one Port42 method, e.g. port42 whoami
+  port42 help api           Every method, with its arguments (from the running app)
+  port42 help ports         The port-authoring manual
   port42 teleport [flags]   Bring this terminal's Claude Code session into a Port42 port
   port42 help               Show this message
+
+Method arguments:
+  key=value      a string                 port42 chat.post port=<id> text="hello"
+  key:=json      a JSON value             port42 chat.read port=<id> limit:=20
+  key=@file      a file's contents        port42 port.update id=<id> html=@port.html token=<t>
+  '{...}'        one JSON object          port42 chat.read '{"port":"<id>"}'
+  --port <n>     another instance's gateway (default: $PORT42_GATEWAY_PORT, else 4242)
+
+A session Port42 started calls as itself ($PORT42_TOKEN_FILE). A refused call prints its
+{error, code, ...} to stderr and exits 1; a stale write carries "current" to retry with.
 
 Teleport flags:
   --session <id>   Resume a specific session instead of the newest one for this directory

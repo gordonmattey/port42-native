@@ -81,4 +81,45 @@ struct MultiInstanceInstructionsTests {
         #expect(try String(contentsOfFile: "\(home)/.codex/AGENTS.md", encoding: .utf8) == users,
                 "the user's file is never written")
     }
+
+    /// `~/.local/bin/port42` belongs to whichever instance installed last, and a user's startup
+    /// files usually put `~/.local/bin` first. A terminal must still run its OWN instance's CLI, in
+    /// an interactive shell (Claude's Bash tool) and a login shell (how Codex runs a command).
+    @Test("a terminal runs its own instance's port42, even when the user's rc puts another first")
+    func ownCLIWinsOnPath() throws {
+        let fm = FileManager.default
+        let root = NSTemporaryDirectory() + "p42-cli-\(UUID().uuidString)"
+        defer { try? fm.removeItem(atPath: root) }
+        let ours = "\(root)/app/port42-cli", decoy = "\(root)/decoy"
+        for dir in ["\(root)/app", decoy, "\(root)/home"] {
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+        for f in [ours, "\(decoy)/port42"] {
+            try "#!/bin/sh\necho \(f)\n".write(toFile: f, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f)
+        }
+        // The user's own startup files, prepending the decoy the way `~/.local/bin` usually is.
+        for rc in [".zshrc", ".zprofile"] {
+            try "export PATH=\"\(decoy):$PATH\"\n".write(toFile: "\(root)/home/\(rc)", atomically: true, encoding: .utf8)
+        }
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "ABCDEF12-3456-7890-ABCD-\(UUID().uuidString.suffix(12))",
+            spaceId: "space-1", spaceName: "demo", shimPath: nil, claudePath: "/usr/bin/true", cliPath: ours)
+        defer { try? fm.removeItem(atPath: session.env["ZDOTDIR"] ?? "/nonexistent") }
+
+        for flags in ["-ic", "-lc"] {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            p.arguments = [flags, "port42"]
+            var env = session.env
+            env["PORT42_REAL_ZDOTDIR"] = "\(root)/home"
+            env["HOME"] = "\(root)/home"
+            p.environment = env
+            let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+            try p.run(); p.waitUntilExit()
+            let ran = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            #expect(ran == ours, "zsh \(flags) ran \(ran), not this instance's CLI")
+        }
+    }
 }

@@ -165,7 +165,7 @@ struct CompanionProtocolTests {
         svc.installInstructions(for: "codex")
         let md = (try? String(contentsOfFile: (home as NSString)
             .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
-        #expect(md.contains("\"method\":\"whoami\""))
+        #expect(md.contains("port42 whoami"))
         #expect(!md.contains("\"method\":\"space.current\""), "a bare space lookup reports the user's space")
     }
 
@@ -180,11 +180,12 @@ struct CompanionProtocolTests {
         let baked = state.bakeCompanionPrompt(name: "scout", spaceId: id, systemPrompt: nil)
         let chats = CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port)
         #expect(baked.contains(chats))
-        for phrase in ["\"method\":\"whoami\"", "\"method\":\"chat.read\"", "\"method\":\"chat.post\"",
-                       "every port in Port42 has a chat", "\"method\":\"port.console\"",
+        for phrase in ["port42 whoami", "port42 chat.read port=", "port42 chat.post port=",
+                       "every port in Port42 has a chat", "port42 port.console id=",
                        "CHECK IT WORKS before you say it is done",
                        "never guess a name", "hold the rest of that work's conversation",
-                       "port.patch", "--rawfile", "--data @-", "rather than making a second"] {
+                       "port42 port.patch", "html=@port.html", "port42 help api",
+                       "rather than making a second", "If port42 is not found"] {
             #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
         }
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"

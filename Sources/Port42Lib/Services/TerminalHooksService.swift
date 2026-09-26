@@ -210,7 +210,8 @@ public enum TerminalSessionBootstrap {
                             cwd: String = "",
                             producer: CLIHookProducer? = nil,
                             home: String? = nil,
-                            stableDir: String? = nil) -> TerminalHookSession {
+                            stableDir: String? = nil,
+                            cliPath: String? = CLIInstallService.bundledCLIPath()) -> TerminalHookSession {
         let shortId = String(sessionId.replacingOccurrences(of: "-", with: "").prefix(8))
         let tempDir = "/tmp/port42-shim-\(shortId)"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
@@ -299,8 +300,22 @@ public enum TerminalSessionBootstrap {
                 inherited: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
         }
 
+        // THIS INSTANCE'S `port42`, first on PATH. `~/.local/bin/port42` points at whichever
+        // instance installed last, so a session taught `port42 chat.post …` by a newer build could
+        // run an older CLI. Each terminal gets a bin dir holding only a link to its own app's CLI,
+        // put first here and again after the user's startup files (which may prepend their own).
+        var binDir = ""
+        if let cli = cliPath {
+            binDir = "\(tempDir)/bin"
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: binDir, withIntermediateDirectories: true)
+            try? fm.removeItem(atPath: "\(binDir)/port42")
+            try? fm.createSymbolicLink(atPath: "\(binDir)/port42", withDestinationPath: cli)
+            env["PORT42_BIN"] = binDir
+        }
+
         let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        env["PATH"] = [out.pathPrefix, existing, "/opt/homebrew/bin"].filter { !$0.isEmpty }.joined(separator: ":")
+        env["PATH"] = [binDir, out.pathPrefix, existing, "/opt/homebrew/bin"].filter { !$0.isEmpty }.joined(separator: ":")
 
         return TerminalHookSession(socketPath: socketPath, tempDir: tempDir, env: env)
     }
@@ -333,6 +348,7 @@ public enum TerminalSessionBootstrap {
     static func writeZshIntegration(tempDir dir: String, producerLines: [String] = []) -> Bool {
         let real = "${PORT42_REAL_ZDOTDIR:-$HOME}"
         func sourceLine(_ f: String) -> String { "[ -f \"\(real)/\(f)\" ] && source \"\(real)/\(f)\"\n" }
+        let ownCLI = "[ -n \"$PORT42_BIN\" ] && export PATH=\"$PORT42_BIN:$PATH\"\n"
         let zshrc =
             sourceLine(".zshrc")
             + (producerLines.isEmpty ? "" : producerLines.joined(separator: "\n") + "\n")
@@ -343,9 +359,11 @@ public enum TerminalSessionBootstrap {
             + "  chpwd_functions+=(__port42_track_cwd)\n"
             + "  __port42_track_cwd\n"
             + "fi\n"
+            + ownCLI
+        // ownCLI goes after the user's own files, which may put another `port42` first (PORT42_BIN).
         let files: [String: String] = [
             ".zshenv":   sourceLine(".zshenv"),
-            ".zprofile": sourceLine(".zprofile"),
+            ".zprofile": sourceLine(".zprofile") + ownCLI,
             ".zlogin":   sourceLine(".zlogin"),
             ".zshrc":    zshrc,
         ]

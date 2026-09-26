@@ -115,6 +115,10 @@ Port42 exposes its device and space APIs to you via a local HTTP gateway.
 
 ## Calling Port42 APIs
 
+The `port42` command is the short way, and calls as you: `port42 whoami`, \
+`port42 <method> key=value` (`key:=<json>` for numbers and objects, `key=@<file>` for a file's \
+contents), `port42 help api` for every method. The same call by curl:
+
 ```bash
 curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
   -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" \\
