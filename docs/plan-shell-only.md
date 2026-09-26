@@ -370,6 +370,9 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **Hosted (SaaS) agents as companions** (GM, 2026-09-26). Agents that run as a service rather than
+  a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
+  GM wants them back. Product idea; demand unvalidated.
 - **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
   every port it made (the card's "Remove from this space", as an API). Today the only removal is by
   hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning

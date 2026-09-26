@@ -28,7 +28,7 @@ is not on screen, and when the receiver is a companion rather than a port.
    kinds it wakes on. Default: the port's own published events (`port.*`). Can be asked for: `state`
    (an edit to the port), `console` (a log line or error), `chat` (every post in the port's chat, not
    only mentions, which already wake). Never: `terminal.output`, which fires on every keystroke.
-2. **A burst of events becomes one turn (recommended, open).** A wake is one full model turn, which
+2. **A burst of events becomes one turn (decided, GM 2026-09-26).** A wake is one full model turn, which
    takes seconds to minutes and costs tokens. A port can emit events far faster than that. If each
    event started a turn, five events in a second would type five messages into the agent while it is
    still answering the first. Recommended: each companion has at most one turn running. Events that
@@ -43,7 +43,7 @@ is not on screen, and when the receiver is a companion rather than a port.
 4. **A person can always see what is running hidden (recommended, open).** ⌘K lists hidden ports in
    their own section with show, close and delete, and the space's chrome shows a count ("3 hidden")
    when there are any. Nothing runs where the person cannot find it.
-5. **`terminal.exec` in a port moves to the roadmap (recommended, open).** The master plan wanted
+5. **`terminal.exec` in a port moves to the roadmap (decided, GM 2026-09-26).** The master plan wanted
    every shell command to run in a port with an identity. No scenario needs it, and running a command
    in a real terminal to capture its output and exit code is fragile (prompts, TUIs, sentinels), while
    today's exec already requires the caller's own grant. Hidden terminal ports give a caller a
@@ -184,6 +184,34 @@ pauses and reports; a paused watch resumes. In the app: a watched port's `port.*
 watcher and the reply lands in that port's chat; `terminal.output` never wakes; a kind not named does
 not wake; the watcher's own write does not wake it; unwatch stops it; a watch survives a restart;
 deleting the port removes it.
+
+### 3.7 The new-companion card (GM's review, 2026-09-26)
+
+Making a companion is where a person chooses what the agent is, where it listens and whether it is
+seen, so it carries this phase's ideas (hidden ports, watches) to people. Reviewed against the code
+(`ShellNewCompanionView`, and the settings card, which shares its fields):
+
+| Field today | Finding | Change |
+|---|---|---|
+| TYPE presets (echo, architect, compiler, operator) | Pre-canned constitutions. | Removed (GM). The prompt is the person's. |
+| "Advanced" collapsed | Hides the choices that matter. | The full card is the default (GM). |
+| TRIGGER: mention-only / all messages | **Stored and never read.** No routing path checks it; every companion behaves as mention-only plus chat membership. | Replaced by LISTENS TO (below). |
+| CLI: claude / gemini / codex / custom | **gemini has no hook producer**, so a Gemini companion never registers and its replies are never posted. | claude / codex / antigravity / custom. Antigravity's `agy` is installed here; whether it runs as an interactive terminal agent with turn hooks is a spike before it is offered. |
+| COMMAND and ARGS, custom only | A CLI companion cannot be given flags. | ARGS for every CLI, passed as on a bare command line (GM). |
+| "runs headless (NDJSON)" for custom | Today's only headless path, a program speaking Port42's stdio protocol. | RUNS: a tile, or hidden (3.2), for every CLI. This is where "headless" is chosen. |
+| WORKING DIR, SYSTEM PROMPT | Fine. | Kept. |
+| SECRETS | Named Keychain secrets a companion may use in `rest.call` without seeing the value. **The restriction only applies to callers of kind companion; a terminal companion calls as a peer, so it is not restricted at all** (with the REST grant it can use any secret). | Kept, once the gate applies to terminal companions (a fix before anything else in this card). |
+| OR ADD EXISTING | Fine. | Kept. |
+
+**LISTENS TO** replaces TRIGGER and says what a companion is subscribed to: this space (it hears
+@mentions and, once mentioned, plain posts in the space's chat, as today), or one live port picked
+from a list, with the event kinds that wake it (a watch, 3.3). A companion made for a port is placed
+beside that port's work rather than in the space's crew.
+
+*Gates:* no pre-canned type remains; no field is stored that nothing reads (a source scan pairing each
+card field with its reader); a companion made hidden is created with a hidden terminal (3.2); a
+companion made for a port starts with that watch; the secrets gate refuses a terminal companion a
+secret it was not given (calibrated by removing the gate).
 
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
