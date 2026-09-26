@@ -87,3 +87,23 @@ and the socket family defends.
 **The guest page destroys the guest's state on every host write.** `gateway/guestpage.go:147` reloads
 the entire `srcdoc` on each `state` event, so scroll, focus and runtime state are lost every time the
 host writes to the port. Cheap to fix independently of anything else.
+
+**`port42-mcp.js` advertises four deleted methods.** `Resources/port42-mcp.js:82` tells MCP clients
+that `ai.complete`, `messages.send`, `messages.recent` and `companions.invoke` are available. All
+four were deleted in Phase 1. Agent-facing and wrong.
+
+**Settings still has a tab named "AI"** (`SignOutSheet.swift:17`), after the engine it configured was
+removed. User-facing; needs a look at a running instance to see what it renders.
+
+**`ai.cancel` and `suspendAI()` are misnamed, not dead.** They are the live cancel path for
+`port.subscribe` (`PortBridge.swift:704`, and `suspendAI()` is called on park and background at
+`PortWindowManager.swift:540`, `:737`). The genuinely dead pair is `aiPaused` / `isSuspended`
+(`PortBridge.swift:261`, `:267-278`), read only by tests, and the comment at `:281` claiming they
+gate new stream calls is false.
+
+**A child process inherits the parent's environment, including provider credentials.**
+`AgentProcess.swift:54-60` and `CommandAgent.swift:117-123` pass
+`ProcessInfo.processInfo.environment`, and the terminal path runs `/bin/zsh -lc`
+(`CommandAgent.swift:100-108`), which sources the user's profile. Measured: `claude` authenticates
+from an inherited `ANTHROPIC_API_KEY`. So D9's "the CLI authenticates under its own sign-in" holds
+only for the environment Port42 hands the child, which Port42 chooses.
