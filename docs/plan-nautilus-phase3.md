@@ -125,6 +125,37 @@ the numbers exist.
 *Gates:* the measurement table, recorded here. If a fix lands, a harness check that an off-screen
 producer still delivers at its own rate.
 
+**Measured 2026-09-26 on Dev4** (a producer publishing every 100 ms and counting animation frames, a
+second port subscribed to it, 10 s per row):
+
+| Where | Published/s | Received/s | Latency median | Frames/s (producer / consumer) |
+|---|---|---|---|---|
+| Both visible | 10 | 10 | 1 ms | 59 / 59 |
+| Producer parked | 1 | 1 | 2 ms | 0 / 31 to 60 |
+| Consumer parked | 10 | 10 | 1 ms | 59 / 0 |
+| Both in a resting space | 1 | 1 | 2 ms | 0 / 0 |
+| Both in a resting space, after 3 min | 1 | (see below) | | 0 / 0 |
+| Back on screen | 10 | 10 | 1 ms | 59 / 59 |
+
+- **Events reach a port off screen at full rate**, with the same latency. The pipe's event-driven
+  stages (a transform reacting to what it hears) are unaffected.
+- **A port's own timers slow to once a second off screen, and animation frames stop.** WebKit's
+  hidden-page throttling. A producer that polls on a timer runs at 1 Hz while not seen. Nothing
+  further stops after 3 minutes.
+- **The whole app counts as unseen when its window is covered.** One run read 1/s and 0 frames for
+  "both visible" with the Dev4 window behind others.
+- **Bug found and fixed: a parked port lost its subscriptions for good.** Parking cancels a port's
+  AI generations to stop the spend, and the same call cancelled every stream on the port, including
+  `port.subscribe`, without telling the page. The first run showed a consumer receiving nothing
+  after it had been parked once, even back on screen. Parking now stops only finite streams;
+  closing still stops all (`ParkedSubscriptionTests`, a real web view, calibrated).
+
+**Open for GM: timers in hidden ports.** Off-screen throttling suits a parked chart (its drawing
+stops, its CPU falls). A hidden port (3.2) exists to do background work, so a 1 Hz ceiling on its
+timers is a limit it did not ask for. Recommended: hidden ports opt out of WebKit's hidden-page timer
+throttling (a WebKit preference, set only if the running WebKit has it), while animation frames stay
+stopped; parked and resting ports keep today's behavior. To measure again with 3.2.
+
 ### 3.1 Errors reach port JS: already true
 
 Verified 2026-09-25, nothing to build. A refused write from a port principal carries `code` and
