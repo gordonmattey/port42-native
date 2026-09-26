@@ -31,6 +31,27 @@ today, not what the list said then. Nothing here is fixed by this document.
 | Four `ngrok-skip-browser-warning` headers | `gateway/main.go:45`, `:55`, `:64`, `:180` | Low; leave to Phase 4, which owns sharing |
 | The guest page re-renders the whole `srcdoc` on every `state` event | `gateway/guestpage.go:119`, `:147` | Phase 4 (sharing and the guest page are its scope) |
 
+## Stack rank (2026-09-26)
+
+Ranked by what a person running v1 would hit, weighted by how often. Engineering assessment; none of
+this is measured beyond the observations cited.
+
+| # | Defect | Impact | Fix | v1 |
+|---|---|---|---|---|
+| 1 | A companion's terminal is found by display name | A mention opens a second terminal for the same companion: two sessions, double the tokens, replies from both. GM hit it. `/imagine` stop also matches by name | Match terminal to companion on `companionId`, which the spawn already accepts | Fix |
+| 2 | Every terminal name mints a companion; nothing reaps them | Roster clutter, every stray name addressable, the same inflation on the grantee side. GM hit it | Decision first: a companion made by a deliberate act and removed with its last port. Minimum: reap an auto-registered companion when its terminal closes | Decide, minimum fix |
+| 3 | No recovery after a WebContent process crash | A port goes blank for good, silently; more likely with dozens of live webviews | Handle `webViewWebContentProcessDidTerminate` by reloading the port's HTML | Fix |
+| 4 | The startup-prompt test is flaky | It sits in the build's test gate; one failure in three full runs blocks a build and teaches people to skip the gate | Root-cause (not the timer order; measured) | Fix before the release build |
+| 5 | A Claude slower than 30s to start is called stuck | A false "waiting at a startup prompt" notice in the space. It no longer wakes agents (`2afbe1c`) | Do not call it stuck while the last line is still the shim's launch line | Fix |
+| 6 | Messages typed into a starting Claude not submitted | The brief can sit unsent and the agent idles. Seen in /imagine run 2, not in run 3; run 2 also queued three Port42 notices, now gone | Re-observe in the I.5 runs before changing code | Watch |
+| 7 | No cap on tool results on the live path | Token cost per call (`port.console` can return ~400,000 characters). The 2 MB frame refusal (`too_large`) now bounds the worst case | Per-method limits on the verbose reads | Optional |
+| 8 | A name with a space cannot be mentioned | Mostly folded to a mentionable handle at spawn and boot | Check the remaining creation paths | Later |
+| 9 | Settings opens on a tab named "AI" | It shows an accurate one-line note that agents are CLIs; the name is a leftover | Rename or fold into another tab | Polish |
+| 10 | `aiPaused` / `isSuspended` dead, with a false comment | None at runtime | Delete | Cleanup |
+
+Not ranked: the child environment carrying provider keys is a decision about D9, not a defect; the
+guest page's full re-render and the `ngrok-skip-browser-warning` headers belong to Phase 4.
+
 ## Structural (from the list, unchanged)
 
 A port has no storage of its own to ship, no transcript file (chat entries are rows in `port_storage`), and
