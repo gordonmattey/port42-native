@@ -184,6 +184,15 @@ own plugin.
 *Gates:* the brief's size is under a budget set from the 5.0 baseline; the rules that must hold every
 turn are still in it.
 
+**Built 2026-09-26.** `CompanionProtocol.pointer` holds rules 5 and 6 (call as yourself with the
+`port42` command and your own token; the skills for the rest); Claude's brief is its name and space,
+`rules` and `pointer`; Codex's AGENTS.md section is the same; the instruction block names the skills.
+The long chat guidance (`CompanionProtocol.chats`) is gone from both, and so is the self-post line,
+which the core and team skills cover. Gates: both surfaces carry the six rules and none of the moved
+how-to, and the brief is under 2,000 characters (calibrated by padding it). Measured live on Dev4: a
+new companion's brief is 1,298 characters (208 words), from 4,230 (704) at the baseline; Codex's
+AGENTS.md is 4,606 bytes, from 7,089.
+
 ### 5.5 Verify against the baseline
 
 - Scenario 2 with a fresh Claude session given no block and only the skills, then the same with Codex
