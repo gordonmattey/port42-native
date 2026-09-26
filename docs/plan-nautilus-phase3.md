@@ -36,11 +36,15 @@ is not on screen, and when the receiver is a companion rather than a port.
    ("5 events on port 'x' since your last turn", then each). The first event of a quiet period waits
    one second before waking the agent, so a burst that arrives together is one turn, not one turn and
    then a batch.
-3. **A watch has a floor and a ceiling (recommended, open).** A port that publishes every half second
-   forever would keep its watcher in back-to-back turns forever. Proposed: at most one wake per watch
-   every 30 seconds by default (the watch can set its own), and at most 60 wakes per watch per hour.
-   At the ceiling the watch pauses and says so in the port's chat, and anyone can resume it.
-4. **A person can always see what is running hidden (recommended, open).** ⌘K lists hidden ports in
+3. **A watch has no default floor, and a ceiling against runaway (recommended, open).** There is no
+   right minimum gap between wakes in general: "review every edit" wants each one, "tell me when the
+   scraper finds something" does not care. So the watch sets its own floor (`every`, seconds) and has
+   none by default; decision 2 already keeps it to one turn at a time. The ceiling guards the one
+   failure the floor was for, a port that emits forever keeping its watcher in back-to-back turns: past
+   a set number of wakes in an hour the watch pauses and says so in the port's chat, and anyone can
+   resume it. The number is a guess made visible rather than a measured value; 3.5 logs wakes per hour
+   and it is revisited from that.
+4. **A person can always see what is running hidden (decided, GM 2026-09-26).** ⌘K lists hidden ports in
    their own section with show, close and delete, and the space's chrome shows a count ("3 hidden")
    when there are any. Nothing runs where the person cannot find it.
 5. **`terminal.exec` in a port moves to the roadmap (decided, GM 2026-09-26).** The master plan wanted
@@ -276,6 +280,20 @@ manual teaches the event. Gates in `PortLiveUpdateTests`, in a real web view, ca
 HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends
 the HTML through JSON. A write that names a local file or a shared buffer Port42 reads directly
 (`port.update {id, html_file}`) would skip the encoding, the copy and the size limits.
+
+## Test plan
+
+Three layers, as in every phase: automated gates run by every build, the harness against a live
+instance, and what GM checks by hand. Every automated gate is calibrated by breaking the code it
+guards and watching it fail.
+
+| Step | Automated (Swift and Go, every build) | Harness (live, Dev3) | GM by hand |
+|---|---|---|---|
+| 3.0 | none; it is a measurement | the off-screen table: rate, latency, frames, tiled vs resting space vs parked vs hidden | nothing |
+| 3.2 | hidden in no desktop, rail or dock set (source scan); show and hide round-trip; restart and reopen keep it hidden; `ports.list` says hidden; a refused port write carries `code` and `current` | a hidden transform stage in scenario 3 | finds hidden ports in ⌘K and the count; shows then hides one |
+| 3.3 | the wake queue alone: one event wakes once after the gather; five during a turn arrive as one; a set floor holds; the ceiling pauses and reports; resume works. In the app: a watched kind wakes, `terminal.output` and unnamed kinds do not, the watcher's own write does not, unwatch stops, a watch survives restart, deleting the port removes it | a hidden companion woken by one event and answering in the port's chat; a burst of five giving two replies, not six; wakes per hour logged | watches an agent react to a port's event in that port's chat |
+| 3.7 | no preset left; no stored field without a reader (source scan); hidden and port-scoped companions created as chosen; the secrets gate refuses a terminal companion a secret it was not given | a companion created hidden and one created for a port, each answering | creates companions from the card with each choice |
+| all | suite green | five of five, with scenario 3 extended | the verify below |
 
 ## Verify, live on Dev3
 
