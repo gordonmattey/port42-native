@@ -458,8 +458,16 @@ the Swift side hung once because the test's scripted gateway answered an unexpec
 silence; it now answers with an error, so a broken gate fails instead of hanging. Suite 1294 green,
 Go green under `-race`.
 
-**Still to run live:** Dev2 and Dev6 on this Mac. Dev6 needs its first-run setup and a harness client
-enrolled by hand before it can be driven.
+**Live, Dev2 and Dev6 on this Mac, both registered on `relay1.port42.ai`:** Dev2 made an invite for
+a port; Dev6 accepted it with `invite.accept` (after its share card) and Dev2 recorded it used within
+five seconds. Dev6 then drove Dev2's port by `port42://<Dev2>/<port>`, about 300 ms a call: it read
+the port; a push with no token was refused with Dev2's current token, one retry with it landed, and a
+write on the old token was refused `stale_write` with the new current; a Dev2 port it was not given
+and an edit it lacks the right for were refused `not_granted`. Dev2's port chat shows the join line.
+
+**Found in that run, fixed:** a refusal forwarded back from the other instance kept only its code and
+message, so `current` was lost and the one-retry recovery could not work between instances. The door
+now carries every field of the refusal (`RemotePortTests`, calibrated).
 
 **The link scheme, open:** every Port42 instance registers `port42://`, so a clicked
 `port42://invite#…` opens whichever instance macOS picks. The live test uses `invite.accept`; the

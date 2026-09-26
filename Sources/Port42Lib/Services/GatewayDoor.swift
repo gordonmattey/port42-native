@@ -325,7 +325,11 @@ public final class GatewayDoor: NSObject, ObservableObject {
             guard let p = pendingRemote.removeValue(forKey: id) else { return }
             let value = content() ?? NSNull()
             if let o = value as? [String: Any], let code = o["code"] as? String, let message = o["error"] as? String {
-                p.resume(.failure(BridgeError(rawCode: code, message: message)))
+                // Every other field comes back too: a refused write's `current` is what lets the
+                // writer retry once, and it is lost if only the code and message are kept.
+                var details: [String: String] = [:]
+                for (k, v) in o where k != "code" && k != "error" { details[k] = v as? String ?? "\(v)" }
+                p.resume(.failure(BridgeError(rawCode: code, message: message, details: details)))
             } else {
                 p.resume(.success(value))
             }

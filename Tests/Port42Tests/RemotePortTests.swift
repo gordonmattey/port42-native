@@ -76,9 +76,12 @@ struct RemotePortTests {
     @Test("the other instance's refusal, and a gateway error, arrive as errors with their codes")
     func refusalsThrow() async throws {
         let (state, gw) = try world()
-        gw.reply = { _, _ in [Self.response(["code": "not_granted", "error": "no"])] }
+        gw.reply = { _, _ in [Self.response(["code": "stale_write", "error": "moved", "current": "abc:7"])] }
         do { _ = try await state.door.remoteCall(to: Self.host, relays: ["r"], method: "port.update", args: [:]); Issue.record("no throw") }
-        catch let e as BridgeError { #expect(e.code == "not_granted") }
+        catch let e as BridgeError {
+            #expect(e.code == "stale_write")
+            #expect(e.details["current"] == "abc:7", "a refused write lost the token the writer retries with")
+        }
         gw.reply = { _, _ in [["type": "error", "code": "host_offline", "error": "gone"]] }
         do { _ = try await state.door.remoteCall(to: Self.host, relays: ["r"], method: "ports.list", args: [:]); Issue.record("no throw") }
         catch let e as BridgeError { #expect(e.code == "host_offline") }
