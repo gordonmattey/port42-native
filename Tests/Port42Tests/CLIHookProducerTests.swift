@@ -545,11 +545,14 @@ struct CLIHookProducerTests {
     /// zsh with a stand-in `codex` and checks the brief arrives byte for byte.
     @Test("a codex brief read from a file arrives intact, whatever it contains")
     func briefFromFileRoundTrips() throws {
-        let brief = "You are x. Don't break: '{\"method\":\"whoami\"}' $(cat \"$HOME\") `id` \\ %\nline two"
+        // As long as the real one (about 3,000 characters), with everything that could break a shell.
+        let brief = "You are x. Don't break: '{\"method\":\"whoami\"}' $(cat \"$HOME\") `id` \\ %\nline two "
+            + String(repeating: "more briefing text, ", count: 150)
         let path = try #require(CLIHookProducer.writeBrief(brief))
         defer { try? FileManager.default.removeItem(atPath: path) }
         let cmd = CLIHookProducer.startupCommand(base: "codex", companionPrompt: brief, briefFile: path)
-        #expect(cmd.count < 200, "the typed command stays short")
+        #expect(cmd.count < 200, "the typed command stays short, whatever the brief's length")
+        #expect(cmd.contains(path) && !cmd.contains("Don't break"), "the brief is read from the file, not typed")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-f", "-c", "codex() { printf '%s' \"$1\"; }; " + cmd]
