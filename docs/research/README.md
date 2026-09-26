@@ -34,9 +34,8 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
 | 2 | The chrome is ports too | scoping | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
 | 3 | One guided permission flow | scoping | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
-| 4 | Share a port's code | scoping | Distribution. Installing a port means running someone's JS against your grants, which is the part most likely to be underestimated. |
-| 5 | Publish a port as a website | **moved up by GM** | Was 11. |
-| 6 | Share a whole space | **moved up by GM** | Was 12. The cascade question in `invite-over-libp2p.md` is the open part. |
+| 4 | Share, and fork what you were shared | scoping | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
+| 5 | Share a whole space | **moved up by GM** | Was 12. A space is a port, so this is the cascade question in `invite-over-libp2p.md`, not a separate mechanism. |
 | 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
 | 8 | A live media plane | GM: "would be cool" | Additive, and depends on Phase 4's transport existing. |
 | 9 | The membrane interprets | | Five docs already in `docs/membrane/`. |
@@ -44,3 +43,23 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | 11 | Expand the CLI | **replaces "MCP as a port capability"** | GM, 2026-09-26: "i really dont like it, i think we could expand the cli instead." MCP moves down and the framing changes: the CLI is the surface to grow, not a second protocol to adopt. |
 | 12 | Computer use | GM: "kinda a bad smell" | Has `plan-computer-use.md`. Demote rather than delete. |
 | 13 | Windows and Linux | **scoped** | `windows-port.md`, `kernel-boundary.md`, `libghostty-windows.md`. |
+
+## Share and fork, one mechanism and one verb (GM, 2026-09-26)
+
+Three roadmap items collapse into one mechanism plus one verb.
+
+**Share is the only act, and audience is a parameter.** One person's Port42, several people, or anyone
+on the web. "Publish a port as a website" is not a separate feature: it is share with audience
+"anyone", and the guest page is the renderer for a recipient who has no Port42.
+
+**Fork is the recipient's act.** Nobody shares code. You share a port; whoever holds it may fork it.
+The fork is theirs: new port id, their space, their data, no grants inherited, the original
+untouched.
+
+Two questions this creates, both cheap now and expensive later:
+
+- **Does sharing convey the right to fork?** Driving a port and copying it are different rights, so
+  share carries a flag for whether the recipient can read the source. Same shape as read versus
+  write.
+- **Does a fork carry lineage?** A recorded origin makes "the author shipped a new version" possible
+  later without committing to subscription semantics now. One field, and not backfillable.
