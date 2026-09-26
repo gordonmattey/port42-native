@@ -24,7 +24,7 @@ struct InstructionServiceTests {
 
         let md = try String(contentsOfFile: home + "/.claude/CLAUDE.md", encoding: .utf8)
         #expect(md.contains("port42:start"))
-        #expect(md.contains("127.0.0.1:4242/call"), "the curl how-to must survive")
+        #expect(md.contains("127.0.0.1:${PORT42_GATEWAY_PORT:-4242}/call"), "the curl how-to must survive")
         #expect(md.contains("\"method\":\"help\""), "help is the API reference path")
         #expect(md.contains("\"topic\":\"ports\""), "the port manual pointer must be present")
         #expect(md.contains("llms.txt"), "the offline fallback URL must be present")

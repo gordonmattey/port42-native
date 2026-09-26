@@ -49,11 +49,24 @@ extension CLIHookProducer {
             // fresh login. `sessions/`: the Stop payload's `transcript_path` lands INSIDE this home,
             // so leaving it unlinked strands transcripts in a temp dir and breaks `codex resume`.
             let entries = (try? fm.contentsOfDirectory(atPath: realHome)) ?? []
-            for entry in entries where entry != "config.toml" {
+            for entry in entries where entry != "config.toml" && entry != "AGENTS.md" {
                 let link = "\(home)/\(entry)"
                 try? fm.removeItem(atPath: link)
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: "\(realHome)/\(entry)")
             }
+
+            // AGENTS.md is this home's OWN, like config.toml: the user's ~/.codex/AGENTS.md with
+            // Port42's block put in (replacing any block already there). It used to be a link to
+            // the user's file, and the only way the block got in was a Settings button that wrote
+            // it into ~/.codex, where every instance rewrote it at launch, so the last instance
+            // launched decided which gateway every Codex session called. The user's file is never
+            // written; its content is re-read at every spawn, so edits to it stay live.
+            let userAgents = (try? String(contentsOfFile: "\(realHome)/AGENTS.md", encoding: .utf8)) ?? ""
+            let agents = InstructionService.merged(
+                existing: userAgents,
+                block: InstructionService.block(toolName: "Codex", companionProtocol: true))
+            try? fm.removeItem(atPath: "\(home)/AGENTS.md")   // a link left by an older build
+            try? agents.write(toFile: "\(home)/AGENTS.md", atomically: true, encoding: .utf8)
 
             // The user's own config is the BASE, not something we replace. It is the one entry the
             // mirror above deliberately does not symlink, so it is the one that has to be carried

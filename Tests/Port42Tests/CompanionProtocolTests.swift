@@ -193,6 +193,7 @@ struct CompanionProtocolTests {
         InstructionService(homeDirectory: home).installInstructions(for: "codex")
         let md = (try? String(contentsOfFile: (home as NSString)
             .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
-        #expect(md.contains(chats))
+        // The file is shared by every instance, so it names the port by env, the prompt by number.
+        #expect(md.contains(CompanionProtocol.chats(gateway: CompanionProtocol.envGateway)))
     }
 }

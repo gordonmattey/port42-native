@@ -41,8 +41,8 @@ public final class InstructionService: ObservableObject {
         hasCodexInstructions = path(for: "codex").map { FileManager.default.fileExists(atPath: $0) } ?? false
     }
 
-    private static let blockStart = "<!-- port42:start -->"
-    private static let blockEnd   = "<!-- port42:end -->"
+    nonisolated static let blockStart = "<!-- port42:start -->"
+    nonisolated static let blockEnd   = "<!-- port42:end -->"
 
     // MARK: - Install
 
@@ -60,28 +60,28 @@ public final class InstructionService: ObservableObject {
         // turns PORT42_COMPANION_PROMPT into --append-system-prompt), so repeating it in CLAUDE.md
         // is dead weight in a block whose whole discipline is staying a pointer. codex has no such
         // flag, which is the entire reason the section exists.
-        let block = "\(Self.blockStart)\n\(buildMarkdown(toolName: target.name, companionProtocol: target.tool == "codex"))\n\(Self.blockEnd)"
-
-        // Read existing file if present
+        let block = Self.block(toolName: target.name, companionProtocol: target.tool == "codex")
         let existing = (try? String(contentsOfFile: mdPath, encoding: .utf8)) ?? ""
-
-        let updated: String
-        if let startRange = existing.range(of: Self.blockStart),
-           let endRange = existing.range(of: Self.blockEnd),
-           startRange.lowerBound <= endRange.upperBound {
-            // Replace the existing port42 block in place
-            let fullRange = startRange.lowerBound..<endRange.upperBound
-            updated = existing.replacingCharacters(in: fullRange, with: block)
-        } else if existing.isEmpty {
-            updated = block
-        } else {
-            // Append after a blank line separator
-            let separator = existing.hasSuffix("\n\n") ? "" : existing.hasSuffix("\n") ? "\n" : "\n\n"
-            updated = existing + separator + block
-        }
-
-        try? updated.write(toFile: mdPath, atomically: true, encoding: .utf8)
+        try? Self.merged(existing: existing, block: block).write(toFile: mdPath, atomically: true, encoding: .utf8)
         refresh()
+    }
+
+    /// The whole marked block for one tool, markers included.
+    nonisolated static func block(toolName: String, companionProtocol: Bool) -> String {
+        "\(blockStart)\n\(markdown(toolName: toolName, companionProtocol: companionProtocol))\n\(blockEnd)"
+    }
+
+    /// `existing` with the port42 block replaced in place, or appended after a blank line.
+    /// Content outside the block is the user's and is kept exactly.
+    nonisolated static func merged(existing: String, block: String) -> String {
+        if let startRange = existing.range(of: blockStart),
+           let endRange = existing.range(of: blockEnd),
+           startRange.lowerBound <= endRange.upperBound {
+            return existing.replacingCharacters(in: startRange.lowerBound..<endRange.upperBound, with: block)
+        }
+        if existing.isEmpty { return block }
+        let separator = existing.hasSuffix("\n\n") ? "" : existing.hasSuffix("\n") ? "\n" : "\n\n"
+        return existing + separator + block
     }
 
     /// Rewrite the port42 block in every instruction file that already carries one. Called at app
@@ -103,6 +103,10 @@ public final class InstructionService: ObservableObject {
     /// Internal rather than private so the C3 gate can scan it: every generated example that calls
     /// the gateway must carry a credential, and a hand-checked list of documents would rot.
     func buildMarkdown(toolName: String, companionProtocol: Bool = false) -> String {
+        Self.markdown(toolName: toolName, companionProtocol: companionProtocol)
+    }
+
+    nonisolated static func markdown(toolName: String, companionProtocol: Bool = false) -> String {
         """
 # Port42 Instructions
 
@@ -112,10 +116,13 @@ Port42 exposes its device and space APIs to you via a local HTTP gateway.
 ## Calling Port42 APIs
 
 ```bash
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
   -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" \\
   -d '{"method":"<method>","args":{...}}'
 ```
+
+`$PORT42_GATEWAY_PORT` is the port of the Port42 that started this session, so the call reaches \
+that instance; without it the call goes to the default, 4242.
 
 Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
 surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with `port.create`.
@@ -145,11 +152,11 @@ callers silently overwriting each other.
 
 ```bash
 # The full API reference — every method, params, permissions (generated from the live registry)
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
   -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help"}'
 
 # The port-authoring manual — REQUIRED READING before building or updating any port
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
   -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help","args":{"topic":"ports"}}'
 ```
 
@@ -161,7 +168,7 @@ https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
 Port42 prompts the user on first use of a sensitive API (terminal, screen, clipboard, files, \
 camera, automation, browser, REST). Denials are never permanent — a later call re-asks. \
 A granted permission is per caller, and the user can see and revoke it in Port42 Settings → Access.
-\(companionProtocol ? Self.companionSection : "")
+\(companionProtocol ? companionSection : "")
 """
     }
 
@@ -174,7 +181,7 @@ A granted permission is per caller, and the user can see and revoke it in Port42
     /// whole reason this exists.
     ///
     /// Kept out of `buildMarkdown` so the general block's slimness gate measures the general block.
-    private static let companionSection = """
+    private nonisolated static let companionSection = """
 
 
 ## If you were launched as a SPACE COMPANION
@@ -182,7 +189,7 @@ A granted permission is per caller, and the user can see and revoke it in Port42
 Applies only when `PORT42_TOKEN_FILE` is set, which Port42 does for every terminal it starts. If it \
 is unset, ignore this section.
 
-\(CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port))
+\(CompanionProtocol.chats(gateway: CompanionProtocol.envGateway))
 
 **How to behave:** \(CompanionProtocol.rules)
 """

@@ -76,8 +76,16 @@ public enum CompanionProtocol {
     /// know which room to use, and one searched the file system to find out where it was). One source
     /// for Claude's system prompt and Codex's AGENTS.md, like `rules`. `gatewayPort` is the live
     /// instance's, so the example curls reach it.
-    public static func chats(gatewayPort: Int) -> String {
-        let call = "curl -s http://127.0.0.1:\(gatewayPort)/call -H \"Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")\""
+    public static func chats(gatewayPort: Int) -> String { chats(gateway: String(gatewayPort)) }
+
+    /// The gateway port as a shell expression, for text written to a FILE that every instance
+    /// shares (a CLI's instruction file): each terminal Port42 starts sets `PORT42_GATEWAY_PORT` to
+    /// its own instance's port, and a session nobody started falls back to prod's.
+    public static let envGateway = "${PORT42_GATEWAY_PORT:-\(GatewayProcess.defaultPort)}"
+
+    /// `gateway` is spliced into the example URL as is: a number, or `envGateway`.
+    public static func chats(gateway: String) -> String {
+        let call = "curl -s http://127.0.0.1:\(gateway)/call -H \"Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")\""
         return """
         FIRST, FIND OUT WHO AND WHERE YOU ARE: \(call) -d '{"method":"whoami"}' returns your name, your \
         space, your terminal port and its chat, and the companions you can @mention. \

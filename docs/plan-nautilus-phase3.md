@@ -121,10 +121,15 @@ config, Codex through `[mcp_servers]` in its per-session config. `whoami`, `chat
 *Gates:* the MCP tool list equals the registry's generated one; a call through it is attributed to
 the companion's client; both CLIs' session configs name the server.
 
-**Open defect: instances share Codex's instruction file.** Port42's Codex home links `AGENTS.md` to the
-user's global `~/.codex/AGENTS.md`, and every instance rewrites its block there at launch, so the last
-instance launched wins, gateway port included (Dev3's 4245 reached prod's Codex sessions). Each
-instance should keep its own AGENTS.md in its own Codex home.
+**Fixed 2026-09-26: instances shared the instruction files.** Every instance rewrote the Port42 block in
+the user's `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` at launch with its own gateway port, so the
+last instance launched decided where every session's calls went (Dev3's 4245 reached prod's
+sessions). The block now names the port as `${PORT42_GATEWAY_PORT:-4242}`, every terminal Port42
+starts carries its own instance's port in that variable, and each instance's Codex home has its own
+AGENTS.md (the user's file plus the block) instead of a link to the user's. The Settings install
+buttons are gone: Port42's sessions get what they need per session, and an already-installed block
+is still refreshed at launch, now identical from every instance. Gates in
+`MultiInstanceInstructionsTests`, each calibrated by removing its fix.
 
 **Future optimization (GM, 2026-09-25): HTML from a shared buffer.** Agents now always write a port's
 HTML to a file and build the request from it with `jq`, which removes shell quoting but still sends

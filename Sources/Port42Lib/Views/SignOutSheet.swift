@@ -6,7 +6,6 @@ public struct SignOutSheet: View {
     @Binding var isPresented: Bool
     @State private var isHovering = false
     @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
-    @StateObject private var instructionsSvc = InstructionService.shared
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
@@ -114,36 +113,12 @@ public struct SignOutSheet: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
-    /// CLI context install (CLAUDE.md / GEMINI.md / AGENTS.md) — lives on the AI screen
-    /// (it wires the CLI LLM companions), not Remote Access.
-    private var cliInstructionsBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("CLI CONTEXT").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
-                Text("installs Port42 context into your CLI tool config so agents can use the RPC API:")
-                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    cliInstructionButton(label: "CLAUDE.md", installed: instructionsSvc.hasClaudeInstructions,
-                                         action: { instructionsSvc.installInstructions(for: "claude") })
-                    cliInstructionButton(label: "GEMINI.md", installed: instructionsSvc.hasGeminiInstructions,
-                                         action: { instructionsSvc.installInstructions(for: "gemini") })
-                    cliInstructionButton(label: "AGENTS.md", installed: instructionsSvc.hasCodexInstructions,
-                                         action: { instructionsSvc.installInstructions(for: "codex") })
-                }
-            }
-        }
-        .padding(.top, 12)
-    }
-
-
     @ViewBuilder
     private var aiConnectionSection: some View {
         if tab == .ai {
             Text("Port42 runs AI agents as CLIs in terminal ports: Claude Code, Codex, or your own. Each signs in to its own account in its own terminal; Port42 holds no model and no provider key.")
                 .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            cliInstructionsBlock
         }
     }
 
@@ -160,7 +135,6 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
 
-                // CLI install (CLAUDE.md/GEMINI.md/AGENTS.md) moved to the AI tab — it wires the CLI LLMs.
             }
             .padding(.leading, 8)
             .padding(.top, 8)
@@ -178,23 +152,6 @@ public struct SignOutSheet: View {
         }.buttonStyle(.plain)
     }
 
-    private func cliInstructionButton(label: String, installed: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: installed ? "checkmark.circle.fill" : "arrow.down.circle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(installed ? .green : accent)
-                Text(label)
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(installed ? Color.green.opacity(0.1) : accent.opacity(0.1))
-            .cornerRadius(6)
-        }
-        .buttonStyle(.plain)
-    }
 
 
 

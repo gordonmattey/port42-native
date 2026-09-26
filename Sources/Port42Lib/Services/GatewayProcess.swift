@@ -8,14 +8,19 @@ public final class GatewayProcess: ObservableObject {
     @Published public var isRunning = false
     /// The prod default port — also the canonical port baked into the PUBLISHED llms.txt (so the
     /// committed artifact is stable regardless of which instance regenerates it).
-    public static let defaultPort = 4242
-    @Published public var port: Int = {
+    public nonisolated static let defaultPort = 4242
+    @Published public var port: Int = GatewayProcess.configuredPort
+
+    /// This instance's gateway port, from the one place it is set (the app's own environment).
+    /// Nonisolated so a terminal's environment can be built off the main actor and hand the same
+    /// port to its child as `PORT42_GATEWAY_PORT`.
+    public nonisolated static var configuredPort: Int {
         if let envPort = ProcessInfo.processInfo.environment["PORT42_GATEWAY_PORT"],
            let p = Int(envPort) {
             return p
         }
-        return GatewayProcess.defaultPort
-    }()
+        return defaultPort
+    }
 
     private var process: Process?
     private var outputPipe: Pipe?

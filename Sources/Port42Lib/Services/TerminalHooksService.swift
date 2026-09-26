@@ -224,6 +224,10 @@ public enum TerminalSessionBootstrap {
         env["PORT42_HOOKS_SOCKET"] = socketPath
         env["PORT42_SPACE_ID"] = spaceId
         env["PORT42_SPACE_NAME"] = spaceName
+        // WHICH Port42 started this session. Instruction files name the gateway as
+        // ${PORT42_GATEWAY_PORT:-4242} rather than a baked port, so one file serves every instance
+        // and the last instance launched no longer decides where every session's calls go.
+        env["PORT42_GATEWAY_PORT"] = String(GatewayProcess.configuredPort)
 
         // WHO THIS CHILD IS, as a named client (slice-02 half two, step 6).
         //
