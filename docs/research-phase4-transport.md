@@ -129,10 +129,46 @@ decision 3.
 
 ### IPv6
 
-21. **Likely a larger lever than port mapping.** Over half of US traffic to Google is IPv6, about 88%
-    on T-Mobile US (R). Home routers should filter UDP endpoint-independently, so simultaneous open
-    should work (D, RFC 6092; libp2p saw poor IPv6 punching in practice, R). **Change:** gather IPv6
-    candidates and list a dual-stack STUN server; measure before building UPnP.
+**Measured on this Mac, 2026-09-26** (T-Mobile Home Internet, gateway `192.168.12.1`, a STUN binding
+from one local port to Google and to Cloudflare):
+
+| | Local | Seen by both STUN servers | Reading |
+|---|---|---|---|
+| IPv4 | port 40111 | `172.59.124.208:7940` | behind carrier NAT; the same mapping for both servers, so the mapping is endpoint-independent, which hole punching needs |
+| IPv6 | port 40112 | `2607:fb91:…:8fcb:40112`, the Mac's own temporary address | no translation; directly addressable, subject only to the gateway's firewall |
+
+So router port mapping cannot help this host, and IPv6 is its way in. Whether the gateway's firewall
+lets a simultaneous open through is **unmeasured** and is the one thing that decides it.
+
+21. **IPv6 may rescue about half of the IPv4 failures, weighted toward phones** (I, low
+    confidence). Estimated direct over IPv6 to a host like this one: phones on US cellular 65 to 85%,
+    home broadband 45 to 65% (US), cafés and hotels 10 to 30%, offices 5 to 20%. US carriers run
+    mostly IPv6 (T-Mobile 88%, Verizon 75%, AT&T 74%, R).
+22. **Chrome and Safari expose an IPv6 reflected candidate even while hiding host addresses** (D,
+    libwebrtc `stun_port.cc`). **Firefox may not**: on an un-NATed public address it emits only mDNS
+    host candidates, an open bug (R). Firefox guests may get no IPv6 path until tested.
+23. **Gateways block unsolicited inbound IPv6; simultaneous open should still pass** (I). With no
+    translation on either side, even the strictest filtering admits the reply to a packet the host
+    sent to that exact address and port, which is what ICE checks do. T-Mobile, eero and Starlink
+    gateways block unsolicited inbound with no override (R); some gateways run no IPv6 firewall at
+    all (D). Pinholes last at least 2 minutes (D, RFC 6092), so keepalives stay well under that.
+24. **Addresses move** (serious). T-Mobile's IPv6 prefix is reported to change several times a day
+    (R); macOS temporary addresses are preferred for a day and valid for seven (R). A prefix change
+    ends a session. **Change:** detect an address change and restart ICE, which needs a fresh
+    introduction over Nostr.
+25. **pion** (serious). It gathers every address including the stable one (a privacy leak RustDesk
+    patched, R), binds its one-port mux per address at startup and misses addresses that appear later
+    (D), and its mDNS has no IPv6 (D). **Change:** an IP filter that keeps only the OS-preferred
+    temporary address, the mux rebuilt on an address change, pion's mDNS off. pion applies no IPv6
+    preference in candidate priority (D), so pairs are ranked by our own rule if IPv6 should win.
+26. **iPhones on T-Mobile cellular are IPv6-only with 464XLAT**; the app sees `192.0.0.2`, and its
+    IPv4 candidate's behavior is unknown (R, I). Their IPv6 path is the one to count on.
+
+Measurements only we can make, added to the list below: the T-Mobile gateway's IPv6 filtering and
+pinhole timeout, from an IPv6 host outside (the one blocker for this Mac); an iPhone on Verizon,
+T-Mobile and AT&T cellular to this Mac over IPv6 only; Chrome, Safari and Firefox candidates on a
+dual-stack network; this Mac's IPv6 prefix logged each minute for a week; a session held across an
+address deprecation and a prefix change.
 
 ### The shared port itself
 
