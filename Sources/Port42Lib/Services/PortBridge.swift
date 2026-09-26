@@ -35,6 +35,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// `ai.cancel(callId)` and `suspendAI()` (park/background) can cancel the running Task. This is the
     /// only in-flight-AI bookkeeping — the old PortAIHandler/activeStreams path is gone.
     public var streamTasks: [Int: Task<Void, Never>] = [:]
+    /// The streams that are SUBSCRIPTIONS (an endless method such as `port.subscribe`), by callId.
+    /// Parking stops generations, which cost money every second they run; it must not stop a
+    /// subscription, which costs nothing and which the page has no way to know it lost. It did:
+    /// a parked port never received another event, even back on screen (measured 2026-09-26).
+    var subscriptionCallIds: Set<Int> = []
 
     /// A STABLE identity for a port that has neither a creator nor a message id (I1.4).
     ///
@@ -283,8 +288,18 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Task trips runBridgeStream's cancel handler (backend.cancel + core-owned settlement).
     @MainActor
     public func suspendAI() {
+        for (id, task) in streamTasks where !subscriptionCallIds.contains(id) {
+            task.cancel()
+            streamTasks.removeValue(forKey: id)
+        }
+    }
+
+    /// Cancel every stream, subscriptions included: the port is going away.
+    @MainActor
+    func cancelAllStreams() {
         for (_, task) in streamTasks { task.cancel() }
         streamTasks.removeAll()
+        subscriptionCallIds.removeAll()
     }
 
     /// Release every ongoing resource this port acquired (backlog 0.5): the device captures, streams,
@@ -297,7 +312,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         if let state, let mid = messageId {
             state.releaseAcquisitions(portId: mid)
         }
-        suspendAI()
+        cancelAllStreams()
     }
 
     /// Escape a string for safe embedding in JS string literals.
@@ -453,8 +468,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     self.rejectCall(callId, error.localizedDescription)
                 }
                 self.streamTasks.removeValue(forKey: callId)
+                self.subscriptionCallIds.remove(callId)
             }
             streamTasks[callId] = task
+            if state.bridgeStreamRegistry[canonical]?.endless == true { subscriptionCallIds.insert(callId) }
             return ["__deferred__": true]
         }
 
