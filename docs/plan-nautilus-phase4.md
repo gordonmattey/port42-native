@@ -275,7 +275,8 @@ the key, no lowercasing, a non-unique peer key, a hand-built remote address. The
 gate now also catches an interpolated `port42://` host. Suite 1270 green (one run hit a timing flake
 in nautilus's `StartupPromptTests`, green alone and on rerun), Go green. Live on Dev2: peer id
 `56dvfh4ylpfgpyvn2rygu5bttdop5bxjuchgdlv5wg2g34tc7mxa`, the same across a restart; an address
-naming it reaches its own port, and the same port id under another peer is refused.
+naming it reaches its own port, and the same port id under another peer is refused. Harness five of five
+on Dev2.
 
 ### 4.3 The door over a seam, proven with a fake transport
 
