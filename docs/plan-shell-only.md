@@ -320,7 +320,7 @@ guest asking for anything beyond its grant is refused.
 
 ### Phase 5 · Skills, not a megaprompt (2)
 
-**Detailed plan:** `plan-nautilus-phase5.md` (draft 2026-09-26, four decisions for GM).
+**Detailed plan:** `plan-nautilus-phase5.md`. **Built 2026-09-26**: five skills load per session in every Port42 terminal (typed and teleported included), the brief is six rules (1,298 characters from 4,230), `port42 skills install` for sessions outside Port42; five of five on Dev4.
 
 The generated reference owns which methods exist. A skill packages the concepts: a man page plus a
 small program, composed by an agent the way a shell user composes commands. Port42 ships knowledge,

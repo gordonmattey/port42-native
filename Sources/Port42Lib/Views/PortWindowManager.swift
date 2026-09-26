@@ -1352,9 +1352,23 @@ enum PortWebViewFactory {
         // icon and panel). The page draws no console of its own (GM, 2026-09-25: the in-page ">"
         // toggle and drawer sat on top of the port's own UI).
         const orig = { log: console.log, error: console.error, warn: console.warn };
+        // An Error's message and stack are not enumerable, so JSON.stringify(err) is "{}": a caught
+        // error logged with console.error(err) reached Port42 as "{}", and an agent checking the
+        // console could not tell what broke (a team run, 2026-09-26). Errors keep their stack, and an
+        // object that cannot be stringified (a cycle) falls back to its String form.
+        function fmt(a) {
+            if (a instanceof Error) {
+                const head = (a.name || 'Error') + ': ' + a.message;
+                return a.stack ? (a.stack.indexOf(a.message) >= 0 ? a.stack : head + '\\n' + a.stack) : head;
+            }
+            if (a !== null && typeof a === 'object') {
+                try { return JSON.stringify(a); } catch (_) { return String(a); }
+            }
+            return String(a);
+        }
         function forward(level, args) {
             try {
-                const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                const msg = Array.from(args).map(fmt).join(' ');
                 window.webkit.messageHandlers.portConsole.postMessage({ level: level, message: msg });
             } catch(e) {}
         }

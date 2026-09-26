@@ -2,7 +2,7 @@
 
 Detailed plan for Phase 5 of `plan-shell-only.md`. Scenario served: 2 (an agent in a terminal drives a
 port it can see, as itself). Written 2026-09-26 against `nautilus` at `409fc70`, with Phases 1 to 3
-built and the harness at five of five. All four decisions settled by GM. Nothing here is built.
+built and the harness at five of five. All four decisions settled by GM. **Built 2026-09-26** (see 5.5).
 
 ## Goal
 
@@ -201,6 +201,27 @@ AGENTS.md is 4,606 bytes, from 7,089.
 
 *Gates:* five of five; both CLIs pass scenario 2 on skills alone; the comparison recorded here. No
 target is set before the baseline exists.
+
+**Verified 2026-09-26 on Dev4, against the 5.0 baseline:**
+
+| | Baseline (old brief) | Skills (new brief) |
+|---|---|---|
+| Brief per turn | 4,230 characters | 1,298 |
+| Scenario 2, driven by an agent on skills alone | not run | Claude: pass, 68 s, 7 versions; Codex: pass, 56 s |
+| `collaborate` | 9 of 9, 178 s | 9 of 9, 148 s |
+| One team round | DONE at 362 s, 4 versions, 11 of 12 | DONE at 850 s, 11 versions, 10 of 12 |
+| Harness | five of five | five of five, all seven rows |
+
+The team round did nearly three times the work, so its time is not a like-for-like comparison. Its
+new miss, "final version logged 5 errors: {}", led to two fixes: a port's `console.error(err)` reached
+Port42 as `{}` (an Error's message and stack are not enumerable), and the injected scripts now have a
+compile gate (`InjectedScriptSyntaxTests`) after the first version of that fix put a raw newline in a
+JS string and stopped all console capture, which the new test caught. Verifying also found Dev4 hung
+creating a web view: every port made its own WebKit process pool, whose setup blocks on a system
+service; all ports now share one (`SharedProcessPoolTests`). A bundled-resource gate
+(`BundledResourcesTests`) removed two more dead files. Each calibrated.
+
+**Phase 5 status: built.**
 
 ## Test plan
 
