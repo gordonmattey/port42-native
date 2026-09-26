@@ -165,6 +165,17 @@ too. Each gate calibrated.
 and the user's own (calibrated by removing each); the user's `~/.claude` and `~/.codex` are untouched
 (fingerprinted, as in the multi-instance tests).
 
+**Built 2026-09-26.** Every terminal carries `PORT42_SKILLS_DIR` (the running app's bundled plugin),
+and the shim turns it into `--plugin-dir` for every `claude` (a missing folder is skipped, since
+claude would refuse to start). The Codex home's `skills/` is its own folder: the user's skills linked
+in and the app's beside them, the app's winning a clash. `port42 skills install|uninstall|status`
+copies them into `~/.claude/skills` and `~/.codex/skills` with a marker, replacing and removing only
+its own copies. Gates: `SkillLoadingTests`, the shim's `TestPluginDirArgs`, the CLI's
+`TestSkillsInstallOwnsOnlyItsOwn`, each calibrated. Verified live on Dev4: a `claude` and a `codex`
+typed by hand into plain Port42 terminals were asked which argument `clipboard.write` takes, which
+only the skills say, and both answered `data`; the claude process carried `--plugin-dir` for Dev4's
+own plugin.
+
 ### 5.4 Shrink the brief
 
 - `CompanionProtocol` keeps the per-turn rules and the pointer; the chat guidance moves to the core
