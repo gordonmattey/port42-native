@@ -354,6 +354,24 @@ CLI's token. Each new gate is calibrated by breaking the code it guards and watc
 Measured, not gated: the background's idle CPU before and after Phase 2, and the hole-punch rate in
 Phase 4 on the networks milestone C names. Both are recorded in the audit.
 
+## Release: Port42 v1 (GM, 2026-09-26)
+
+Nautilus completes as Port42 v1. What must be done, verified or decided before the release build.
+
+| Item | Status |
+|---|---|
+| Phases 0, 1, 2, 3, 5 | Done; five scenarios pass on Dev3/Dev4 |
+| Phase 4 (sharing, invites) | In progress on `nautilus-phase4` (the phase-four agent); merge when done |
+| `/imagine` (`plan-imagine.md`) | I.1 to I.4 done; I.5 live verify on Dev4 in progress |
+| Merge `fixes-gemini-ngrok-floor` | Done (`5020941`): `3c9bec5` dead ngrok references (the four `ngrok-skip-browser-warning` headers in `gateway/main.go` stay, they emit a real header), `83c500d` macOS floor 14.0 everywhere, `be9251b` the managed instruction block outranks pre-marker Port42 instructions (the `auth_required` in `~/.gemini/GEMINI.md`) |
+| macOS 14 floor on Sonoma hardware | Not verified; GM has decided 14 ships |
+| Update feed | Never hand-edit `dist/appcast.xml`; `generate_appcast` regenerates it from the built bundle |
+| The call stall after a NaN (`2afbe1c`) and the lock screen video freeze (`bfb1053`) | Fixed, with tests |
+| Open defects (`defects-triage.md`) | To decide which ship in v1: terminal matched to companion by name, companion inflation, no cap on tool results, blank page after a WebContent crash |
+| Seen in the /imagine runs | Open: a Claude slower than 30s to start is called stuck; messages typed into a starting Claude not submitted |
+| Test gate | `swift test` green before the release build (1273 tests in 174 suites at `64d5953`; was 1185 in 152 on the merged branch) |
+| Daily-driver install | After the release scope is done (GM) |
+
 ## Future roadmap
 
 Things that would be cool once the five scenarios hold.
