@@ -821,9 +821,14 @@ struct ShellSettingsView: View {
             }
 
             // Every companion is a command companion now: a CLI agent in a terminal port (D7, D9).
-            fieldLabel("TRIGGER")
-            segmented(["mention-only", "all messages"], selected: c.trigger == .allMessages ? "all messages" : "mention-only") { v in
-                edit(c) { $0.trigger = v == "all messages" ? .allMessages : .mentionOnly }
+            // TRIGGER went (nautilus 3.7): it was stored and never read. What a companion listens to
+            // is its space membership and its watches (`companions.watch`).
+            if c.openInTerminal {
+                fieldLabel("RUNS")
+                segmented(["in a tile", "hidden"], selected: c.runsHidden ? "hidden" : "in a tile") { v in
+                    edit(c) { $0.runsHidden = v == "hidden" }
+                    appState.setCompanionHidden(c, hidden: v == "hidden")
+                }
             }
             fieldLabel("SYSTEM PROMPT")
             TextEditor(text: $promptDraft)
@@ -1034,26 +1039,28 @@ struct ShellSettingsView: View {
 
 }
 
-// MARK: - New companion (shell-native card — quick + full "Advanced" inline)
+// MARK: - New companion (shell-native card, every field shown; nautilus Phase 3.7)
 
-/// The shell-native create-companion card. Default: name + type → a real companion in this space.
-/// "Advanced" expands the SAME card (no macOS sheet) to the full option set: which CLI, trigger, working
-/// directory, system prompt and secrets. Every companion is a CLI agent in a terminal (D7, D9).
+/// The shell-native create-companion card. Every choice that matters is on the card, with no
+/// "Advanced" to open (GM, 2026-09-26): which CLI and its args, whether it runs in a tile or hidden,
+/// what it listens to (this space, or one port and the events that wake it), its working directory,
+/// prompt and secrets. No pre-canned types: the prompt is the person's. Every companion is a CLI agent
+/// in a terminal, or a custom command run headless.
 struct ShellNewCompanionView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     @State private var name = ""
-    @State private var selectedType: CompanionTypePreset?
-    @State private var showAdvanced = false
-    // Advanced fields:
-    @State private var promptOverride = ""            // empty → type constitution / default
+    @State private var promptText = ""
     @State private var selectedSecrets: Set<String> = []
     @State private var command = ""
     @State private var argsText = ""
     @State private var workingDir = ""
     @State private var cliChoice = ClaudeCodeSetup.findBinary("claude") == nil && ClaudeCodeSetup.findBinary("codex") != nil
-        ? "codex" : "claude"                         // claude | gemini | codex | custom
-    @State private var triggerSel = "mention-only"
+        ? "codex" : "claude"                         // claude | codex | custom
+    @State private var runs = "in a tile"            // in a tile | hidden
+    @State private var listensTo = "this space"      // this space | a port
+    @State private var watchedPort: String?          // udid
+    @State private var watchKinds: Set<String> = ["port"]
     // anim
     @State private var cardScale: CGFloat = 0.92
     @State private var cardOpacity: Double = 0
@@ -1061,27 +1068,32 @@ struct ShellNewCompanionView: View {
     @FocusState private var nameFocused: Bool
 
     private var acc: Color { shell.accent }
+    private var isCLI: Bool { cliChoice != "custom" }
     private var canCreate: Bool {
         guard appState.currentUser != nil, !effectiveName.isEmpty else { return false }
-        // CLI presets (claude/gemini/codex) carry their own command; only "custom" needs the field.
-        return cliChoice != "custom" || !command.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-    private func typeIcon(_ t: CompanionTypePreset) -> String {
-        switch t { case .echo: return "sparkles"; case .architect: return "triangle"
-                   case .compiler: return "gearshape"; case .operatorType: return "diamond" }
+        if listensTo == "a port" && (watchedPort == nil || watchKinds.isEmpty) { return false }
+        // A CLI carries its own command; only "custom" needs the field.
+        return isCLI || !command.trimmingCharacters(in: .whitespaces).isEmpty
     }
     private var rosterNotHere: [AgentConfig] {
         let here = Set(appState.spaceCompanions.map(\.id))
         return appState.companions.filter { !here.contains($0.id) }
     }
+    /// The ports of this space a companion can watch.
+    private var watchablePorts: [PortPanel] {
+        appState.portWindows.panels.filter { $0.spaceId == appState.currentSpace?.id }
+    }
+    /// What each watch choice means, in the words a person uses.
+    private static let kindChoices: [(kind: String, label: String)] = [
+        ("port", "its events"), ("console", "console errors and logs"), ("state", "edits"), ("chat", "its chat"),
+    ]
 
     var body: some View {
         ZStack {
             Color.black.opacity(scrimOpacity).ignoresSafeArea().contentShape(Rectangle())
                 .onTapGesture { dismiss() }
             ScrollView(showsIndicators: false) { card.padding(22) }
-                .frame(width: 400, height: showAdvanced ? 620 : nil)
-                .fixedSize(horizontal: false, vertical: !showAdvanced)
+                .frame(width: 420, height: 640)
                 .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
                 .shadow(color: .black.opacity(0.6), radius: 40)
@@ -1095,7 +1107,7 @@ struct ShellNewCompanionView: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("NEW COMPANION").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
@@ -1115,37 +1127,43 @@ struct ShellNewCompanionView: View {
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(acc.opacity(0.35), lineWidth: 1))
 
-            if cliChoice != "custom" {
-                label("TYPE — one tap sets identity + prompt")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
-                    ForEach(CompanionTypePreset.allCases, id: \.rawValue) { t in
-                        let on = selectedType == t
-                        Button { selectedType = on ? nil : t } label: {
-                            HStack(spacing: 6) { Image(systemName: typeIcon(t)).font(.system(size: 10)); Text(t.displayName).font(Port42Theme.mono(11)) }
-                                .foregroundStyle(on ? acc : Port42Theme.textPrimary)
-                                .padding(.horizontal, 11).padding(.vertical, 7)
-                                .background((on ? acc.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
-                                .overlay(Capsule().stroke(on ? acc.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
-                        }.buttonStyle(.plain).help(t.label)
-                    }
-                }
+            label("AGENT")
+            seg(["claude", "codex", "custom"], sel: cliChoice) { cliChoice = $0 }
+            if !isCLI { label("COMMAND"); boxField("my-agent", $command) }
+            label("ARGS"); boxField(isCLI ? "--model sonnet" : "--flag value", $argsText)
+
+            label("RUNS")
+            if isCLI {
+                seg(["in a tile", "hidden"], sel: runs) { runs = $0 }
+                Text(runs == "hidden" ? "no tile: reach it through its chat, show it from ⌘K" : "a terminal on this desktop")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+            } else {
+                Text("headless: a custom command speaks Port42's stdio protocol, with no terminal")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
             }
 
-            if showAdvanced { advancedFields }
-
-            HStack(spacing: 10) {
-                Button { create() } label: {
-                    Text("Create companion").font(Port42Theme.monoBold(13)).foregroundStyle(canCreate ? .black : Port42Theme.textSecondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .background(canCreate ? acc : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                }.buttonStyle(.plain).disabled(!canCreate)
-                Button { withAnimation(.spring(response: 0.3)) { showAdvanced.toggle() } } label: {
-                    HStack(spacing: 4) { Text("Advanced"); Image(systemName: showAdvanced ? "chevron.up" : "chevron.down").font(.system(size: 8)) }
-                        .font(Port42Theme.mono(11)).foregroundStyle(showAdvanced ? acc : Port42Theme.textSecondary)
-                        .padding(.horizontal, 12).padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke((showAdvanced ? acc : Color.white).opacity(0.2), lineWidth: 1))
-                }.buttonStyle(.plain)
+            label("LISTENS TO")
+            seg(["this space", "a port"], sel: listensTo) { listensTo = $0 }
+            if listensTo == "this space" {
+                Text("wakes when @mentioned here, then hears plain posts in this space's chat")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+            } else {
+                portPicker
+                chips
+                Text("wakes when that port does one of these; replies in its chat")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
             }
+
+            label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
+            label("SYSTEM PROMPT"); promptBox
+            // Named Keychain secrets it may use with rest.call, never seeing the value.
+            label("SECRETS"); ShellSecretsField(selected: $selectedSecrets, accent: acc)
+
+            Button { create() } label: {
+                Text("Create companion").font(Port42Theme.monoBold(13)).foregroundStyle(canCreate ? .black : Port42Theme.textSecondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(canCreate ? acc : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            }.buttonStyle(.plain).disabled(!canCreate)
 
             if !rosterNotHere.isEmpty {
                 label("OR ADD EXISTING")
@@ -1166,29 +1184,39 @@ struct ShellNewCompanionView: View {
         }
     }
 
-    @ViewBuilder private var advancedFields: some View {
-        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-        label("TRIGGER")
-        seg(["mention-only", "all messages"], sel: triggerSel) { triggerSel = $0 }
-        // Two kinds of command companion: a CLI LLM (claude/gemini/codex) that lives in a
-        // terminal tile, or a straight custom command that runs headless (NDJSON) — no terminal.
-        label("CLI")
-        seg(["claude", "gemini", "codex", "custom"], sel: cliChoice) { cliChoice = $0 }
-        if cliChoice == "custom" {
-            label("COMMAND");   boxField("my-cli", $command)
-            label("ARGS");      boxField("--flag value", $argsText)
-            Text("runs headless (NDJSON) — no terminal").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
-        } else {
-            Text("opens in a terminal tile").font(Port42Theme.mono(9)).foregroundStyle(acc.opacity(0.8))
+    private var portPicker: some View {
+        Menu {
+            ForEach(watchablePorts) { p in Button(p.title) { watchedPort = p.udid } }
+        } label: {
+            HStack {
+                Text(watchablePorts.first { $0.udid == watchedPort }?.title ?? "choose a port in this space")
+                    .font(Port42Theme.mono(12)).foregroundStyle(watchedPort == nil ? Port42Theme.textSecondary : Port42Theme.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.3), lineWidth: 1))
         }
-        label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
-        label("SYSTEM PROMPT"); promptBox
-        // Secrets apply to any mode (rest.call / provider keys) — create + grant inline.
-        label("SECRETS"); ShellSecretsField(selected: $selectedSecrets, accent: acc)
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+    }
+
+    private var chips: some View {
+        HStack(spacing: 6) {
+            ForEach(Self.kindChoices, id: \.kind) { choice in
+                let on = watchKinds.contains(choice.kind)
+                Button { if on { watchKinds.remove(choice.kind) } else { watchKinds.insert(choice.kind) } } label: {
+                    Text(choice.label).font(Port42Theme.mono(10)).foregroundStyle(on ? acc : Port42Theme.textSecondary)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background((on ? acc.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
+                        .overlay(Capsule().stroke(on ? acc.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
+                }.buttonStyle(.plain)
+            }
+        }
     }
 
     private var promptBox: some View {
-        TextEditor(text: $promptOverride).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
+        TextEditor(text: $promptText).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
             .frame(height: 84).padding(8)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.3), lineWidth: 1))
@@ -1217,39 +1245,39 @@ struct ShellNewCompanionView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
-    private var effectiveName: String {
-        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return n.isEmpty ? (selectedType?.displayName ?? "") : n
-    }
+    private var effectiveName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var initials: String { effectiveName.isEmpty ? "?" : String(effectiveName.prefix(2)).uppercased() }
 
     private func create() {
         guard canCreate, let user = appState.currentUser else { return }
-        let nm = effectiveName
-        let trig: AgentTrigger = triggerSel == "all messages" ? .allMessages : .mentionOnly
-        // A CLI (claude/gemini/codex) runs in a terminal tile; a custom command runs headless (NDJSON).
-        // The type's constitution, or the override, is the companion's appended system prompt.
-        let isCLI = cliChoice != "custom"
-        let cmd = isCLI ? cliChoice : command.trimmingCharacters(in: .whitespaces)
-        let args = isCLI ? [] : argsText.split(separator: " ").map(String.init)
-        let prompt = nilIfEmpty(promptOverride) ?? selectedType.map(loadConstitution)
-        var c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: cmd,
-                                          args: args.isEmpty ? nil : args, workingDir: nilIfEmpty(workingDir), envVars: nil,
-                                          systemPrompt: prompt, openInTerminal: isCLI, trigger: trig)
-        c.secretNames = selectedSecrets.isEmpty ? nil : selectedSecrets.sorted()
+        let c = Self.makeCompanion(owner: user.id, name: effectiveName, cli: cliChoice, command: command,
+                                   argsText: argsText, workingDir: workingDir, prompt: promptText,
+                                   hidden: runs == "hidden", secrets: selectedSecrets)
         appState.addCompanion(c)
         if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
+        if listensTo == "a port", let port = watchedPort {
+            try? appState.companionWatches.watch(companion: c, portUdid: port, kinds: Array(watchKinds), every: nil)
+        }
         dismiss()
     }
 
-    private func nilIfEmpty(_ s: String) -> String? {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t
+    /// The companion the card describes. Pure, so what each field becomes is tested.
+    static func makeCompanion(owner: String, name: String, cli: String, command: String, argsText: String,
+                              workingDir: String, prompt: String, hidden: Bool, secrets: Set<String>) -> AgentConfig {
+        let isCLI = cli != "custom"
+        let args = argsText.split(separator: " ").map(String.init)
+        func nilIfEmpty(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t
+        }
+        var c = AgentConfig.createCommand(ownerId: owner, displayName: name,
+                                          command: isCLI ? cli : command.trimmingCharacters(in: .whitespaces),
+                                          args: args.isEmpty ? nil : args, workingDir: nilIfEmpty(workingDir), envVars: nil,
+                                          systemPrompt: nilIfEmpty(prompt), openInTerminal: isCLI, trigger: .mentionOnly)
+        c.runsHidden = isCLI && hidden
+        c.secretNames = secrets.isEmpty ? nil : secrets.sorted()
+        return c
     }
-    private func loadConstitution(_ t: CompanionTypePreset) -> String {
-        guard let url = Bundle.module.url(forResource: t.constitutionFile, withExtension: "md", subdirectory: "constitutions"),
-              let text = try? String(contentsOf: url) else { return "You are \(t.displayName), a companion in Port42. \(t.label)." }
-        return text
-    }
+
     private func addExisting(_ c: AgentConfig) {
         if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
         dismiss()

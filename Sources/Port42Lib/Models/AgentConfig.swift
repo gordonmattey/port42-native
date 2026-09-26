@@ -46,6 +46,9 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public var workingDir: String?
     public var envVars: [String: String]?
     public var openInTerminal: Bool  // spawn in a visible terminal port instead of background process
+    /// Its terminal runs hidden: a headless agent, reached through its chat (nautilus Phase 3.7).
+    /// Kept on the companion so a terminal reopened by a mention or a watch comes back hidden too.
+    public var runsHidden: Bool = false
 
     // Secret access
     public var secretNames: [String]?  // named secrets this companion can use with rest.call

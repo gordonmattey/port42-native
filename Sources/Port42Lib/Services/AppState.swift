@@ -242,6 +242,14 @@ public final class AppState: ObservableObject {
         return service
     }()
 
+    /// Hide or show a companion's running terminal now, as its RUNS setting just changed.
+    func setCompanionHidden(_ companion: AgentConfig, hidden: Bool) {
+        let key = companion.displayName.lowercased()
+        for panel in portWindows.panels where panel.terminalConfig?.companionName.lowercased() == key {
+            if hidden { portWindows.minimize(panel.id) } else { _ = portWindows.restore(panel.id) }
+        }
+    }
+
     /// Start a companion's turn for its watch: typed into its terminal (reopened if closed), or a
     /// headless companion launched with it. The reply goes to the watched port's chat.
     func deliverWatch(companion: AgentConfig, message: String, portUdid: String) {
@@ -1957,12 +1965,13 @@ public final class AppState: ObservableObject {
 
         // Companion identity is baked by spawnNativeTerminalPort (bakeCompanionPrompt): the
         // Port42 operational framing wrapped around this companion's RAW systemPrompt template.
-        guard spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
-                                      spaceId: spaceId, title: name,
-                                      companionName: name, companionId: companion.id,
-                                      systemPrompt: companion.systemPrompt) != nil else {
+        guard let portId = spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
+                                                   spaceId: spaceId, title: name,
+                                                   companionName: name, companionId: companion.id,
+                                                   systemPrompt: companion.systemPrompt) else {
             return
         }
+        if companion.runsHidden { portWindows.applyPresentation("hidden", to: portId) }
 
         // The join announcement is NOT posted here: this path also runs on respawn (a closed
         // terminal reopened), which is not a fresh join. Arrival is announced once at the

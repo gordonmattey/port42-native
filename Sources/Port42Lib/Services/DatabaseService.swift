@@ -836,6 +836,11 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v54-companion-runs-hidden") { db in
+            // Nautilus Phase 3.7: a companion can run hidden, and stays hidden when its terminal reopens.
+            try db.alter(table: "agents") { t in t.add(column: "runsHidden", .boolean).notNull().defaults(to: false) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

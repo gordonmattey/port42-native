@@ -281,6 +281,14 @@ answered one published event in the port's chat 9 s later, and a further event f
 more fired during its turn gave exactly two more replies, the second reading "Alerts #3 to #7 came
 in as a burst, all within 47 ms".
 
+**3.7 built 2026-09-26** (card and settings), except Antigravity, which waits on its spike. The card
+shows every field with no "Advanced": AGENT (claude, codex, custom), ARGS for every CLI, RUNS (in a
+tile or hidden, stored as the companion's `runsHidden`, migration v54, so a reopened terminal comes
+back hidden), LISTENS TO (this space, or a port picked from the space with the events that wake it,
+which creates the watch), working dir, prompt and secrets. The presets and their four constitution
+files are gone. The settings card's TRIGGER became RUNS, which hides or shows the live terminal.
+Gates in `NewCompanionCardTests`, calibrated. Not yet looked at by GM.
+
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
 What it would be: each caller that runs `terminal.exec` gets one hidden terminal port of its own,
