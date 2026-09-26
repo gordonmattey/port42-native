@@ -8,8 +8,9 @@ The harness does what ⌘I and a chat's /imagine do: it calls imagine.start with
 there Port42 makes the space, the three agents (visible, with their roles) and the brief, and the
 agents run themselves. The harness watches: the port appears under the title taken from the line,
 it never goes past the budget, every agent speaks, the lead answers in the space's chat and posts
-DONE in the port's chat, and the console is clean. Then it stops the team, which must leave the
-port and the chats and close the team's terminals.
+DONE in the port's chat, and the console is clean. If all of that passed, it stops the team, which
+must leave the port and the chats and close the team's terminals; a failed run is left running to
+inspect.
 
 Needs the `terminal` grant for the harness client. A live monitor port, "harness: imagine", shows
 each step. The space and its port are left in place to inspect.
@@ -92,7 +93,11 @@ def main():
             f"the lead answered in the space's chat: {replies[0]['text'][:100]!r}" if replies
             else "the lead never answered in the space's chat")
 
-    if not a.no_stop:
+    # Stop only a run that passed: a failed one keeps its team running, to inspect in place.
+    failed = [r for r in run.results if r[0] == "fail"]
+    if failed:
+        run.say("wait", f"left running for inspection: space {space} ('{title}'); stop it with imagine.stop")
+    elif not a.no_stop:
         c.call("imagine.stop", {"space": space})
         time.sleep(3)
         still = {(x.get("name") or x.get("displayName")) for x in c.call("companions.list", {"space_id": space})}
