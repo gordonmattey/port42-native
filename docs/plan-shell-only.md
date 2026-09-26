@@ -268,6 +268,9 @@ mention, and the middle stage running as an invisible port. The `ls | grep | wc`
 
 ### Phase 4 · The remote pipe (4)
 
+**Detailed plan:** `plan-nautilus-phase4.md` (written 2026-09-26, for Gordon's review; nothing built).
+It settles or puts to Gordon each open question below; the blocker is who runs the relay.
+
 `port42://<peerID>/space/<id>/<portId>` resolves over libp2p to the Phase 0 door. The Noise handshake
 authenticates the remote peer id, so grants key on the peer and no token crosses the internet.
 Reachability is mDNS on a LAN, then Circuit Relay v2 with DCUtR hole punching, as designed in
