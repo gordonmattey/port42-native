@@ -11,9 +11,10 @@ is not on screen, and when the receiver is a companion rather than a port.
 
 ## Decisions for GM
 
-1. **Which events wake a companion that watches a port.** Recommended: the events the port publishes
-   itself (`port.publish`, kind `port.*`) and mentions in its chat. Not system traffic such as
-   `terminal.output`, `state` or `console`, which would start a model turn per keystroke.
+1. **Which events wake a watching companion: the subscription says (decided, GM 2026-09-25).** A
+   watch names the event kinds it wakes on; the default is the port's own `port.*` events plus
+   mentions in its chat. `state` (a reviewer watching edits) and `console` (fix it when it throws) can
+   be asked for; `terminal.output` is never a trigger, since it would wake on every keystroke.
 2. **What a burst of events costs.** Every wake is a full model turn (the Open Synth report measured
    one inference per beat). Recommended: at most one turn in flight per companion; events that arrive
    during a turn are delivered together as the next turn.
@@ -63,8 +64,9 @@ one; show and hide round-trip its presentation; it survives a restart hidden.
 
 ### 3.3 Companions watch ports
 
-A companion can watch a port: `companions.watch(id, port)` and `companions.unwatch(id, port)`, stored
-on the companion. An event of a waking kind (decision 1) on a watched port's topic starts a turn: a
+A companion can watch a port: `companions.watch(id, port, kinds?)` and `companions.unwatch(id,
+port)`, stored on the companion. An event of a kind the watch names (decision 1) on the port's topic
+starts a turn: a
 terminal companion gets the event typed in with its source (`[port 'x' published beat]: {...}`); a
 headless one is launched with it. The reply goes to that port's chat. One turn in flight at a time,
 with events batched into the next (decision 2). This is the todo's `busWatch`, generalized.
