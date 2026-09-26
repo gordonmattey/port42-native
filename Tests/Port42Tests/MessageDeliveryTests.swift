@@ -20,7 +20,65 @@ struct MessageDeliveryTests {
         let c = GhosttyTerminalController(panelId: "p1", config: Self.config, post: { _ in })
         var writes: [TerminalWrite] = []
         c.bindSurface { w, done in writes.append(w); done() }
+        c.handleEvent(.sessionStarted(cli: "claude"))       // a running CLI: messages go straight in
         return (c, { writes })
+    }
+
+    // MARK: - Not before the CLI is running (2026-09-26)
+
+    /// A controller whose CLI has NOT reported SessionStart yet.
+    func starting(startup: String = "claude") -> (GhosttyTerminalController, () -> [TerminalWrite], () -> [String]) {
+        let cfg = TerminalPortConfig(command: "/bin/zsh", args: [], startupCommand: startup, cwd: "/tmp",
+                                     spaceId: "space-1", spaceName: "Demo", companionName: "echo", createdBy: "u1",
+                                     companionPrompt: "")
+        var posted: [String] = []
+        let c = GhosttyTerminalController(panelId: "p1", config: cfg, post: { posted.append($0) })
+        var writes: [TerminalWrite] = []
+        c.bindSurface { w, done in writes.append(w); done() }
+        return (c, { writes }, { posted })
+    }
+
+    @Test("a message sent while the CLI is starting waits for SessionStart, then goes in order and gets its reply posted")
+    func heldUntilRunning() {
+        let (c, writes, posted) = starting()
+        c.inject("[@gordon in #demo]: one")
+        c.inject("[@gordon in #demo]: two")
+        #expect(writes().isEmpty, "typed into a shell whose CLI had not started: it lands as typeahead, unsent")
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        #expect(writes().map(\.text) == ["[@gordon in #demo]: one", "[@gordon in #demo]: two"])
+        #expect(writes().allSatisfy { $0.submit })
+        c.handleEvent(.turnComplete(text: "hi", exitCode: 0))
+        #expect(posted() == ["hi"])
+        c.teardown()
+    }
+
+    @Test("after the CLI exits, a message is held rather than typed into the bare shell")
+    func notIntoTheBareShell() {
+        let (c, writes, _) = starting()
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        c.handleEvent(.sessionEnded)
+        c.inject("[@gordon in #demo]: rm -rf is not a message")
+        #expect(writes().isEmpty)
+        c.teardown()
+    }
+
+    @Test("a CLI whose SessionStart never comes still gets its message, after the fallback")
+    func fallbackReleases() async throws {
+        let (c, writes, _) = starting()
+        c.heldFallback = 0.2
+        c.inject("[@gordon in #demo]: hello")
+        #expect(writes().isEmpty)
+        for _ in 0..<50 where writes().isEmpty { try await Task.sleep(nanoseconds: 100_000_000) }
+        #expect(writes().map(\.text) == ["[@gordon in #demo]: hello"])
+        c.teardown()
+    }
+
+    @Test("a terminal with no hooks (a plain shell) is typed into at once, as before")
+    func plainShellImmediate() {
+        let (c, writes, _) = starting(startup: "")
+        c.inject("echo hi")
+        #expect(writes().count == 1)
+        c.teardown()
     }
 
     @Test("a short single line is typed as keys, with the quick Enter that works for it")

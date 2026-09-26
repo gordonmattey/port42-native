@@ -287,6 +287,8 @@ final class GhosttyTerminalController {
             prefillPending = false   // the person sent whatever was in the box
         case .sessionStarted(let cli):
             log("event=sessionStarted cli=\(cli ?? "?")")
+            cliRunning = true
+            releaseHeld(reason: "sessionStarted")
             // CLI is up → deliver any messages queued while it was (re)spawning.
             flushPending(reason: "sessionStarted")
             // First launch → let AppState auto-register this terminal as a companion (once).
@@ -296,6 +298,7 @@ final class GhosttyTerminalController {
             }
         case .sessionEnded:
             log("event=sessionEnded")
+            cliRunning = false
             // Allow re-registration if the user runs claude again in this same terminal.
             didNotifySessionStart = false
             onSessionEnded()
@@ -308,6 +311,19 @@ final class GhosttyTerminalController {
     /// forget, because nothing is waiting on a mention's Enter the way a bridge caller waits on its
     /// token.
     func inject(_ line: String) {
+        // NOT BEFORE THE CLI IS RUNNING (2026-09-26). A message typed while the shell is still
+        // starting claude lands in the tty's typeahead: claude later shows it in its input box, and
+        // the Enter is spent before it can act, so the message sits unsent. Measured on Dev4: every
+        // mention reached its terminal about 2 s before SessionStart, and only a person pressing
+        // Enter sent it. Codex happened to submit typeahead, which is why this looked intermittent.
+        // After the CLI exits the same text would reach the bare shell and RUN as a command. So a
+        // hooks-capable terminal holds messages until its CLI says it is running.
+        if hooksCapable && !cliRunning {
+            heldUntilRunning.append(line)
+            log("held until the CLI is running (\(heldUntilRunning.count) waiting): \(line.prefix(60).debugDescription)")
+            if heldUntilRunning.count == 1 { armHeldFallback() }
+            return
+        }
         gate.arm()
         log("inject + armed: \(line.prefix(80).debugDescription)")
         if injectToSurface == nil { log("  WARNING: no surface bound — inject dropped") }
@@ -320,6 +336,36 @@ final class GhosttyTerminalController {
     /// message is appended to it ("what is this place?[@gordon]: hi").
     private(set) var prefillPending = false
     func notePrefill() { prefillPending = true }
+
+    /// The CLI in this terminal has said it is running (SessionStart) and has not ended.
+    private(set) var cliRunning = false
+    private var heldUntilRunning: [String] = []
+    /// How long a held message waits for SessionStart before it is typed anyway (a CLI whose hook
+    /// never fires would otherwise hold it forever, silently).
+    var heldFallback: TimeInterval = 60
+
+    private func releaseHeld(reason: String) {
+        guard !heldUntilRunning.isEmpty else { return }
+        let lines = heldUntilRunning
+        heldUntilRunning = []
+        log("releasing \(lines.count) held message(s) (\(reason))")
+        for line in lines {
+            gate.arm()
+            let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
+            prefillPending = false
+            injectToSurface?(write) {}
+        }
+    }
+
+    private func armHeldFallback() {
+        let wait = heldFallback
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, !self.heldUntilRunning.isEmpty else { return }
+            self.log("WARNING: no SessionStart after \(Int(wait))s; typing held messages anyway")
+            self.releaseHeld(reason: "fallback")
+        }
+    }
 
     /// Write raw input to the surface WITHOUT arming the post gate. This is the path for
     /// `port.push` / `port_push` to a terminal: a caller driving the terminal directly should not
