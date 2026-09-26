@@ -13,8 +13,8 @@ can stop it.
 
 ## What changes, for a person
 
-- **Anywhere you can type to Port42**, a line starting `/imagine` starts a team instead of posting a
-  message.
+- **⌘I opens a quick imagine box** (like ⌘K): type the line, Enter, and the team starts. In a chat,
+  a line starting `/imagine` does the same. Both run one path.
 - **A new space appears**, named from the line, with its team in it and a first post from Port42
   saying what it asked for. The port shows up as soon as the first version exists.
 - **You follow it in the space's chat** (the lead's one-line updates) and the port's chat (the work),
@@ -44,14 +44,43 @@ versions where the baseline stopped at 4).
 3. **A version budget, not rounds (recommended: 5).** Rounds let a lead decide how much a round holds;
    a budget of versions bounds the work, and so the tokens, whatever the lead decides. The lead is told
    the number and reports DONE by it. `/imagine` takes an optional `--versions N`.
-4. **The agents run hidden (recommended).** The space shows the port and the chats, not three
-   terminals; any of them can be shown from ⌘K or the "N hidden" count to watch it work.
+4. **The agents run visible (decided, GM 2026-09-26).** Three terminals on the new space's desktop,
+   so each can be watched and typed into.
 5. **After DONE the team stays, idle (recommended).** You can keep asking it for changes in the port's
    chat. `/imagine stop` removes the team from the space and closes its terminals; the port and the
    chats stay.
-6. **Where it is typed: any chat input (recommended).** The space's chat, a port's chat, the desktop's.
-   A slash command, parsed by the chat input before posting, so the line never reaches other agents as
-   a message.
+6. **Where it is typed: ⌘I and any chat (decided, GM 2026-09-26).** ⌘I opens a quick imagine box,
+   like ⌘K. In any chat input, `/imagine` is a slash command, parsed before posting, so the line never
+   reaches other agents as a message.
+7. **Roles live in each agent's own system prompt (recommended).** Given with `companions.create`'s
+   `prompt`, so a role holds for the whole session, not only the first message; the brief starts the
+   work. Drafts below.
+
+## The texts (drafts)
+
+**Lead's role:** You lead an imagine team. You own the vision and the version budget. You do not build:
+you set the vision, split the work between your engineers so they never edit the same part, check each
+version works (its console and DOM), and decide the next step. Work in the port's chat; answer the
+person in the space's chat in one line. Stop at DONE.
+
+**Engineer's role:** You are an engineer on an imagine team led by @{lead}. Build what the lead gives
+you in the port, only your part. Check it works before you say so, then report in the port's chat to
+@{lead}: what you changed and what you checked.
+
+**The brief** (to the lead, in the space's chat):
+
+> @{lead} /imagine from {person}: "{line}"
+> You lead @{eng1} and @{eng2}. Make one web port titled '{title}' that realizes this, in at most {N}
+> versions.
+> 1. Reply here in one line saying what you are going for, then write the vision in 3 to 5 lines in
+>    the port's chat.
+> 2. Have @{eng1} make v1. For each later version, give both engineers concrete, non-overlapping next
+>    steps toward the vision, check the result, and push further.
+> 3. When the vision is met or the budget is spent, post in the port's chat a message that starts
+>    with DONE and says what the port now is, and one line here.
+
+The title is taken from the line, so the space and the port share a name; the line itself is passed
+through verbatim.
 
 ## Steps
 
@@ -68,7 +97,7 @@ chat and a one-line answer in the space's; a source scan keeps the line verbatim
 ### I.2 Start a team
 
 `imagine.start {line, versions?}` (and the slash command's parser): a space named from the line, the
-team made with `companions.create` (hidden, Codex only if installed), a Port42 post of what was asked,
+team made with `companions.create` (visible, each with its role as its prompt, Codex only if installed), a Port42 post of what was asked,
 then the brief to the lead. Returns the space, the names and the budget.
 
 *Gates:* the space and the three companions exist and belong to it; without Codex installed the team
@@ -83,10 +112,11 @@ budget is spent and the team's further writes to the port are refused with a cle
 *Gates:* stop leaves the port and chats and no running terminals; a write past the budget is refused
 with its own code; the lead's DONE is posted.
 
-### I.4 The slash command in every chat input
+### I.4 ⌘I and the slash command
 
-`/imagine <line>`, `/imagine --versions N <line>` and `/imagine stop` typed into any chat run the
-methods above instead of posting. Anything else starting with `/` still posts as text.
+⌘I opens a quick imagine box (a line and Enter, like ⌘K). `/imagine <line>`, `/imagine --versions N
+<line>` and `/imagine stop` typed into any chat run the same methods instead of posting. Anything else
+starting with `/` still posts as text.
 
 *Gates:* the parser (line, budget, stop, and text that only looks like a command); the input runs the
 command and posts nothing to agents.
