@@ -46,7 +46,7 @@ this is measured beyond the observations cited.
 | 6 | Messages typed into a starting Claude not submitted | The brief can sit unsent and the agent idles. Seen in /imagine run 2, not in run 3; run 2 also queued three Port42 notices, now gone | Re-observe in the I.5 runs before changing code | Watch |
 | 7 | No cap on tool results on the live path | Token cost per call (`port.console` can return ~400,000 characters). The 2 MB frame refusal (`too_large`) now bounds the worst case | Per-method limits on the verbose reads | Optional |
 | 8 | A name with a space cannot be mentioned | Reproduced: `app dev` was stored as typed, its terminal named `app-dev`, and neither mention reached it | Names are kept as typed (no hyphen folding, GM); a mention escapes what it cannot carry, as a URL does (`@app%20dev`); autocomplete and whoami give the escaped form | Done |
-| 9 | Settings opens on a tab named "AI" | It shows an accurate one-line note that agents are CLIs; the name is a leftover | Rename or fold into another tab | Polish |
+| 9 | Settings opens on a tab named "AI" | It shows an accurate one-line note that agents are CLIs; the name is a leftover | Phase 4 is removing it | Phase 4 |
 | 10 | `aiPaused` / `isSuspended` dead, with a false comment | None at runtime | Delete | Cleanup |
 
 Not ranked: the child environment carrying provider keys is a decision about D9, not a defect; the
@@ -54,8 +54,13 @@ guest page's full re-render and the `ngrok-skip-browser-warning` headers belong 
 
 ## Seen in the /imagine runs, not yet ranked
 
-- **A Codex companion speaks first, unprompted**, when its terminal starts (runs 4, 5, 6): it posts
-  "ready" before anyone asks it anything. Harmless in a team; noise in a space.
+- **A Codex companion spoke first, unprompted**, when its terminal started (runs 4, 5, 6): its
+  briefing is its first message (Codex has no system-prompt flag, and that first turn is what runs
+  its startup hook), and it answered it. **Fixed:** the briefing says it is not a request, and the
+  app does not post the reply to it (`CompanionPostGate.skipTurns`).
+- **`port.console` can put ~400 KB into an agent's context** per check (100 lines of up to 4,000
+  characters, printed by the command straight into the transcript), and the roles ask for a check
+  every version. Smaller defaults, with more on request, would cut that. Not built.
 - **A hung CLI turn goes unnoticed.** A Claude engineer sat on one command for 28 minutes (run 3)
   with nothing in the space to say so. Port42 could post a notice when a turn shows no transcript
   activity for a few minutes. Idea; not built.

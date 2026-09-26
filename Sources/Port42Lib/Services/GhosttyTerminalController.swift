@@ -9,6 +9,9 @@ struct CompanionPostGate {
     let hooksCapable: Bool
     /// Armed by an injected space message; consumed by the next turnComplete.
     private(set) var armed = false
+    /// Turns whose reply is not posted: a Codex companion's first turn answers its briefing, which
+    /// nobody sent (`CLIHookProducer.isBriefedStart`).
+    var skipTurns = 0
     private var recentlyPosted: [String] = []
 
     init(hooksCapable: Bool) { self.hooksCapable = hooksCapable }
@@ -22,7 +25,12 @@ struct CompanionPostGate {
     /// (`ChatRouting.replyDestination`): the chat that asked, else the terminal's own chat, which
     /// is the session's transcript. `armed` is kept for the log.
     mutating func onTurnComplete(_ text: String) -> [String] {
-        emit(text)
+        if skipTurns > 0 {
+            skipTurns -= 1
+            lastSkipReason = "the reply to its briefing"
+            return []
+        }
+        return emit(text)
     }
 
     /// tee `<p42>` tag: FALLBACK for non-hooks tools only. A tag is a deliberate post, so it is
@@ -190,6 +198,7 @@ final class GhosttyTerminalController {
         self.onNeedsAttention = onNeedsAttention
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
+        if CLIHookProducer.isBriefedStart(config.startupCommand) { gate.skipTurns = 1 }
 
         self.session = TerminalSessionBootstrap.make(
             sessionId: panelId,

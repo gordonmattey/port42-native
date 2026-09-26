@@ -41,6 +41,34 @@ struct MessageDeliveryTests {
         return (c, { writes }, { posted })
     }
 
+    @Test("a briefed Codex's reply to its briefing is not posted; its next reply is; a Claude's first reply is")
+    func briefingTurnIsPrivate() {
+        let (codex, _, codexPosted) = starting(startup: "codex \"$(cat '/tmp/port42-briefs/x.txt')\"")
+        codex.handleEvent(.sessionStarted(cli: "codex"))
+        codex.handleEvent(.turnComplete(text: "OK", exitCode: 0))
+        #expect(codexPosted().isEmpty, "the reply to the briefing was posted")
+        codex.handleEvent(.turnComplete(text: "built v2", exitCode: 0))
+        #expect(codexPosted() == ["built v2"])
+        codex.teardown()
+        let (claude, _, claudePosted) = starting(startup: "claude")
+        claude.handleEvent(.sessionStarted(cli: "claude"))
+        claude.handleEvent(.turnComplete(text: "hello", exitCode: 0))
+        #expect(claudePosted() == ["hello"])
+        claude.teardown()
+    }
+
+    @Test("the Codex briefing says it is not a request, typed or read from its file")
+    func codexBriefPreamble() throws {
+        let typed = CLIHookProducer.startupCommand(base: "codex", companionPrompt: "You are scout.")
+        #expect(typed.contains("This is your briefing, not a message to answer") && typed.hasSuffix("You are scout.'"))
+        let file = try #require(CLIHookProducer.writeBrief("You are scout."))
+        let body = try String(contentsOfFile: file, encoding: .utf8)
+        #expect(body == CLIHookProducer.codexBriefPreamble + "You are scout.")
+        #expect(CLIHookProducer.isBriefedStart(CLIHookProducer.startupCommand(base: "codex", companionPrompt: "x", briefFile: file)))
+        #expect(!CLIHookProducer.isBriefedStart("codex") && !CLIHookProducer.isBriefedStart("claude"))
+        try? FileManager.default.removeItem(atPath: file)
+    }
+
     @Test("a message sent while the CLI is starting waits for SessionStart, then goes in order and gets its reply posted")
     func heldUntilRunning() async {
         let (c, writes, posted) = starting()

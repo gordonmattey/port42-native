@@ -452,7 +452,8 @@ struct CLIHookProducerTests {
     @Test("codex gets the companion briefing as its starting prompt")
     func codexIsBriefedViaPrompt() {
         let out = CLIHookProducer.startupCommand(base: "codex", companionPrompt: "You are scout.")
-        #expect(out == "codex 'You are scout.'")
+        #expect(out == "codex '" + CLIHookProducer.codexBriefPreamble + "You are scout.'",
+                "the briefing, after the line saying it is not a request (2026-09-26)")
     }
 
     /// A LONG briefing survives being typed, so codex gets the same text claude does.
@@ -477,7 +478,7 @@ struct CLIHookProducerTests {
         let out = CLIHookProducer.startupCommand(base: "codex",
                                                  companionPrompt: "don't guess; ask")
         // Naive quoting ends the string at the apostrophe and the rest becomes shell words.
-        #expect(out == "codex 'don'\\''t guess; ask'")
+        #expect(out.hasSuffix("don'\\''t guess; ask'") && !out.contains("don't"))
     }
 
     @Test("claude is UNTOUCHED — its briefing already travels invisibly via the shim")
@@ -559,7 +560,7 @@ struct CLIHookProducerTests {
         let out = Pipe(); p.standardOutput = out
         try p.run(); p.waitUntilExit()
         let got = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-        #expect(got == brief)
+        #expect(got == CLIHookProducer.codexBriefPreamble + brief)
         let attrs = try FileManager.default.attributesOfItem(atPath: path)
         #expect((attrs[.posixPermissions] as? Int) == 0o600, "the brief is private to the user")
     }
