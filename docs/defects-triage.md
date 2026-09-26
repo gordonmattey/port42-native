@@ -33,7 +33,7 @@ today, not what the list said then. Nothing here is fixed by this document.
 
 ## Structural (from the list, unchanged)
 
-A port has no storage of its own to ship, no transcript file (chat is in the `port_chats` table), and
+A port has no storage of its own to ship, no transcript file (chat entries are rows in `port_storage`), and
 `port_versions` cannot identify a port across machines. These belong to Phase 4's design, not to
 defect fixes.
 
