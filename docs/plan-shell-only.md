@@ -247,7 +247,7 @@ Remaining:
 
 ### Phase 3 · The pipe (3)
 
-**Detailed plan:** `plan-nautilus-phase3.md` (a draft; three decisions for GM at its top).
+**Detailed plan:** `plan-nautilus-phase3.md` (rewritten 2026-09-26; four decisions open for GM at its top).
 
 From the OPEN SYNTH field report, three gaps. Two already pass live: a port publishes on its own
 topic, and publish and subscribe resolve the same `port:{id}` key. The third remains: a rested
@@ -370,6 +370,9 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **Hosted (SaaS) agents as companions** (GM, 2026-09-26). Agents that run as a service rather than
+  a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
+  GM wants them back. Product idea; demand unvalidated.
 - **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
   every port it made (the card's "Remove from this space", as an API). Today the only removal is by
   hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
