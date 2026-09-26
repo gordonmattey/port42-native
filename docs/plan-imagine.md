@@ -4,7 +4,7 @@ Detailed plan for `/imagine`, moved from the roadmap into the release's scope (G
 for GM's review, written against `nautilus` at `0ce34a5`; approved by GM with the recommended defaults.
 Product idea; whether people want it is unvalidated.
 
-**Status:** I.1 to I.4 done. I.5 in progress: the harness and the eval task are built; the live run on Dev4 found five defects, fixed below, and is being rerun.
+**Status:** Done (GM, 2026-09-26). I.1 to I.5 built and verified live on Dev4: run 5 passed all twelve checks, and run 6 moved the work into the port's chat. GM is trying it by hand.
 
 ## Goal
 
