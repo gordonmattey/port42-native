@@ -143,3 +143,34 @@ registries, the same cause, so a fix for one should be designed with the other i
 Worth deciding rather than patching: a companion is currently created as a side effect of naming a
 window. If a companion is meant to be a durable identity, it should be created by a deliberate act
 and removed when its last port goes.
+
+**Mentioning a companion spawns a second terminal instead of messaging the one it has.** GM,
+2026-09-26: "if I @ one it should message, right?" It does not; it opens a new one, repeatedly.
+
+The cause is that a companion's terminal is found by NAME, and the name is rewritten behind its back.
+
+`ensureTerminalLive` (`AppState.swift:1018`) locates a companion's terminal with
+
+```swift
+panel.terminalConfig?.companionName.lowercased() == companion.displayName.lowercased()
+```
+
+and, finding none, concludes "fully closed" and calls `spawnTerminalAgentPort` (`:1038`).
+
+`reconcileCompanionHandles` (`:1696`, called at boot from `:789`) folds an unaddressable companion
+name into a mentionable handle: it sets `renamed.displayName = handle` and saves the **agent row**.
+It updates `companions` and calls `refreshSpaceCompanions()`. It never touches the ports. So a
+terminal port created before the fold still carries `companionName = "growth: editor+critic"` while
+its companion row now reads `growth-editor-critic`. The two no longer match, the lookup fails, and
+every mention spawns another terminal.
+
+`spawnNativeTerminalPort` (`:1730`) normalizes the name once at spawn, so terminals created after the
+normalization landed are self-consistent. The orphans are the ports that existed before it.
+
+The same function has a second orphaning path: when a handle is already taken, the unaddressable row
+is **deleted** (`:1707`), so a companion can be removed while its terminal keeps running.
+
+**Root cause, and the fix worth making instead of a patch: a companion is identified by its display
+name.** `AgentConfig` has an id and `spawnNativeTerminalPort` already accepts `companionId`
+(`:1733`). Matching a terminal to its companion on id would survive any rename, fold or reap.
+Matching on a mutable human-facing string cannot.
