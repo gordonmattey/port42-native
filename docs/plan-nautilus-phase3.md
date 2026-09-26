@@ -134,7 +134,7 @@ second port subscribed to it, 10 s per row):
 | Producer parked | 1 | 1 | 2 ms | 0 / 31 to 60 |
 | Consumer parked | 10 | 10 | 1 ms | 59 / 0 |
 | Both in a resting space | 1 | 1 | 2 ms | 0 / 0 |
-| Both in a resting space, after 3 min | 1 | (see below) | | 0 / 0 |
+| Both in a resting space, after 3 min | 1 | not remeasured after the fix | | 0 / 0 |
 | Back on screen | 10 | 10 | 1 ms | 59 / 59 |
 
 - **Events reach a port off screen at full rate**, with the same latency. The pipe's event-driven
