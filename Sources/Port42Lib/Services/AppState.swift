@@ -826,6 +826,9 @@ public final class AppState: ObservableObject {
             // dreamscape loop, no swim button. The lock screen belongs to a user who HAS an
             // identity: a returning launch, a lock, a power off (each sets this itself).
             if currentUser == nil { showDreamscape = false }
+            // A dev instance can skip the lock screen at launch, so a rebuild or a harness restart
+            // does not wait for a person to click in. Never in a release build.
+            if currentUser != nil, Self.devAutoUnlock() { showDreamscape = false }
             spaces = try db.getRegularSpaces()
             loadLastReadDates()   // restore ⌘K recency + unread-since-last-visit across restart (0.6)
             companions = try db.getAllAgents()
@@ -2191,6 +2194,17 @@ public final class AppState: ObservableObject {
         currentUser = nil
         isSetupComplete = false
         showDreamscape = true
+    }
+
+    /// `defaults write <bundle id> PORT42_DEV_AUTO_UNLOCK -bool true` makes a DEBUG build enter the
+    /// shell at launch without the lock screen. Compiled out of release builds, so the installed app
+    /// always starts locked.
+    nonisolated static func devAutoUnlock(_ defaults: UserDefaults = .standard) -> Bool {
+        #if RELEASE
+        return false
+        #else
+        return defaults.bool(forKey: "PORT42_DEV_AUTO_UNLOCK")
+        #endif
     }
 
     public func unlock() {
