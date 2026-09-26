@@ -247,7 +247,7 @@ Remaining:
 
 ### Phase 3 · The pipe (3)
 
-**Detailed plan:** `plan-nautilus-phase3.md`. **Built 2026-09-26** (hidden ports, companions watch ports, the `port42` command, the new-companion card; five of five on Dev4), except the Antigravity producer.
+**Detailed plan:** `plan-nautilus-phase3.md`. **Built 2026-09-26** (hidden ports, companions watch ports, the `port42` command, the new-companion card; five of five on Dev4). Antigravity moved to the roadmap.
 
 From the OPEN SYNTH field report, three gaps. Two already pass live: a port publishes on its own
 topic, and publish and subscribe resolve the same `port:{id}` key. The third remains: a rested
@@ -370,6 +370,11 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **Antigravity as a companion** (GM deferred, 2026-09-26). `agy` has hooks (PreToolUse, PostToolUse,
+  Pre/PostInvocation, Stop) from a workspace `.agents/hooks.json` or a plugin; open questions are an
+  undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
+  where the hooks live without writing into the user's project or global config. Findings in
+  `plan-nautilus-phase3.md` (3.7).
 - **Hosted (SaaS) agents as companions** (GM, 2026-09-26). Agents that run as a service rather than
   a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
   GM wants them back. Product idea; demand unvalidated.

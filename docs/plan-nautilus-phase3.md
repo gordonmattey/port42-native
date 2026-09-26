@@ -3,11 +3,10 @@
 Detailed plan for Phase 3 of `plan-shell-only.md`. Scenario served: 3. Rewritten 2026-09-26 against
 `nautilus` at `140bd30` for GM's review.
 
-**Status (2026-09-26): built, except the Antigravity producer.** 3.0 to 3.3, 3.5, 3.6 and 3.7 are built
+**Status (2026-09-26): built.** The Antigravity producer moved to the roadmap (GM). 3.0 to 3.3, 3.5, 3.6 and 3.7 are built
 and verified live on Dev4; 3.4 moved to the roadmap (decision 5). The harness passes five of five
 with scenario 3's three rows, and all eight companion combinations (claude and codex, in a port and
-hidden, listening to a space and watching a port) pass. Suite 1228 green. Left: the Antigravity
-producer (see 3.7).
+hidden, listening to a space and watching a port) pass. Suite 1228 green.
 
 ## Goal
 
