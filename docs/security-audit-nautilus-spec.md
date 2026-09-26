@@ -224,6 +224,81 @@ Determine whether the restored content runs with the old or the current authorit
 candidate. If any part is reachable, run T1, T5 and T8 again from a second machine. If none is
 reachable, record that and state R1 through R5 as release gates for the phase rather than findings.
 
+## Code review
+
+The scenarios above are sampling. They confirm what someone already suspected and they cannot find a
+path nobody thought to probe. The review is the exhaustive half, and for several requirements it is
+the only half that can settle them: no amount of testing establishes that every method is gated, only
+reading every method does.
+
+Each sweep is exhaustive over its surface. A sweep that samples is reported as incomplete.
+
+**CR1. Every registry method.** All of them, in a table: name, declared permission, object the gate
+uses, what it reads, what it writes, and whether the body escalates beyond its declaration. Two
+in-body escalations are known (`port.create` on `type`, `screen.record` on `audio`); the sweep finds
+the rest. Settles O1, O5 and the ungated-method count in a way no scenario can.
+
+**CR2. Principal construction.** Every site that creates, derives or mutates a `Principal`, and every
+site that decides a caller's identity. Includes the gateway's stamping at `identify`, the port
+bridge's principal, the child token path, and anything that trusts a field from an envelope. Settles
+A1 and A3.
+
+**CR3. Grant reads and writes.** Every read and write of the grants table and its cache, every
+construction of a grant key, and every path that can produce an authorized outcome without consulting
+them. `pregrant` is a known one; the sweep finds whether there are others. Settles O4.
+
+**CR4. Injection surfaces.** Every site that builds one language out of another:
+shell (`ShellExec`, `CommandAgent`, `terminal.exec`, startup commands, the shim's argv),
+JS (`port.exec`, the bridge injection, the guest page's shim),
+HTML (`wrapHTML`, `srcdoc` assignment, anything rendering a title or a name),
+SQL (any raw statement built with interpolation rather than arguments),
+and the instruction files, which are generated text an agent then executes. For each: what is
+interpolated, whether it is escaped, and who controls it.
+
+**CR5. Error paths that fail open.** Every `catch`, `guard else`, `try?` and default-value return on a
+security-relevant path, asking whether the failure grants or denies. The `LOCAL_PEERCRED` result in
+the known findings is exactly this shape: an API that returns success with garbage, where a careful
+implementation still reads uid 0. Settles part of N3.
+
+**CR6. Secrets in output.** Every log line, error message, analytics event, generated document and
+URL, checked for a token, a key, a path to a token file, or an environment dump. Includes what the
+gateway logs, what a permission card renders, and what an error returns to a caller who is not
+trusted. Settles C3 and S3.
+
+**CR7. Bounds.** Every method that returns a collection, a file, a transcript or console output, and
+whether anything limits it. The known cap guards deleted code; the sweep establishes what the live
+path has. Settles D1.
+
+**CR8. Deserialization.** Every place JSON or text from outside becomes a typed value: port payloads,
+gateway envelopes, `adoptedSpaceIds`, `positions`, `capabilities`, terminal config, storage values,
+and the CLI's argument parsing. What happens on malformed input, and whether a decode failure is
+distinguishable from an empty value.
+
+**CR9. Path handling.** Every `fs.*` method and every path built from a caller-supplied string:
+traversal, symlinks, the per-path grant store, and whether a granted path can be escaped by a
+relative segment or a link.
+
+**CR10. The webview configuration.** Every `WKWebViewConfiguration` setting and every user script,
+for: JavaScript access to file URLs, universal access from file URLs, `javaScriptCanOpenWindows`,
+what the message handlers accept, and what the injected bridge exposes beyond the registry. Settles
+I1.
+
+**CR11. Migrations.** v46, v47 and anything newer, asking not whether the schema changed but whether
+the data is gone. A dropped column that leaves its values in a page of the database file, or in a
+backup, or in a Keychain item nothing references, is not deleted. Settles C4.
+
+**CR12. Concurrency.** Actor isolation gaps, `@MainActor` boundaries crossed, and time-of-check to
+time-of-use in the CAS token path, where the check and the write are not obviously atomic. A race
+that lets a stale write land is an authorization failure, not a correctness one.
+
+**CR13. Dependencies.** What the app, gateway, CLI and shim link, at what versions, and whether any
+is unmaintained or known-vulnerable. Includes what `gomobile` or any future transport would pull in.
+Settles part of S1.
+
+**CR14. The deleted surface.** Phase 1 removed a great deal. The sweep confirms the removals are
+complete rather than orphaned: no dead endpoint still routed, no method still advertised (the MCP
+file is a known case), no permission case still granting, no table still written.
+
 ## Method
 
 - Measure. Every finding carries a file and line, a command with its output, or a reproduction.
