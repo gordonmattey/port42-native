@@ -391,3 +391,22 @@ own. In short: make three mechanical moves (`PortPanel` into `Models`, the geome
 enforced rather than asserted, and defer both the `AppState` split and the kernel-language question
 until nautilus lands and a second client is real. None of the three is a Windows change. If Windows
 never happens they are all still right.
+
+## Parked: the macOS floor is declared three times and the declarations disagree
+
+| Where | Says |
+|---|---|
+| `Package.swift:6` | `platforms: [.macOS(.v14)]` |
+| `Info.plist` `LSMinimumSystemVersion` | `15.0` |
+| `CLAUDE.md` | "macOS 14+ (Sonoma)" |
+
+The shipped bundle refuses to launch below macOS 15, so 15.0 is the effective floor. The SwiftPM
+target of 14 therefore buys nothing: it forces `@available` guards for macOS 15 APIs on a platform
+the app will not run on, and it lets code compile that the product cannot ship to.
+
+Settle it in one direction. Raising the SwiftPM floor to 15 matches what ships and removes the guard
+tax. Lowering `LSMinimumSystemVersion` to 14 widens the audience and requires an actual macOS 14 test.
+Either is fine; disagreeing is not, and it costs nothing to fix while the deployment target is
+already under discussion for the Go move.
+
+Not a Windows question. Recorded here because it surfaced while checking what the package declares.
