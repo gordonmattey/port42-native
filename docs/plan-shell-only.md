@@ -370,6 +370,10 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
+  every port it made (the card's "Remove from this space", as an API). Today the only removal is by
+  hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
+  up ten stale companions in prod's port42-app space.
 - **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
   focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
 - **`/imagine`** (GM, 2026-09-25). Type one line ("a shader that reacts to music") and Port42 writes
