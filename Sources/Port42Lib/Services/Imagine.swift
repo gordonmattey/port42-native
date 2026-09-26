@@ -199,6 +199,40 @@ extension AppState {
         return team
     }
 
+    /// What a person typed into a chat: `/imagine …` runs the command and posts nothing; anything
+    /// else is posted as the person. THE one path for every chat input.
+    func submitChatInput(key: String, text: String, testCommand: String? = nil) async throws {
+        guard let cmd = Imagine.parse(text) else { return try await postToChatAsPerson(key: key, text: text) }
+        let space = spaceOfChat(key)
+        try await runImagine(cmd, spaceId: space, testCommand: testCommand)
+    }
+
+    /// Run a parsed /imagine command. `spaceId` is where stop and the budget apply (the chat's space,
+    /// or the current one from ⌘I); a start makes its own space.
+    func runImagine(_ cmd: Imagine.Command, spaceId: String?, testCommand: String? = nil) async throws {
+        switch cmd {
+        case .start(let line, let versions):
+            guard let person = currentUser else { throw BridgeError.badArg("no signed-in person to imagine for") }
+            try await startImagine(line: line, versions: versions, person: person, testCommand: testCommand)
+        case .stop:
+            guard let spaceId else { throw BridgeError.badArg("/imagine stop works in the space the team was imagined in") }
+            try stopImagine(spaceId: spaceId)
+        case .budget(let n):
+            guard let spaceId else { throw BridgeError.badArg("/imagine --versions works in the space the team was imagined in") }
+            let team = try setImagineBudget(spaceId: spaceId, versions: n)
+            _ = try postToChat(key: spaceId, text: "The imagine budget is now \(team.versions) versions.",
+                               from: .peer(id: "port42", displayName: "port42", spaceId: spaceId))
+        }
+    }
+
+    /// The space a chat belongs to: the space itself, or the space of the port whose chat it is.
+    func spaceOfChat(_ key: String) -> String? {
+        if spaces.contains(where: { $0.id == key }) || ((try? db.getAllSpaces()) ?? []).contains(where: { $0.id == key }) {
+            return key
+        }
+        return portWindows.panels.first { $0.id == key || $0.udid == key }?.spaceId ?? currentSpace?.id
+    }
+
     /// Set the version budget of the team imagined in a space (it may be raised after it is spent).
     @discardableResult
     func setImagineBudget(spaceId: String, versions: Int) throws -> ImagineTeam {

@@ -34,6 +34,8 @@ public final class ShellState: ObservableObject {
 
     /// Show the New Companion form as a shell overlay (not a macOS sheet). Set from the dock's ＋ menu.
     @Published public var showNewCompanion: Bool = false
+    /// The quick imagine box (⌘I): one line starts an imagine team (docs/plan-imagine.md).
+    @Published public var showImagine: Bool = false
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.
     @Published public var showQuickSwitcher: Bool = false
 
@@ -721,6 +723,7 @@ public final class ShellState: ObservableObject {
         case cycleBackward      // ⇧⌘` — previous
         case jumpSpace(Int)     // ⌘1…9 — Nth working space (0-based)
         case quickSwitcher      // ⌘K — the switcher must open from anywhere
+        case imagine            // ⌘I — the quick imagine box, from anywhere
     }
 
     /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
@@ -737,6 +740,7 @@ public final class ShellState: ObservableObject {
         }
         guard !shift else { return nil }
         if ch == "k" { return .quickSwitcher }
+        if ch == "i" { return .imagine }
         if let n = Int(ch), (1...9).contains(n) { return .jumpSpace(n - 1) }
         return nil
     }

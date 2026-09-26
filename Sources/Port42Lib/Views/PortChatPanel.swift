@@ -169,7 +169,7 @@ struct PortChatPanel: View {
         draft = ""
         error = nil
         Task {
-            do { try await appState.postToChatAsPerson(key: key, text: text) }
+            do { try await appState.submitChatInput(key: key, text: text) }
             catch let e as BridgeError { error = e.message; draft = text }
             catch { self.error = error.localizedDescription; draft = text }
         }

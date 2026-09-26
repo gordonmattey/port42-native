@@ -4,7 +4,7 @@ Detailed plan for `/imagine`, moved from the roadmap into the release's scope (G
 for GM's review, written against `nautilus` at `0ce34a5`; approved by GM with the recommended defaults.
 Product idea; whether people want it is unvalidated.
 
-**Status:** I.1 to I.3 done. I.4 and I.5 to build.
+**Status:** I.1 to I.4 done. I.5 (live verify) next.
 
 ## Goal
 
@@ -141,6 +141,12 @@ starting with `/` still posts as text.
 
 *Gates:* the parser (line, budget, stop, and text that only looks like a command); the input runs the
 command and posts nothing to agents.
+
+*Done.* ⌘I is a shell-global chord (and a menu item under File) that opens `ImagineBox`, which takes a
+bare line or a whole `/imagine` command through the same parser. Every chat input (the space's chat
+and each port's) sends through `AppState.submitChatInput`, which runs `/imagine`, `/imagine --versions
+N` and `/imagine stop` instead of posting; stop and the budget act on the chat's space (a port's chat
+belongs to its port's space). A command that fails leaves the text in the input with the error.
 
 ### I.5 Verify
 

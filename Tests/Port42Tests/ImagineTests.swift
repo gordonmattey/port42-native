@@ -187,4 +187,46 @@ struct ImagineTests {
         #expect(try r.versions() == 2, "a stopped team is not bound by its budget")
         await #expect(throws: BridgeError.self) { _ = try await r.person("imagine.stop", ["space": r.team.spaceId]) }
     }
+
+    // MARK: - ⌘I and the slash command (I.4)
+
+    @Test("⌘I is a shell-global chord for the box; ⇧⌘I is not")
+    func chord() {
+        #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: false, option: false, control: false) == .imagine)
+        #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: true, option: false, control: false) == nil)
+    }
+
+    @Test("the box reads a bare line or a whole /imagine command with the chat's parser")
+    func boxCommand() {
+        #expect(ImagineBox.command(for: "a tide clock") == .start(line: "a tide clock", versions: Imagine.defaultVersions))
+        #expect(ImagineBox.command(for: " --versions 3 a tide clock") == .start(line: "a tide clock", versions: 3))
+        #expect(ImagineBox.command(for: "/imagine stop") == .stop)
+        #expect(ImagineBox.command(for: "   ") == nil)
+    }
+
+    @Test("in a chat, /imagine runs and posts nothing as the person; any other line posts")
+    @MainActor
+    func slashInChat() async throws {
+        let r = try await run(versions: 2)
+        let s = r.w.state
+        let personPosts = { (key: String) in try s.db.chatEntries(chat: key, after: 0, limit: 100).filter { $0.fromName == s.currentUser!.displayName } }
+        let before = try personPosts(r.team.spaceId).count
+
+        try await s.submitChatInput(key: r.udid, text: "/imagine --versions 7", testCommand: "true")
+        #expect(try s.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 7, "the budget, from the port's chat, reaches its space's team")
+        #expect(try personPosts(r.udid).isEmpty && personPosts(r.team.spaceId).count == before)
+
+        try await s.submitChatInput(key: r.team.spaceId, text: "/imagined worlds", testCommand: "true")
+        #expect(try personPosts(r.team.spaceId).last?.text == "/imagined worlds", "not the command: posted as text")
+
+        let spacesBefore = Set(try s.db.getAllSpaces().map(\.id))
+        try await s.submitChatInput(key: r.team.spaceId, text: "/imagine a tide clock", testCommand: "true")
+        let made = Set(try s.db.getAllSpaces().map(\.id)).subtracting(spacesBefore)
+        #expect(made.count == 1, "a chat's /imagine starts a team in a new space")
+        #expect(try !personPosts(r.team.spaceId).contains { $0.text.hasPrefix("/imagine a tide") })
+
+        try await s.submitChatInput(key: r.team.spaceId, text: "/imagine stop", testCommand: "true")
+        #expect(try s.db.imagineTeam(spaceId: r.team.spaceId)?.stoppedAt != nil)
+        #expect(try !personPosts(r.team.spaceId).contains { $0.text == "/imagine stop" })
+    }
 }
