@@ -7,8 +7,13 @@ Detailed plan for Phase 4 of `plan-shell-only.md`. Scenario served: 4. Written 2
 the `research` branch (`design-invite-over-libp2p.md`, `research-host-mesh.md`,
 `research/security-bridge-authorization.md`).
 
-All testing is on Dev2 (`./build.sh --dev2`, gateway 4244). Dev3, Dev4 and prod are never built,
-launched or called.
+All testing is on Dev2 (`./build.sh --dev2`, gateway 4244) and on new instances Gordon allowed for
+this phase (Dev6, Dev7 and on, 2026-09-26). Dev3, Dev4 and prod are never built, launched or called.
+
+**Gordon's review, 2026-09-26.** Approved: 2 (no gossipsub), 3 (Port42 runs a relay), 5 (remote
+callers scoped, local unchanged), 6 (the guest page is `port42.ai/invite.html`), 10 (more dev
+instances on this Mac), and 4.0 as the first step. Open: 1 (Gordon asked why the space segment goes),
+4 (i) and (ii), 7, and where the relay is hosted.
 
 ## Goal
 
@@ -44,6 +49,10 @@ Port42 operates.
    linkifiers, which breaks a base58 peer id (`12D3KooW…`). The local form `port42://space/<s>/<p>`
    keeps parsing unchanged. The built remote form (`port42://<peer>/space/<s>/<p>`,
    `PortAddress.swift`) has no production caller and is replaced. An invite is not an address (4).
+   **Gordon's question: is resolution not through a space?** It is not today. A port id is a UUID,
+   so it is unique on its machine and in practice everywhere, and the resolver already finds a port
+   by id with no space (a nil space means any, `PortResolution.swift`). A space names where a port
+   sits, which is an attribute that can change, not part of its name.
 2. **Transport: go-libp2p in the gateway, behind a four-verb seam, without gossipsub (for Gordon).**
    libp2p first and Iroh as a swap are D5 and D6, settled. The seam is listen, dial, peer id and open
    a stream, the four verbs `plan-shell-only.md` names. Recommended change to slice-02: **no
@@ -55,7 +64,7 @@ Port42 operates.
    the one piece Iroh does not provide in the same shape, so leaving it out keeps the seam
    swappable. Iroh is measured beside libp2p in step 4.8, and a swap is put to Gordon only if
    libp2p falls short of the threshold there and Iroh clears it.
-3. **Reachability, and who runs the relay (for Gordon, the blocker).** On a LAN, mDNS. Across NAT,
+3. **Reachability, and who runs the relay (decided: (a), Gordon 2026-09-26; the host is open).** On a LAN, mDNS. Across NAT,
    AutoNAT to learn whether the host is reachable, then Circuit Relay v2 with DCUtR hole punching.
    **A relay is a server.** go-libp2p's default relay limits (2 minutes and 128 KiB per relayed
    connection, to confirm in 4.0) make a public relay good for coordinating a hole punch and useless
@@ -88,8 +97,10 @@ Port42 operates.
      and reaped after it goes unused for a period Gordon sets. Alternative: nothing persists, and a
      refresh after redemption loses access, because the link is already burned.
    - **For Gordon, (ii) default rights.** Recommended: view and drive, since scenario 4 drives.
-5. **Read scoping before anything is remote (settled in principle by the master plan; the local half
-   is for Gordon).** A remote caller is **denied by default**. Every registry method declares what it
+5. **Read scoping before anything is remote (decided, Gordon 2026-09-26: remote callers locked down,
+   local unchanged).** Gordon: remote access grows into a permission system of its own, what a remote
+   caller may do on a port, a port being something like a VM. This phase builds its first two rights
+   (view, drive) and the deny-by-default gate that system sits on. A remote caller is **denied by default**. Every registry method declares what it
    acts on: a port argument, a listing, the machine (port 0), or nothing. A remote principal may call
    only port methods, only on ports it holds a grant for, within the grant's rights. Listings return
    only its granted ports. Machine capabilities, spaces, companions, `port.create`, `port.exec`,
@@ -106,7 +117,12 @@ Port42 operates.
    Local callers keep today's reach, because object scoping for them is a re-consent for every local
    grantee and scenario 3's ports read each other. The research note's local findings (`port.exec`
    escalation, a port inheriting its creator's grants) are recorded under "Not in this phase".
-6. **Where the guest page is served from (for Gordon).** The gateway stays on loopback (D5), so a
+6. **Where the guest page is served from (decided: `port42.ai/invite.html`, Gordon 2026-09-26).**
+   The page exists and is live. It reads `gateway`, `id`, `name`, `key` and `token` from the query
+   string and offers `port42://channel?…` and a download, so it needs the new coupon (in the
+   fragment), "Open here" and the guest runtime. Its source is not in this repo and is to be found.
+   The app's recognition of an `https://port42.ai/invite.html` link, removed in Phase 1 (`fbee08d`),
+   returns with the new format. The analysis that follows is kept for the reasoning. The gateway stays on loopback (D5), so a
    browser elsewhere cannot fetch today's `/port` page from it. Recommended: a static page on a
    Port42 origin, served by the relay from decision 3 so there is one server rather than two. It
    holds no state and never sees the coupon (fragment). It bundles js-libp2p, dials the host through
@@ -135,7 +151,9 @@ Port42 operates.
    travels on stdin.** Spike E used the host credential, and the app sends that over the socket in
    `identify` (`GatewayDoor.swift:154`), so a process squatting the gateway's port would learn it
    and could forge peers.
-10. **The second machine (for Gordon).** Milestone B is not proven by two instances on one Mac, and
+10. **The second machine (partly decided, Gordon 2026-09-26: run Dev6, Dev7 and on).** Two
+    instances on this Mac cover the Port42 lane and mDNS between processes; a second Mac is still
+    what proves a LAN and the cross-network rate. `build.sh` gains the flags. Milestone B is not proven by two instances on one Mac, and
     only one Dev2 runs per Mac. Most of the phase is verified on this Mac with a Go test peer (a
     small program with its own libp2p key that dials Dev2), which is a harness tool and not a
     product. The LAN and cross-network runs need a second Mac running a Dev2 build. Which Mac?
