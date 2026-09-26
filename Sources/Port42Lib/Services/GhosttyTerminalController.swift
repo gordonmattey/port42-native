@@ -285,8 +285,10 @@ final class GhosttyTerminalController {
         case .inputSubmitted(let prompt):
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box
+            if unconfirmed > 0 { unconfirmed -= 1 }
         case .sessionStarted(let cli):
             log("event=sessionStarted cli=\(cli ?? "?")")
+            self.cli = cli ?? self.cli
             if !cliRunning {
                 cliRunning = true
                 becomeReadyWhenQuiet()
@@ -333,6 +335,7 @@ final class GhosttyTerminalController {
         let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
         prefillPending = false
         injectToSurface?(write) {}
+        expectSubmit()
     }
 
     /// A first-run prefill was typed and not yet sent: the next message clears it first, or the
@@ -381,6 +384,38 @@ final class GhosttyTerminalController {
     /// never fires would otherwise hold it forever, silently).
     var heldFallback: TimeInterval = 60
 
+    /// Which CLI said it started (SessionStart names it).
+    private(set) var cli: String?
+    /// Messages typed but not yet confirmed submitted (Claude's UserPromptSubmit), and the Enters
+    /// pressed again for them. A message can reach Claude's input box and sit there unsent (typed
+    /// while it was still starting, measured on Dev4); a person pressing Enter sent it, so the app
+    /// does the same until the submit is confirmed.
+    private var unconfirmed = 0
+    var submitConfirmWait: TimeInterval = 4
+    var maxEnterRetries = 3
+
+    private func expectSubmit() {
+        guard cli == "claude" else { return }     // the one CLI that reports a submit
+        unconfirmed += 1
+        scheduleSubmitCheck(attempt: 1)
+    }
+
+    private func scheduleSubmitCheck(attempt: Int) {
+        let wait = submitConfirmWait
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self, self.unconfirmed > 0 else { return }
+            guard attempt <= self.maxEnterRetries else {
+                self.log("WARNING: message still not submitted after \(self.maxEnterRetries) Enters")
+                self.unconfirmed = 0
+                return
+            }
+            self.log("no submit \(Int(wait))s after typing: pressing Enter again (\(attempt))")
+            self.injectToSurface?(TerminalWrite(text: "", submit: true)) {}
+            self.scheduleSubmitCheck(attempt: attempt + 1)
+        }
+    }
+
     private func releaseHeld(reason: String) {
         guard !heldUntilRunning.isEmpty else { return }
         let lines = heldUntilRunning
@@ -391,6 +426,7 @@ final class GhosttyTerminalController {
             let write = TerminalWrite.message(TerminalWrite.trimming(line).body, clearFirst: prefillPending)
             prefillPending = false
             injectToSurface?(write) {}
+            expectSubmit()
         }
     }
 

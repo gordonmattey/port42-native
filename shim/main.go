@@ -225,6 +225,14 @@ func buildSettings(selfPath string) string {
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionStarted")}},
 			}},
+			// UserPromptSubmit confirms a message was SUBMITTED, not just typed. A message typed while
+			// claude is still starting sits unsent in its input box (2026-09-26, Dev4), so the app
+			// presses Enter again until this arrives. Claude's hooks are passed fresh at each launch,
+			// so adding one costs nothing (Codex's are trusted by hash and must not change).
+			"UserPromptSubmit": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("inputSubmitted")}},
+			}},
 			// SessionEnd is the mirror: when claude exits, the auto-registered CLI companion leaves
 			// the space (even if the terminal shell stays open).
 			"SessionEnd": []matcherBlock{{
@@ -334,6 +342,10 @@ func runNotify(event, cli string) {
 		out.Transcript = tp
 		if fi, statErr := os.Stat(tp); statErr == nil {
 			out.TranscriptBytes = fi.Size()
+		}
+	case "inputSubmitted":
+		if p, ok := payload["prompt"].(string); ok {
+			out.Prompt = p
 		}
 	case "needsAttention":
 		// Claude's Notification payload carries the human-readable reason ("Claude needs your

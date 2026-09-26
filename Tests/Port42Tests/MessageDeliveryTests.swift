@@ -77,6 +77,43 @@ struct MessageDeliveryTests {
         c.teardown()
     }
 
+    @Test("claude: Enter is pressed again until the submit is confirmed, and not after")
+    func enterUntilSubmitted() async throws {
+        let (c, writes, _) = starting()
+        c.submitConfirmWait = 0.2
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        await c.waitUntilInputReady()
+        c.inject("[@gordon in #demo]: hi")
+        for _ in 0..<40 where writes().count < 2 { try await Task.sleep(nanoseconds: 50_000_000) }
+        #expect(writes().count >= 2, "no second Enter for an unconfirmed message")
+        #expect(writes().dropFirst().allSatisfy { $0.text.isEmpty && $0.submit }, "a retry must be a bare Enter")
+        c.handleEvent(.inputSubmitted(prompt: "hi"))
+        let n = writes().count
+        try await Task.sleep(nanoseconds: 600_000_000)
+        #expect(writes().count == n, "kept pressing Enter after the submit was confirmed")
+        c.teardown()
+    }
+
+    @Test("claude: a message confirmed at once gets no extra Enter; codex, which reports none, never does")
+    func noRetryWhenConfirmedOrCodex() async throws {
+        let (c, writes, _) = starting()
+        c.submitConfirmWait = 0.2
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        await c.waitUntilInputReady()
+        c.inject("[@gordon in #demo]: hi")
+        c.handleEvent(.inputSubmitted(prompt: "hi"))
+        try await Task.sleep(nanoseconds: 600_000_000)
+        #expect(writes().count == 1)
+        let (x, xw, _) = starting()
+        x.submitConfirmWait = 0.2
+        x.handleEvent(.sessionStarted(cli: "codex"))
+        await x.waitUntilInputReady()
+        x.inject("[@gordon in #demo]: hi")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        #expect(xw().count == 1, "codex got an extra Enter it cannot confirm")
+        c.teardown(); x.teardown()
+    }
+
     @Test("after the CLI exits, a message is held rather than typed into the bare shell")
     func notIntoTheBareShell() {
         let (c, writes, _) = starting()

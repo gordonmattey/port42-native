@@ -503,3 +503,12 @@ func TestCliForReadsTheTranscriptWhenUnnamed(t *testing.T) {
 		}
 	}
 }
+
+// A message typed into claude can sit unsent in its input box; the app presses Enter again until
+// claude confirms the submit. That confirmation is the UserPromptSubmit hook.
+func TestSettingsConfirmSubmits(t *testing.T) {
+	s := buildSettings("/x/shim")
+	if !strings.Contains(s, `"UserPromptSubmit"`) || !strings.Contains(s, "notify inputSubmitted claude") {
+		t.Fatalf("claude's settings do not report a submitted prompt: %s", s)
+	}
+}
