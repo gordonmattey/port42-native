@@ -56,10 +56,22 @@ on the web. "Publish a port as a website" is not a separate feature: it is share
 The fork is theirs: new port id, their space, their data, no grants inherited, the original
 untouched.
 
-Two questions this creates, both cheap now and expensive later:
+**Both decisions settled, GM 2026-09-26.**
 
-- **Does sharing convey the right to fork?** Driving a port and copying it are different rights, so
-  share carries a flag for whether the recipient can read the source. Same shape as read versus
-  write.
-- **Does a fork carry lineage?** A recorded origin makes "the author shipped a new version" possible
-  later without committing to subscription semantics now. One field, and not backfillable.
+**Lineage: yes.** A fork records its origin. One field, set at fork, not backfillable, and it is what
+makes "the author shipped a new version" possible later without committing to subscription semantics
+now.
+
+**The fork flag exists and is a capability boundary, not a switch on one method.** Measured:
+
+- `gateway/guestpage.go:116` calls `port.getHtml`, and `:119` assigns `surface.srcdoc = SHIM + html`.
+  A web guest renders a port by receiving its source, so for a browser audience "no fork" is
+  unenforceable by construction. Changing that means the guest receives rendered output instead of
+  code, which is the RPC versus replication fork in `invite-over-libp2p.md`, not a flag.
+- Seven methods reveal source or permit extraction: `port.getHtml`, `getDom`, `exec`, `history`,
+  `restore`, `console`, `info`. Gating `getHtml` alone achieves nothing, because a guest holding
+  `port.exec` reads `document.documentElement.outerHTML`.
+
+So the flag means **use, do not inspect**: no-fork excludes the source-revealing set from the grant
+and leaves render, events and input. It is enforceable for a Port42-to-Port42 share and is a request
+for a web one. The UI should say so rather than imply a lock that does not exist.
