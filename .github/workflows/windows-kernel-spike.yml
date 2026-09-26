@@ -10,7 +10,7 @@ name: windows kernel spike
 
 on:
   push:
-    branches: [research-windows-port]
+    branches: [research]
   workflow_dispatch:
 
 jobs:
