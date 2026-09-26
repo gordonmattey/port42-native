@@ -211,7 +211,8 @@ public enum TerminalSessionBootstrap {
                             producer: CLIHookProducer? = nil,
                             home: String? = nil,
                             stableDir: String? = nil,
-                            cliPath: String? = CLIInstallService.bundledCLIPath()) -> TerminalHookSession {
+                            cliPath: String? = CLIInstallService.bundledCLIPath(),
+                            skillsPlugin: String? = SkillCatalog.pluginURL?.path) -> TerminalHookSession {
         let shortId = String(sessionId.replacingOccurrences(of: "-", with: "").prefix(8))
         let tempDir = "/tmp/port42-shim-\(shortId)"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
@@ -287,7 +288,13 @@ public enum TerminalSessionBootstrap {
             // Test seam, and not a cosmetic one: without it a test reaches the REAL Application
             // Support directory and writes into the daily driver's state. Same lesson as the
             // credential-store fix — a test that touches a live instance is a bug in the test.
-            stableDir: stableDir ?? stableSupportDir())
+            stableDir: stableDir ?? stableSupportDir(),
+            skillsDir: skillsPlugin.map { "\($0)/skills" })
+        // THE PORT42 SKILLS, in every terminal (nautilus Phase 5.3). The shim passes this to a
+        // `claude` as `--plugin-dir`, so a companion, a claude typed at the prompt and a session
+        // moved in with `port42 teleport` all load the running app's own skills for that session,
+        // with nothing written into ~/.claude. Codex gets them in its home (see the codex producer).
+        if let skillsPlugin { env["PORT42_SKILLS_DIR"] = skillsPlugin }
         let out = producer.map { CLIHookProducer.merge([($0.name, $0.prepare(ctx))]) }
             ?? CLIHookProducer.prepareAll(ctx)
         env.merge(out.env) { _, new in new }

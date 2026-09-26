@@ -50,12 +50,16 @@ public struct CLIHookProducer: Sendable {
         /// never registered, through two versions and every variation of the config. A stable path
         /// makes the hook one identity, trusted once.
         public let stableDir: String?
+        /// The running app's skills (`port42-skills/skills`, nautilus Phase 5), one folder per skill.
+        /// Codex finds them in its home's `skills/`; Claude gets the plugin through the shim.
+        public let skillsDir: String?
 
         public init(tempDir: String, socketPath: String, sessionId: String, spaceId: String,
                     companionId: String?, cwd: String = "", shimPath: String?,
                     binaryPathOverride: String? = nil,
-                    homeOverride: String? = nil, stableDir: String? = nil) {
+                    homeOverride: String? = nil, stableDir: String? = nil, skillsDir: String? = nil) {
         self.stableDir = stableDir
+        self.skillsDir = skillsDir
             self.tempDir = tempDir
             self.socketPath = socketPath
             self.sessionId = sessionId

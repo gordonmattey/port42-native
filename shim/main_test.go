@@ -512,3 +512,17 @@ func TestSettingsConfirmSubmits(t *testing.T) {
 		t.Fatalf("claude's settings do not report a submitted prompt: %s", s)
 	}
 }
+
+// Every claude in a Port42 terminal loads the app's skills for its session (nautilus Phase 5.3).
+func TestPluginDirArgs(t *testing.T) {
+	dir := t.TempDir()
+	if got := pluginDirArgs(dir); len(got) != 2 || got[0] != "--plugin-dir" || got[1] != dir {
+		t.Fatalf("an existing skills folder must be passed: %v", got)
+	}
+	if got := pluginDirArgs(""); got != nil {
+		t.Fatalf("no folder named, nothing passed: %v", got)
+	}
+	if got := pluginDirArgs(dir + "/missing"); got != nil {
+		t.Fatalf("a missing folder must not be passed (claude would refuse to start): %v", got)
+	}
+}
