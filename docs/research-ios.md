@@ -15,7 +15,7 @@ question is whether that half is worth shipping on its own.
 
 | | Goal | Cost |
 |---|---|---|
-| A | **See and drive my Mac's ports from my phone.** | Already possible: the guest page is HTML over `/ws`. No app, no build. Unverified on mobile Safari; that test costs one minute. |
+| A | **See and drive my Mac's ports from my phone.** | Not possible today. The guest page exists; nothing outside the Mac can reach it. See below. |
 | B | **A native iOS app that is a peer in the namespace.** | Phase 4's transport, a SwiftUI shell, web ports in `WKWebView`. No terminals, no local agents. |
 | C | **Port42 standalone on iPhone.** | Not available. See "the structural blocker". |
 
@@ -115,17 +115,59 @@ argument is probably correct and it is still a review risk, because it is decide
 reading a description. **The way to de-risk it is to make the iPhone a peer that holds its own ports
 rather than a window onto a Mac**, which is also the more interesting product.
 
+## The guest page exists and is unreachable
+
+Three facts, measured on this tree:
+
+- The page is intact: `gateway/guestpage.go`, 182 lines, with `/port` routed in `main.go`.
+- The app binds the gateway to loopback: `GatewayProcess.swift:90` passes
+  `["-addr", "127.0.0.1:\(port)"]`. The `:4242` default in `main.go:22` would bind every interface,
+  but the app never uses it.
+- The tunnel that used to cross that boundary is gone: `TunnelService.swift` was deleted in Phase 1,
+  along with ngrok.
+
+So no phone, and no other machine, can reach a port today. A browser test has to wait for Phase 4's
+transport, or for a deliberate decision to bind a LAN interface, which the gateway security audit
+closed on purpose.
+
+Ten stray `ngrok` references survive the deletion, in `AppState.swift`, `GatewayProcess.swift` and
+`gateway/main.go`. Cleanup, not a defect.
+
+## The peer is a host in your own mesh, not a peer on the internet
+
+GM, 2026-09-26: a phone is "a peer, but it is your virtual network of hosts, which has some sort of
+privileged access control to be able to pool together in that way."
+
+That is a different primitive from the one Phase 4 currently describes, and it is worth naming before
+either is built. Today's design has two grant shapes: a client enrolled on one instance, and D10's
+per-port invite. A mesh of your own devices is neither. It says **this host is me**, and the ports of
+every host in the mesh pool into one namespace.
+
+What that implies, all of it unbuilt:
+
+- **A principal class above "client".** Grants key on a caller and a port object. A mesh needs "this
+  peer id is the same person as me", which is a membership fact, not a per-port grant. Enrolling a
+  device is then one act, not one invite per port.
+- **A namespace that spans hosts.** `port42://<peerID>/space/<id>/<portId>` addresses a port on a
+  named machine. Pooling means the phone sees the Mac's ports as ports, with the host as an attribute
+  rather than as a prefix you must know.
+- **A revocation story per device.** Losing a phone should remove one host from the mesh without
+  touching any port grant.
+- **The App Store rule fits this better than it fits the alternative.** 4.2.7(a) requires "a
+  user-owned host device" on a LAN. A mesh of your own machines is exactly user-owned hosts. The LAN
+  clause still bites once Circuit Relay carries traffic off the network, which is an argument for
+  making LAN the first-class case (mDNS, milestone B) and treating relay as the fallback it already
+  is in the plan.
+
 ## Recommendation
 
-**Do product A's free version now.** The guest page is already HTML over a WebSocket. Open one on an
-iPhone and see what happens. If it works, you have iPhone access to ports today at zero cost, and
-everything below is a question of how much better a native app would be, rather than whether phones
-are possible.
+**Product A is blocked, not free.** Correcting an earlier assumption: there is no zero-cost phone test
+today, because nothing outside the Mac can reach the gateway.
 
-**Then build B as a peer, not a viewer.** An iOS app that holds its own ports (web and chat), renders
-them in `WKWebView` and SwiftUI, and reaches ports on other machines by address. The phone is a peer
-in the namespace, which is the product's own model, and it sidesteps 4.2.7 by not being a remote
-desktop.
+**Build B as a host in the mesh, not a viewer of a desktop.** An iOS app that holds its own ports (web
+and chat), renders them in `WKWebView` and SwiftUI, and sees other hosts' ports through the shared
+namespace. This is the product's own model, it sidesteps 4.2.7 by not being a remote desktop, and it
+is the thing the mesh primitive above exists to serve.
 
 **Treat the Go kernel decision as the enabling one.** `gomobile bind` produces an iOS XCFramework, so
 one kernel serves macOS, Windows, Linux and iOS, linked where processes are forbidden and spawned
