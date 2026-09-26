@@ -34,7 +34,7 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
 | 2 | The chrome is ports too | scoping | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
 | 3 | One guided permission flow | scoping | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
-| 4 | Share, and fork what you were shared | scoping | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
+| 4 | Share, and fork what you were shared | **scoped**, [share-a-ports-code.md](share-a-ports-code.md) | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
 | 5 | Share a whole space | **moved up by GM** | Was 12. A space is a port, so this is the cascade question in `invite-over-libp2p.md`, not a separate mechanism. |
 | 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
 | 8 | A live media plane | GM: "would be cool" | Additive, and depends on Phase 4's transport existing. |
@@ -82,3 +82,27 @@ three ways at once: the flag becomes enforceable on the web, the port's code and
 machine, and it works for ports whose live state cannot be replicated at all. It is the third mode in
 `invite-over-libp2p.md` arriving through a different door, and it is also what would make a phone a
 viewer rather than a peer.
+
+## Found while scoping fork: the bridge has no object-level authorization
+
+Not a fork gap. A property of the product as it stands, surfaced because fork is what would point it
+at code the user did not author.
+
+Every `port.*`, `ports.*`, `space.*`, `messages.*`, `bus.*` and `storage.*` method declares
+`permission: nil`, and `BridgeDispatcher` hardcodes `on: .machine` at both the read and the write
+site (`BridgeDispatcher.swift:112`, `:117`). With no grant at all, a port can:
+
+- enumerate every port in every space (`BridgeMethods.swift:1424`, `:1465`; `resolvePortRef` applies
+  no caller scoping, `AppState.swift:1945-1957`),
+- read any other port's source,
+- run arbitrary JS inside another port with `port.exec`, where it executes under the victim's
+  principal, so a port with no grants borrows the grants of one that has them,
+- overwrite or close another port,
+- read any space's chat (`messages.recent` takes `space_id`, `:1117-1119`).
+
+The `PortObject` slot for object-scoped grants is built and empty. Closing this is a re-consent
+rather than a migration, because absence of a restriction is currently permission.
+
+Unverified: the cross-port `port.exec` escalation from a web guest. It should work on the code path
+(`guestpage.go:95-99` forwards any method name) but was not executed. Testing it needs a dev instance
+and a minted client.
