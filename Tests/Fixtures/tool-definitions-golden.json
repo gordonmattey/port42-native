@@ -460,22 +460,6 @@
     "name" : "imagine_start"
   },
   {
-    "description" : "Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing \/imagine stop in that space's chat.",
-    "input_schema" : {
-      "properties" : {
-        "space" : {
-          "description" : "The space the team was imagined in (imagine_start returns it).",
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "space"
-      ],
-      "type" : "object"
-    },
-    "name" : "imagine_stop"
-  },
-  {
     "description" : "Send a macOS system notification",
     "input_schema" : {
       "properties" : {

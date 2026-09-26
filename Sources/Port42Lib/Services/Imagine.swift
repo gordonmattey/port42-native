@@ -3,6 +3,11 @@ import Foundation
 /// `/imagine` (docs/plan-imagine.md): one line from a person becomes a small team (a lead and two
 /// engineers) that builds a port in its chat until the lead reports DONE.
 ///
+/// A BOOTSTRAP (GM, 2026-09-26). It makes the space, the three companions with their roles and the
+/// brief, and gets out of the way: from then on they are ordinary companions in a space, managed like
+/// any other. Nothing here closes a terminal or removes a companion, ever. The one thing it keeps
+/// doing is the version budget, which bounds the team's token spend.
+///
 /// Port42 runs no model (D9), so nothing here interprets the line. These are fixed texts with
 /// variables: the agents' generated codenames, the person's name, their line verbatim, a title taken
 /// from it, and the version budget. Turning the line into a vision is the lead's first job.
@@ -16,16 +21,16 @@ public enum Imagine {
         case start(line: String, versions: Int)
         /// `/imagine --versions N` with no line: set the budget of the team in this space.
         case budget(versions: Int)
-        case stop
     }
 
-    /// `/imagine <line>`, `/imagine --versions N <line>`, `/imagine --versions N` or `/imagine stop`.
-    /// Nil for anything else, which is posted as text.
+    /// `/imagine <line>`, `/imagine --versions N <line>` or `/imagine --versions N`. Nil for anything
+    /// else, which is posted as text. A bare `/imagine stop` is nil too, so it never starts a team
+    /// building "stop" (there is no stop: a team is ordinary companions once started).
     public static func parse(_ input: String) -> Command? {
         let t = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard t.lowercased() == "/imagine" || t.lowercased().hasPrefix("/imagine ") else { return nil }
         var rest = String(t.dropFirst("/imagine".count)).trimmingCharacters(in: .whitespaces)
-        if rest.lowercased() == "stop" { return .stop }
+        if rest.lowercased() == "stop" { return nil }
         var versions = defaultVersions
         if rest.hasPrefix("--versions") {
             let parts = rest.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
@@ -51,12 +56,19 @@ public enum Imagine {
     }
 
     /// The lead's role, its system prompt for the whole session.
+    ///
+    /// Checking means what a person would see. On Dev4 a lead passed a v1 on a clean console and a
+    /// full DOM while its canvas drew nothing at all (a NaN in its steering). And a team waited forever
+    /// on an engineer whose turn ended without a report, so the lead asks after a silent one.
     public static func leadRole() -> String {
         """
         You lead an imagine team. You own the vision and the version budget. You do not build: you set \
         the vision, split the work between your engineers so they never edit the same part, check each \
-        version works (its console and DOM), and decide the next step. Work in the port's chat; answer \
-        the person in the space's chat in one line. Stop at DONE.
+        version works, and decide the next step. Check what a person would see: the console, and for \
+        anything drawn, its pixels (count the lit pixels of the canvas with port_exec); a clean console \
+        and a full DOM can still be a black screen. If an engineer has not reported back, ask them \
+        where they are. Work in the port's chat; answer the person in the space's chat in one line. \
+        Stop at DONE.
         """
     }
 
@@ -64,8 +76,10 @@ public enum Imagine {
     public static func engineerRole(lead: String) -> String {
         """
         You are an engineer on an imagine team led by @\(lead). Build what the lead gives you in the \
-        port, only your part. Check it works before you say so, then report in the port's chat to \
-        @\(lead): what you changed and what you checked.
+        port, only your part. Check it works as a person would see it (for anything drawn, its pixels, \
+        not only the console) before you say so. End every turn with a message to @\(lead) in the \
+        port's chat, even when the work is not done: what you changed, what you checked, what is left. \
+        A turn that ends without one leaves the team waiting.
         """
     }
 
@@ -92,10 +106,10 @@ public enum Imagine {
     /// The writes that make a version of a port, and so spend the budget.
     public static let versionWrites: Set<String> = ["port.update", "port.patch"]
 
-    /// Is this write past the team's budget? Only the team's own writes count against it, only while
-    /// the team runs, and only once the port already has `versions` versions.
+    /// Is this write past the team's budget? Only the team's own writes count against it, and only
+    /// once the port already has `versions` versions.
     public static func overBudget(team: ImagineTeam, writer: String, versionsSoFar: Int) -> Bool {
-        team.stoppedAt == nil && team.isMember(writer) && versionsSoFar >= team.versions
+        team.isMember(writer) && versionsSoFar >= team.versions
     }
 
     /// Told to the lead when the team's write that reaches the budget lands.
@@ -103,13 +117,9 @@ public enum Imagine {
         "@\(lead) that was version \(versions) of \(versions), the budget for this port. Further writes by the team are refused. Check the port and post DONE."
     }
 
-    /// Posted in the space when a team stops. Bare names, so it wakes nobody.
-    public static func stopped(_ team: ImagineTeam) -> String {
-        "The imagine team (\(team.members.joined(separator: ", "))) has stopped and is gone. The port and its chats stay."
-    }
 }
 
-/// The team a space was imagined with: for stop and the version budget.
+/// The team a space was imagined with: for the version budget.
 public struct ImagineTeam: Equatable {
     public let spaceId: String
     public let lead: String
@@ -118,7 +128,6 @@ public struct ImagineTeam: Equatable {
     public let title: String
     public var versions: Int
     public let startedAt: Date
-    public var stoppedAt: Date?
 
     public var members: [String] { [lead, eng1, eng2] }
 
@@ -176,40 +185,6 @@ extension AppState {
         return team
     }
 
-    /// Stop the team imagined in a space: close its terminals, drop its watches and remove its
-    /// companions. The port and the chats stay.
-    ///
-    /// REMOVED, not only taken out of the space. A mention reaches any companion that exists and
-    /// re-adds it to the space, so on Dev4 a stopped team came back within minutes: one member's
-    /// last reply @mentioned another, which respawned its terminal. `deleteCompanion` is not used,
-    /// because it also closes the ports a companion made, and the port is what the person keeps.
-    @discardableResult
-    func stopImagine(spaceId: String) throws -> ImagineTeam {
-        guard var team = try db.imagineTeam(spaceId: spaceId) else {
-            throw BridgeError(code: .notFound, message: "no imagine team in space '\(spaceId)'", details: ["space": spaceId])
-        }
-        // Stopping again is allowed and cleans up whatever of the team still exists.
-        let first = team.stoppedAt == nil
-        for name in team.members {
-            for panel in portWindows.panels
-            where panel.terminalConfig?.companionName.caseInsensitiveCompare(name) == .orderedSame {
-                portWindows.close(panel.id)
-            }
-            guard let c = companions.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
-            companionWatches.removeAll(companionId: c.id)
-            try db.removeAllSpacesForAgent(c.id)
-            try db.deleteAgent(id: c.id)
-        }
-        companions = try db.getAllAgents()
-        refreshSpaceCompanions()
-        guard first else { return team }
-        team.stoppedAt = Date()
-        try db.saveImagineTeam(team)
-        _ = try postToChat(key: spaceId, text: Imagine.stopped(team),
-                           from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: spaceId))
-        return team
-    }
-
     /// What a person typed into a chat: `/imagine …` runs the command and posts nothing; anything
     /// else is posted as the person. THE one path for every chat input.
     func submitChatInput(key: String, text: String, testCommand: String? = nil) async throws {
@@ -218,16 +193,13 @@ extension AppState {
         try await runImagine(cmd, spaceId: space, testCommand: testCommand)
     }
 
-    /// Run a parsed /imagine command. `spaceId` is where stop and the budget apply (the chat's space,
+    /// Run a parsed /imagine command. `spaceId` is where the budget applies (the chat's space,
     /// or the current one from ⌘I); a start makes its own space.
     func runImagine(_ cmd: Imagine.Command, spaceId: String?, testCommand: String? = nil) async throws {
         switch cmd {
         case .start(let line, let versions):
             guard let person = currentUser else { throw BridgeError.badArg("no signed-in person to imagine for") }
             try await startImagine(line: line, versions: versions, person: person, testCommand: testCommand)
-        case .stop:
-            guard let spaceId else { throw BridgeError.badArg("/imagine stop works in the space the team was imagined in") }
-            try stopImagine(spaceId: spaceId)
         case .budget(let n):
             guard let spaceId else { throw BridgeError.badArg("/imagine --versions works in the space the team was imagined in") }
             let team = try setImagineBudget(spaceId: spaceId, versions: n)
@@ -286,7 +258,7 @@ extension AppState {
     /// After a write landed: when it was the version that reached the budget, tell the lead.
     func imagineBudgetNotice(method: String, args: BridgeArgs, principal: Principal) {
         guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal),
-              team.stoppedAt == nil, imagineVersionCount(ref) == team.versions, let key = PortRef.key(ref) else { return }
+              imagineVersionCount(ref) == team.versions, let key = PortRef.key(ref) else { return }
         _ = try? postToChat(key: key, text: Imagine.budgetSpent(lead: team.lead, versions: team.versions),
                             from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: team.spaceId))
     }
@@ -311,17 +283,6 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
                                                    person: person)
         return .object(["space": .string(team.spaceId), "lead": .string(team.lead), "eng1": .string(team.eng1),
                         "eng2": .string(team.eng2), "title": .string(team.title), "versions": .int(team.versions)])
-    }
-
-    r["imagine.stop"] = BridgeMethod(permission: nil, paramNames: ["space"],
-        description: "Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing /imagine stop in that space's chat.",
-        inputSchema: [
-            "type": "object",
-            "properties": ["space": ["type": "string", "description": "The space the team was imagined in (imagine_start returns it)."]],
-            "required": ["space"],
-        ]) { _, args in
-        let team = try appState.stopImagine(spaceId: try args.requireString("space"))
-        return .object(["space": .string(team.spaceId), "stopped": .array(team.members.map { .string($0) })])
     }
 
     r["imagine.budget"] = BridgeMethod(permission: nil, paramNames: ["space", "versions"],

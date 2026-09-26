@@ -70,11 +70,3 @@ Start an imagine team: from one line, a new space with a lead and two engineers 
         versions (integer): The version budget (default 5, at most 20).
 
     port42 imagine.start line=… versions=…
-
-## imagine.stop
-
-Stop the imagine team in a space: its terminals close and it leaves the space; the port and the chats stay. The same as typing /imagine stop in that space's chat.
-
-        space (string, required): The space the team was imagined in (imagine_start returns it).
-
-    port42 imagine.stop space=…

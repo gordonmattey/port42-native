@@ -1566,9 +1566,9 @@ public final class DatabaseService {
     public func saveImagineTeam(_ t: ImagineTeam) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
-                INSERT OR REPLACE INTO imagine_teams (spaceId, lead, eng1, eng2, title, versions, startedAt, stoppedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [t.spaceId, t.lead, t.eng1, t.eng2, t.title, t.versions, t.startedAt, t.stoppedAt])
+                INSERT OR REPLACE INTO imagine_teams (spaceId, lead, eng1, eng2, title, versions, startedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [t.spaceId, t.lead, t.eng1, t.eng2, t.title, t.versions, t.startedAt])
         }
     }
 
@@ -1576,8 +1576,7 @@ public final class DatabaseService {
         try dbQueue.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM imagine_teams WHERE spaceId = ?", arguments: [spaceId]).map {
                 ImagineTeam(spaceId: $0["spaceId"], lead: $0["lead"], eng1: $0["eng1"], eng2: $0["eng2"],
-                            title: $0["title"], versions: $0["versions"], startedAt: $0["startedAt"],
-                            stoppedAt: $0["stoppedAt"])
+                            title: $0["title"], versions: $0["versions"], startedAt: $0["startedAt"])
             }
         }
     }

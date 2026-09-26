@@ -2,15 +2,14 @@
 """/imagine, live: one line becomes a team that builds a port to DONE within its version budget.
 
     P42_TOKEN_FILE=~/.port42/port42dev4/tokens/nautilus-prime \
-        scripts/scenarios/imagine.py --port 4246 [--versions 3] [--no-stop]
+        scripts/scenarios/imagine.py --port 4246 [--versions 3]
 
 The harness does what ⌘I and a chat's /imagine do: it calls imagine.start with a fixed line. From
 there Port42 makes the space, the three agents (visible, with their roles) and the brief, and the
 agents run themselves. The harness watches: the port appears under the title taken from the line,
 it never goes past the budget, every agent speaks, the lead answers in the space's chat and posts
-DONE in the port's chat, and the console is clean. If all of that passed, it stops the team, which
-must leave the port and the chats and close the team's terminals; a failed run is left running to
-inspect.
+DONE in the port's chat, and the console is clean. The team is left running: /imagine is a
+bootstrap, and nothing closes its terminals.
 
 Needs the `terminal` grant for the harness client. A live monitor port, "harness: imagine", shows
 each step. The space and its port are left in place to inspect.
@@ -29,7 +28,6 @@ def main():
     ap.add_argument("--port", type=int, default=4246)
     ap.add_argument("--versions", type=int, default=3)
     ap.add_argument("--timeout", type=int, default=2400, help="seconds for the whole run")
-    ap.add_argument("--no-stop", action="store_true", help="leave the team running at the end")
     a = ap.parse_args()
     if a.port == 4242:
         sys.exit("refused: 4242 is prod. The harness runs on a dev instance.")
@@ -93,20 +91,8 @@ def main():
             f"the lead answered in the space's chat: {replies[0]['text'][:100]!r}" if replies
             else "the lead never answered in the space's chat")
 
-    # Stop only a run that passed: a failed one keeps its team running, to inspect in place.
-    failed = [r for r in run.results if r[0] == "fail"]
-    if failed:
-        run.say("wait", f"left running for inspection: space {space} ('{title}'); stop it with imagine.stop")
-    elif not a.no_stop:
-        c.call("imagine.stop", {"space": space})
-        time.sleep(3)
-        still = {(x.get("name") or x.get("displayName")) for x in c.call("companions.list", {"space_id": space})}
-        run.say("pass" if not still & set(members) else "fail",
-                "stopped: the team left the space" if not still & set(members) else f"still in the space: {still & set(members)}")
-        terms = [p for p in c.call("ports.list") if p.get("type") == "terminal" and p.get("title") in members]
-        run.say("pass" if not terms else "fail",
-                "the team's terminals closed" if not terms else f"{len(terms)} team terminal(s) still open")
-        run.say("pass" if mine() == copies else "fail", "the port stayed" if mine() == copies else "the port went with the team")
+    # /imagine is a bootstrap: the team is ordinary companions now, and is always left running.
+    run.say("wait", f"the team stays in space {space} ('{title}')")
     return finish(run)
 
 

@@ -6,12 +6,12 @@ import Foundation
 @Suite("Imagine: texts and parser")
 struct ImagineTests {
 
-    @Test("the parser: a line, a budget, stop; anything else is text")
+    @Test("the parser: a line, a budget; anything else, and a bare stop, is text")
     func parse() {
         #expect(Imagine.parse("/imagine a shader that reacts to music") == .start(line: "a shader that reacts to music", versions: 5))
         #expect(Imagine.parse("  /imagine --versions 3 a clock  ") == .start(line: "a clock", versions: 3))
         #expect(Imagine.parse("/imagine --versions 99 x") == .start(line: "x", versions: Imagine.maxVersions))
-        #expect(Imagine.parse("/imagine stop") == .stop)
+        #expect(Imagine.parse("/imagine stop") == nil, "there is no stop, and it must not start a team building \"stop\"")
         #expect(Imagine.parse("/imagine --versions 8") == .budget(versions: 8), "no line: the budget of this space's team")
         #expect(Imagine.parse("/imagine") == nil, "no line, nothing to build")
         #expect(Imagine.parse("/imagine --versions nope x") == nil)
@@ -46,6 +46,9 @@ struct ImagineTests {
     func roles() {
         #expect(Imagine.leadRole().contains("You do not build"))
         #expect(Imagine.leadRole().contains("Stop at DONE"))
+        #expect(Imagine.leadRole().contains("pixels") && Imagine.leadRole().contains("black screen"),
+                "the lead must check what a person sees, not only the console and DOM")
+        #expect(Imagine.leadRole().contains("ask them where they are"))
         let e = Imagine.engineerRole(lead: "swift-pika")
         #expect(e.contains("led by @swift-pika") && e.contains("to @swift-pika"))
     }
@@ -77,17 +80,15 @@ struct ImagineTests {
 
     @Test("the budget binds only a running team's own writes, once the port has that many versions")
     func overBudget() {
-        var t = ImagineTeam(spaceId: "s", lead: "Lead-A", eng1: "eng-b", eng2: "eng-c", title: "t", versions: 3,
-                            startedAt: Date(), stoppedAt: nil)
+        let t = ImagineTeam(spaceId: "s", lead: "Lead-A", eng1: "eng-b", eng2: "eng-c", title: "t", versions: 3,
+                            startedAt: Date())
         #expect(!Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 2))
         #expect(Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 3))
         #expect(Imagine.overBudget(team: t, writer: "lead-a", versionsSoFar: 3), "names match as the gateway spells them")
         #expect(!Imagine.overBudget(team: t, writer: "gordon", versionsSoFar: 9), "not the team's write")
-        t.stoppedAt = Date()
-        #expect(!Imagine.overBudget(team: t, writer: "eng-b", versionsSoFar: 9), "a stopped team has no budget")
     }
 
-    // MARK: - Stop and the budget, through the dispatcher
+    // MARK: - The budget, through the dispatcher
 
     @MainActor
     struct Run {
@@ -155,47 +156,17 @@ struct ImagineTests {
         #expect(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 2)
     }
 
-    @Test("stop: the team is gone and its terminals close; a later mention brings no one back; the port and the chats stay")
+    @Test("a bootstrap: nothing in /imagine closes a terminal or removes a companion, and there is no stop")
     @MainActor
-    func stop() async throws {
-        let r = try await run(versions: 1)
-        // Headless, the team's terminals are not spawned; stand one in for each member.
-        for name in r.team.members {
-            let config = TerminalPortConfig(command: "/bin/zsh", args: [], startupCommand: "claude", cwd: "/tmp",
-                                            spaceId: r.team.spaceId, spaceName: r.team.title, companionName: name,
-                                            companionId: "", createdBy: "", companionPrompt: "", env: [:], initialInput: "")
-            var panel = PortPanel(id: "t-\(name)", udid: "t-\(name)", html: String(decoding: try JSONEncoder().encode(config), as: UTF8.self),
-                                  bridge: PortBridge(appState: r.w.state, spaceId: r.team.spaceId, messageId: "t-\(name)"),
-                                  spaceId: r.team.spaceId, createdBy: nil, messageId: "t-\(name)", size: CGSize(width: 400, height: 300))
-            panel.portType = "terminal"
-            r.w.state.portWindows.panels.append(panel)
+    func bootstrapOnly() throws {
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Port42Lib/Services/Imagine.swift"), encoding: .utf8)
+        for banned in ["portWindows.close", "deleteAgent", "deleteCompanion", "removeAgentFromSpace",
+                       "removeAllSpacesForAgent", "leaveCompanionFromSpace", "removeCompanionFromSpace"] {
+            #expect(!src.contains(banned), "/imagine must never \(banned) (GM: terminals are never shut)")
         }
-        let key = r.w.state.resolvePortRef(r.udid)!.key!
-        _ = try r.w.state.postToChat(key: key, text: "working", from: .peer(id: "x", displayName: r.team.eng1, spaceId: r.team.spaceId))
-        let v = try await r.person("imagine.stop", ["space": r.team.spaceId])
-        guard case .object(let o) = v, case .array(let gone)? = o["stopped"] else { Issue.record("no stopped list"); return }
-        #expect(gone.count == 3)
-        #expect(try r.w.state.db.getAgentsForSpace(spaceId: r.team.spaceId).isEmpty, "the team is still in its space")
-        #expect(!r.w.state.companions.contains { r.team.isMember($0.displayName) }, "a stopped team's companion still exists")
-        // A late reply from one member mentioning another used to bring the team back (Dev4).
-        _ = try r.w.state.postToChat(key: r.team.spaceId, text: "@\(r.team.eng1) done, over to you",
-                                     from: .peer(id: "x", displayName: r.team.eng2, spaceId: r.team.spaceId))
-        #expect(try r.w.state.db.getAgentsForSpace(spaceId: r.team.spaceId).isEmpty, "a mention brought a stopped member back")
-        let terminals = r.w.state.portWindows.panels.filter { p in
-            r.team.members.contains { $0.caseInsensitiveCompare(p.terminalConfig?.companionName ?? "") == .orderedSame }
-        }
-        #expect(terminals.isEmpty, "a team terminal is still open")
-        #expect(r.w.state.portWindows.panels.contains { $0.udid == r.udid }, "stop closed the port")
-        #expect(try r.w.state.db.chatEntries(chat: key, after: 0, limit: 10).contains { $0.text == "working" })
-        let last = try #require(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).last { $0.fromName == "port42" })
-        #expect(last.text == Imagine.stopped(try #require(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId))))
-        #expect(!last.text.contains("@"), "the stop notice must not wake the team")
-        try await r.write(as: r.team.eng1, "after stop")
-        #expect(try r.versions() == 2, "a stopped team is not bound by its budget")
-        let notices = try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).filter { $0.fromName == "port42" }.count
-        _ = try await r.person("imagine.stop", ["space": r.team.spaceId])
-        #expect(try r.w.state.db.chatEntries(chat: r.team.spaceId, after: 0, limit: 50).filter { $0.fromName == "port42" }.count == notices,
-                "stopping again posted again")
+        let w = try makeParityWorld()
+        #expect(w.registry["imagine.stop"] == nil)
     }
 
     // MARK: - ⌘I and the slash command (I.4)
@@ -210,7 +181,7 @@ struct ImagineTests {
     func boxCommand() {
         #expect(ImagineBox.command(for: "a tide clock") == .start(line: "a tide clock", versions: Imagine.defaultVersions))
         #expect(ImagineBox.command(for: " --versions 3 a tide clock") == .start(line: "a tide clock", versions: 3))
-        #expect(ImagineBox.command(for: "/imagine stop") == .stop)
+        #expect(ImagineBox.command(for: "/imagine stop") == nil)
         #expect(ImagineBox.command(for: "   ") == nil)
     }
 
@@ -235,8 +206,9 @@ struct ImagineTests {
         #expect(made.count == 1, "a chat's /imagine starts a team in a new space")
         #expect(try !personPosts(r.team.spaceId).contains { $0.text.hasPrefix("/imagine a tide") })
 
+        // No stop: typed, it is only text, and the team is untouched.
         try await s.submitChatInput(key: r.team.spaceId, text: "/imagine stop", testCommand: "true")
-        #expect(try s.db.imagineTeam(spaceId: r.team.spaceId)?.stoppedAt != nil)
-        #expect(try !personPosts(r.team.spaceId).contains { $0.text == "/imagine stop" })
+        #expect(try personPosts(r.team.spaceId).last?.text == "/imagine stop")
+        #expect(Set(try s.db.getAgentsForSpace(spaceId: r.team.spaceId).map(\.displayName)) == Set(r.team.members))
     }
 }
