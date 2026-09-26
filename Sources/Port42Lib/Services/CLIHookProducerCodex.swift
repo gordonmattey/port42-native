@@ -192,7 +192,7 @@ extension CLIHookProducer {
 
         [[hooks.SessionStart.hooks]]
         type = "command"
-        command = "'\(quotedShim)' notify sessionStarted codex"
+        command = "'\(quotedShim)' notify sessionStarted"
 
         """
         // Codex's own trust record goes LAST, after the hooks it refers to.

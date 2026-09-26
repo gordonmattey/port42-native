@@ -108,7 +108,7 @@ struct CodexConfigMergeTests {
         // Ours, merged in.
         #expect(toml.contains("hooks = true"))
         #expect(toml.contains("trust_level = \"trusted\""))
-        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted codex\""))
+        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted\""))
         #expect(toml.contains("command = \"'/x/shim' notify turnComplete\""))
 
         // The rejection case: exactly one of each colliding table.

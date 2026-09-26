@@ -481,3 +481,25 @@ func TestSessionStartNamesItsCLI(t *testing.T) {
 		t.Fatalf("an unnamed hook must not claim a CLI, got %q", ev.CLI)
 	}
 }
+
+// Codex's hook commands cannot carry the CLI name (trust is a hash of the exact command), so a hook
+// with no name is recognised by where its transcript lives.
+func TestCliForReadsTheTranscriptWhenUnnamed(t *testing.T) {
+	cases := []struct {
+		named, tp, want string
+	}{
+		{"claude", "", "claude"},
+		{"", "/Users/x/.claude/projects/-Users-x/abc.jsonl", "claude"},
+		{"", "/Users/x/.codex/sessions/2026/09/25/rollout-abc.jsonl", "codex"},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		payload := map[string]any{}
+		if c.tp != "" {
+			payload["transcript_path"] = c.tp
+		}
+		if got := cliFor(c.named, payload); got != c.want {
+			t.Errorf("cliFor(%q, %q) = %q, want %q", c.named, c.tp, got, c.want)
+		}
+	}
+}

@@ -316,5 +316,9 @@ struct PortChatTests {
         #expect(AppState.autoRegisterCommand(cli: "codex").hasSuffix("codex"))
         #expect(AppState.autoRegisterCommand(cli: nil).hasSuffix("claude"))
         #expect(AppState.autoRegisterCommand(cli: "claude").hasSuffix("claude"))
+        // A hook that names nothing: the terminal's own startup command decides.
+        #expect(AppState.resolvedCLI(hook: nil, startupCommand: "codex \"$(cat '/tmp/b.txt')\"") == "codex")
+        #expect(AppState.resolvedCLI(hook: nil, startupCommand: "claude") == nil)
+        #expect(AppState.resolvedCLI(hook: "codex", startupCommand: "") == "codex")
     }
 }

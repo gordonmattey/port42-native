@@ -1543,7 +1543,8 @@ public final class AppState: ObservableObject {
               autoRegisteredCompanions[panelId] == nil,
               let ownerId = currentUser?.id else { return }
         let agent = AgentConfig.createCommand(
-            ownerId: ownerId, displayName: name, command: Self.autoRegisterCommand(cli: cli),
+            ownerId: ownerId, displayName: name,
+            command: Self.autoRegisterCommand(cli: Self.resolvedCLI(hook: cli, startupCommand: config.startupCommand)),
             openInTerminal: true, trigger: .mentionOnly)
         do {
             try db.saveAgent(agent)
@@ -1560,6 +1561,13 @@ public final class AppState: ObservableObject {
 
     /// The command an auto-registered terminal companion runs: the CLI whose hook said it started.
     /// Unnamed means claude, the only CLI whose hooks predate the name.
+    /// Which CLI a terminal is running: what its hook said, else what Port42 started it with.
+    static func resolvedCLI(hook: String?, startupCommand: String) -> String? {
+        if let hook, !hook.isEmpty { return hook }
+        let first = startupCommand.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init)
+        return first.map { ($0 as NSString).lastPathComponent } == "codex" ? "codex" : nil
+    }
+
     static func autoRegisterCommand(cli: String?) -> String {
         if cli == "codex" { return ClaudeCodeSetup.findBinary("codex") ?? "codex" }
         return AgentConfig.CLIPreset.claude.resolvedPath ?? "claude"
@@ -1779,8 +1787,11 @@ public final class AppState: ObservableObject {
         // polling window, because a longer prompt means a longer first model call.)
         //
         // It does not depend on the AGENTS.md block, which is opt-in and may not be installed.
-        let startupCommand = CLIHookProducer.startupCommand(base: baseStartupCommand,
-                                                            companionPrompt: companionPrompt)
+        let needsBrief = CLIHookProducer.startupCommand(base: baseStartupCommand, companionPrompt: companionPrompt)
+            != baseStartupCommand
+        let startupCommand = CLIHookProducer.startupCommand(
+            base: baseStartupCommand, companionPrompt: companionPrompt,
+            briefFile: needsBrief ? CLIHookProducer.writeBrief(companionPrompt) : nil)
         let config = TerminalPortConfig(
             command: "/bin/zsh",
             args: [],

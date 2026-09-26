@@ -139,13 +139,33 @@ public struct CLIHookProducer: Sendable {
     ///
     /// The trade-off, stated because it is visible to the user: claude's briefing is hidden in a
     /// system prompt, codex's appears as the first message of the transcript. That is inherent.
-    public static func startupCommand(base: String, companionPrompt: String) -> String {
+    ///
+    /// **With `briefFile`, the brief is READ FROM THAT FILE** rather than typed (2026-09-25). The
+    /// command is typed into the shell, and a 3,000-character briefing broke there: the typed line
+    /// stopped partway and codex never launched. Typing `codex "$(cat '<file>')"` is short and
+    /// cannot break on anything the brief contains.
+    public static func startupCommand(base: String, companionPrompt: String, briefFile: String? = nil) -> String {
         guard !companionPrompt.isEmpty,
               forCommand(base)?.name == "codex",
               // Only when the caller has not already supplied a prompt of its own.
               base.trimmingCharacters(in: .whitespaces) == "codex"
         else { return base }
+        if let briefFile {
+            return "codex \"$(cat '\(briefFile.replacingOccurrences(of: "'", with: "'\\''"))')\""
+        }
         return "codex '\(companionPrompt.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// Write a codex briefing to a private file for `startupCommand(briefFile:)`. nil if it fails,
+    /// in which case the brief is typed as before.
+    public static func writeBrief(_ prompt: String) -> String? {
+        let dir = (NSTemporaryDirectory() as NSString).appendingPathComponent("port42-briefs")
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        let path = (dir as NSString).appendingPathComponent(UUID().uuidString + ".txt")
+        guard FileManager.default.createFile(atPath: path, contents: Data(prompt.utf8),
+                                             attributes: [.posixPermissions: 0o600]) else { return nil }
+        return path
     }
 
     /// **EVERY producer prepares EVERY terminal** (2026-07-31), and this replaces a special case

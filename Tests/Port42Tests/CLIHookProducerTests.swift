@@ -117,8 +117,11 @@ struct CLIHookProducerTests {
         // The turn-end event, routed to the shim in notify mode.
         #expect(toml.contains("[[hooks.Stop]]"))
         #expect(toml.contains("command = \"'/x/shim' notify turnComplete\""))
-        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted codex\""),
-                "the session start names codex, so a codex terminal is not registered as claude")
+        // PINNED EXACTLY. Codex trusts a hook by a hash of its exact command, and Port42 carries that
+        // trust forward; adding an argument ("notify sessionStarted codex", 2026-09-25) made codex
+        // skip the hook, so the companion never registered. Change these only with a trust plan.
+        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted\""))
+        #expect(!toml.contains("notify sessionStarted codex"))
         // Codex's sandbox blocks the network, loopback included; a companion must reach Port42.
         #expect(toml.contains("[sandbox_workspace_write]"))
         #expect(toml.contains("network_access = true"))
@@ -535,5 +538,26 @@ struct CLIHookProducerTests {
         let zshrc = try String(contentsOfFile: "\(dir)/.zshrc", encoding: .utf8)
         #expect(zshrc.contains("# marker"))
         #expect(zshrc.contains("export MADE_UP=1"))
+    }
+
+    /// The codex briefing broke when typed into the shell (2026-09-25): 3,000 characters, stopped
+    /// partway, codex never launched. It is read from a file now; this runs the real command through
+    /// zsh with a stand-in `codex` and checks the brief arrives byte for byte.
+    @Test("a codex brief read from a file arrives intact, whatever it contains")
+    func briefFromFileRoundTrips() throws {
+        let brief = "You are x. Don't break: '{\"method\":\"whoami\"}' $(cat \"$HOME\") `id` \\ %\nline two"
+        let path = try #require(CLIHookProducer.writeBrief(brief))
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let cmd = CLIHookProducer.startupCommand(base: "codex", companionPrompt: brief, briefFile: path)
+        #expect(cmd.count < 200, "the typed command stays short")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-f", "-c", "codex() { printf '%s' \"$1\"; }; " + cmd]
+        let out = Pipe(); p.standardOutput = out
+        try p.run(); p.waitUntilExit()
+        let got = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        #expect(got == brief)
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        #expect((attrs[.posixPermissions] as? Int) == 0o600, "the brief is private to the user")
     }
 }

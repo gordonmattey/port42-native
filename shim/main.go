@@ -279,6 +279,25 @@ type normalizedEvent struct {
 
 // runNotify reads Claude's raw hook payload from stdin, translates it to a normalized event,
 // and writes it to the hooks socket.
+// cliFor names the CLI that raised a hook: the name the hook command passed, else read from the
+// payload. Claude's hook commands pass "claude". Codex's must NOT change (Codex trusts a hook by a
+// hash of its exact command, so adding an argument made it skip the hook and never report that it
+// started, 2026-09-25), so a Codex hook is recognised by its transcript living outside ~/.claude.
+func cliFor(named string, payload map[string]any) string {
+	if named != "" {
+		return named
+	}
+	tp, _ := payload["transcript_path"].(string)
+	switch {
+	case tp == "":
+		return ""
+	case strings.Contains(tp, "/.claude/"):
+		return "claude"
+	default:
+		return "codex"
+	}
+}
+
 func runNotify(event, cli string) {
 	socket := os.Getenv("PORT42_HOOKS_SOCKET")
 	if socket == "" {
@@ -289,7 +308,7 @@ func runNotify(event, cli string) {
 	var payload map[string]any
 	_ = json.Unmarshal(raw, &payload)
 
-	out := normalizedEvent{Event: event, CLI: cli}
+	out := normalizedEvent{Event: event, CLI: cliFor(cli, payload)}
 	if sid, ok := payload["session_id"].(string); ok {
 		out.SessionID = sid
 	}
