@@ -74,4 +74,16 @@ struct MessageDeliveryTests {
         c.inject("[@gordon]: hi\r")
         #expect(writes().first?.clearFirst == false)
     }
+
+    /// GM, 2026-09-25: the fixed delay long enough for the biggest paste made every message sit in
+    /// the box visibly. A paste's Enter now goes once the TUI has drawn it and gone quiet, capped.
+    @Test("a paste's Enter goes once the TUI has echoed and gone quiet, not before, never past the cap")
+    func enterWhenQuiet() {
+        let cap = 1.5
+        #expect(!TerminalWrite.readyToSubmit(elapsed: 0.05, sinceLastOutput: 1.0, maxDelay: cap), "never before the minimum")
+        #expect(!TerminalWrite.readyToSubmit(elapsed: 0.3, sinceLastOutput: nil, maxDelay: cap), "nothing echoed yet: wait")
+        #expect(!TerminalWrite.readyToSubmit(elapsed: 0.3, sinceLastOutput: 0.05, maxDelay: cap), "still drawing: wait")
+        #expect(TerminalWrite.readyToSubmit(elapsed: 0.3, sinceLastOutput: 0.15, maxDelay: cap), "echoed and quiet: go")
+        #expect(TerminalWrite.readyToSubmit(elapsed: 1.5, sinceLastOutput: nil, maxDelay: cap), "the cap always fires")
+    }
 }

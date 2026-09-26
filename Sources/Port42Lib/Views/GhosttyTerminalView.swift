@@ -615,14 +615,31 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // in that window the human may have typed. Counting only the body would leave a token
             // that looks current at the exact moment the line is submitted.
             if w.clearFirst { v.write("\u{15}", mode: .keys) }   // Ctrl-U: clear the unsent line
+            let start = Date()
             v.write(w.text, mode: w.paste ? .paste : .keys)
             guard w.submit else { done(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + w.enterDelay) { [weak coord] in
-                coord?.view?.write("\r", mode: .keys)
-                // AFTER the Enter, never before: a caller awaiting this is awaiting the token that
-                // Enter moves. Reporting completion early is the defect this replaced.
-                done()
+            // AFTER the Enter, never before: a caller awaiting this is awaiting the token that
+            // Enter moves. Reporting completion early is the defect this replaced.
+            guard w.paste else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + w.enterDelay) { [weak coord] in
+                    coord?.view?.write("\r", mode: .keys); done()
+                }
+                return
             }
+            // A paste: Enter once the TUI has drawn it and gone quiet, capped (GM, 2026-09-25: a
+            // fixed delay long enough for the biggest paste made every message sit visibly).
+            func poll() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak coord] in
+                    guard let coord else { done(); return }
+                    let now = Date()
+                    let since = coord.lastOutputAt > start ? now.timeIntervalSince(coord.lastOutputAt) : nil
+                    if TerminalWrite.readyToSubmit(elapsed: now.timeIntervalSince(start),
+                                                   sinceLastOutput: since, maxDelay: w.enterDelay) {
+                        coord.view?.write("\r", mode: .keys); done()
+                    } else { poll() }
+                }
+            }
+            poll()
         })
 
         GhosttyApp.shared.tick()  // initial pump so the shell starts producing IO
@@ -661,7 +678,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         /// Per-chunk tee handler: forward bytes, and once the shell has produced its first
         /// output, type the companion's startup command (only once). A short delay lets the
         /// prompt settle. Ghostty's `command` can't carry args, so the command is typed in.
+        /// When the terminal last printed anything: a paste's Enter waits for the TUI to go quiet.
+        var lastOutputAt = Date.distantPast
+
         func handleTee(_ str: String) {
+            lastOutputAt = Date()
             onTee?(str)
             guard !startupSent, !startupCommand.isEmpty, surface != nil else { return }
             startupSent = true

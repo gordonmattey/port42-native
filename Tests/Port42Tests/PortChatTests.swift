@@ -321,4 +321,20 @@ struct PortChatTests {
         #expect(AppState.resolvedCLI(hook: nil, startupCommand: "claude") == nil)
         #expect(AppState.resolvedCLI(hook: "codex", startupCommand: "") == "codex")
     }
+
+    /// GM, 2026-09-25: the default names (swift-fox, nimble-wren) are more fun than named roles, and
+    /// two claude terminals must be two companions, not two "claude"s.
+    @Test("a terminal made with no title gets a codename, not the command's name")
+    func terminalCodename() throws {
+        let w = try makeParityWorld()
+        let a = w.state.createPort(type: "terminal", title: nil, html: nil, command: "true", cwd: NSTemporaryDirectory(),
+                                   systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
+        let b = w.state.createPort(type: "terminal", title: nil, html: nil, command: "true", cwd: NSTemporaryDirectory(),
+                                   systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
+        let ta = try #require(a["title"] as? String), tb = try #require(b["title"] as? String)
+        #expect(ta != "true" && tb != "true", "named after the command")
+        #expect(ta != tb, "two terminals, two names")
+        #expect(ta.contains("-"), "a codename like swift-fox")
+        withExtendedLifetime(w.state) {}
+    }
 }

@@ -1855,7 +1855,9 @@ public final class AppState: ObservableObject {
             return ["error": message]
 
         case .ok(.terminal(let command)):
-            let resolvedTitle = (title?.isEmpty == false ? title! : (command as NSString).lastPathComponent)
+            // No title: a codename, as the dock's Terminal button gives (swift-fox, nimble-wren), rather
+            // than the command's name, so two claude terminals are two companions (GM, 2026-09-25).
+            let resolvedTitle = (title?.isEmpty == false ? title! : CompanionCodename.generate(seed: UUID().uuidString))
             // cwd: explicit port.create override ?? space working dir ?? home (plan-companion-cwd.md).
             let spaceDir = spaces.first(where: { $0.id == spaceId })?.workingDirectory
             let resolvedCwd = TerminalCwd.resolve(override: cwd, spaceDir: spaceDir)

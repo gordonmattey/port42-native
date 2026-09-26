@@ -184,7 +184,7 @@ struct CompanionProtocolTests {
                        "every port in Port42 has a chat", "\"method\":\"port.console\"",
                        "CHECK IT WORKS before you say it is done",
                        "never guess a name", "hold the rest of that work's conversation",
-                       "port.patch", "--rawfile", "--data @-"] {
+                       "port.patch", "--rawfile", "--data @-", "rather than making a second"] {
             #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
         }
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"

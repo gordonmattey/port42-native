@@ -37,10 +37,13 @@ def main():
     run = Run(c, title="harness: team")
     title = "harness team shader " + uuid.uuid4().hex[:4]
 
-    lead, eng1, eng2 = "harness-t-lead", "harness-t-eng1", "harness-t-eng2"
-    for t, cmd in (("harness: t lead", "claude"), ("harness: t eng1", "claude"), ("harness: t eng2", "codex")):
-        c.call("port.create", {"type": "terminal", "title": t, "command": cmd, "space_id": space}, timeout=120)
-    run.say("wait", "opened a lead (claude) and two engineers (claude, codex)")
+    # Default codenames (GM: more fun than role names); the role lives in the brief, not the name.
+    names = []
+    for cmd in ("claude", "claude", "codex"):
+        t = c.call("port.create", {"type": "terminal", "command": cmd, "space_id": space}, timeout=120)
+        names.append(t["title"])
+    lead, eng1, eng2 = names
+    run.say("wait", f"opened @{lead} (claude, lead) and engineers @{eng1} (claude) and @{eng2} (codex)")
     for name in (lead, eng1, eng2):
         ok = wait_for(lambda n=name: companion(c, n), 120, every=3)
         run.say("pass" if ok else "fail", f"@{name} registered" if ok else f"@{name} never registered")
@@ -64,26 +67,32 @@ def main():
         run.say("fail", f"no port titled '{title}' within 900s")
         return finish(run)
     run.say("pass", f"'{title}' appeared after {time.time() - started:.0f}s")
-    pid = port["id"]
 
-    # Watch until the lead says DONE or time runs out: count distinct versions and who spoke.
-    seen, versions, last = set(), 0, html_of(c, pid)
-    done = None
+    # Watch EVERY port with the title: two agents can each make one, and the work may move to
+    # either. Count version changes across them, who spoke in their chats, and the lead's DONE.
+    def mine():
+        return [p["id"] for p in c.call("ports.list") if p.get("title") == title]
+    seen, versions, last, done = set(), 0, {}, None
     deadline = started + a.timeout
     while time.time() < deadline and not done:
         time.sleep(10)
-        now = html_of(c, pid)
-        if now != last:
-            versions += 1
-            last = now
-            run.say("wait", f"version change {versions} after {time.time() - started:.0f}s")
-        for e in c.call("chat.read", {"port": pid, "limit": 200})["entries"]:
-            who = e["from"]["name"]
-            if who not in seen and who in (lead, eng1, eng2):
-                seen.add(who)
-                run.say("wait", f"@{who} is talking in the port's chat")
-            if who == lead and e["text"].lstrip().upper().startswith("DONE"):
-                done = e
+        for pid in mine():
+            now = html_of(c, pid)
+            if pid in last and now != last[pid]:
+                versions += 1
+                run.say("wait", f"version change {versions} (port {pid[:8]}) after {time.time() - started:.0f}s")
+            last[pid] = now
+            for e in c.call("chat.read", {"port": pid, "limit": 200})["entries"]:
+                who = e["from"]["name"]
+                if who not in seen and who in (lead, eng1, eng2):
+                    seen.add(who)
+                    run.say("wait", f"@{who} is talking in a port's chat")
+                if who == lead and e["text"].lstrip().upper().startswith("DONE"):
+                    done = e
+    copies = mine()
+    run.say("pass" if len(copies) == 1 else "fail",
+            "one port, no duplicate" if len(copies) == 1 else f"{len(copies)} ports share the title")
+
     elapsed = time.time() - started
     run.say("pass" if versions >= a.rounds else "fail", f"the port changed {versions} time(s) after the first version")
     for name in (lead, eng1, eng2):
@@ -92,11 +101,11 @@ def main():
     run.say("pass" if done else "fail",
             f"@{lead} finished after {elapsed:.0f}s: {done['text'][:140]!r}" if done
             else f"@{lead} did not post DONE within {a.timeout}s")
-    errs = console_errors(c, pid)
+    errs = [e for p in copies for e in console_errors(c, p)]
     run.say("pass" if not errs else "fail",
             "final version: no console errors" if not errs else f"final version logged {len(errs)} error(s): {errs[0].get('message', '')[:80]}")
     space_replies = chat_after(c, space, ask["entry"]["seq"], lead)
-    run.say("pass" if space_replies and any(pid in e["text"] for e in space_replies) else "fail",
+    run.say("pass" if space_replies and any(p in e["text"] for e in space_replies for p in copies) else "fail",
             "the lead answered in the space chat with the port's id" if space_replies else "the lead never answered in the space chat")
     return finish(run)
 

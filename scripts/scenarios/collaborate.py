@@ -99,11 +99,9 @@ def main():
     title = "harness shader " + uuid.uuid4().hex[:5]
 
     # 1. Two fresh agents, a Claude maker and a Codex reviewer, each in its own terminal port.
-    maker, reviewer = "harness-c-maker", "harness-c-reviewer"
-    c.call("port.create", {"type": "terminal", "title": "harness: c maker", "command": "claude",
-                           "space_id": space}, timeout=120)
-    c.call("port.create", {"type": "terminal", "title": "harness: c reviewer", "command": "codex",
-                           "space_id": space}, timeout=120)
+    # Default codenames (GM: more fun than role names); the roles live in the asks.
+    maker = c.call("port.create", {"type": "terminal", "command": "claude", "space_id": space}, timeout=120)["title"]
+    reviewer = c.call("port.create", {"type": "terminal", "command": "codex", "space_id": space}, timeout=120)["title"]
     run.say("wait", "opened a claude terminal (maker) and a codex terminal (reviewer)")
     for name in (maker, reviewer):
         ok = wait_for(lambda n=name: companion(c, n), 90, every=3)

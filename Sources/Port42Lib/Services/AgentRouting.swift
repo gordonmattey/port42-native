@@ -87,7 +87,9 @@ public enum CompanionProtocol {
         \(call) -d '{"method":"chat.read","args":{"port":"<port id>"}}' and post to it with \
         \(call) -d '{"method":"chat.post","args":{"port":"<port id>","text":"..."}}', which is posted as \
         you. To reach another companion, @mention it in a chat by the exact name whoami lists; never \
-        guess a name, and a role like "the reviewer" is not a name. WHEN YOU MAKE A PORT FOR SOMEONE, \
+        guess a name, and a role like "the reviewer" is not a name. BEFORE YOU MAKE A \
+        PORT, look in ports.list for one with that title in your space; if it is there, work on it \
+        rather than making a second. WHEN YOU MAKE A PORT FOR SOMEONE, \
         answer where they asked with one line naming the port and its id, and hold the rest of that \
         work's conversation, details and follow-ups in the port's own chat. \
         TO CHANGE A PORT: read it with port.getHtml {"id"}, take its token from ports.list (every entry \

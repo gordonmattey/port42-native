@@ -75,8 +75,23 @@ struct TerminalWrite {
     var paste: Bool = false
     /// Clear the input line first (Ctrl-U), for an unsent first-run prefill still sitting there.
     var clearFirst: Bool = false
-    /// Seconds between the body and the Enter.
+    /// Seconds between the body and the Enter: fixed for keys, the CAP for a paste, whose Enter goes
+    /// as soon as the TUI has drawn the paste and gone quiet (`readyToSubmit`).
     var enterDelay: Double = 0.08
+
+    /// When to press Enter after a paste. The wait is for the agent's TUI, not the terminal: it reads
+    /// input in chunks, and an Enter inside the paste's burst becomes text or is dropped. So: not
+    /// before `minDelay`; then as soon as the TUI has drawn something since the paste and been quiet
+    /// for `quiet`; and never later than `maxDelay`, in case nothing is echoed. Pure.
+    static let pasteMinDelay = 0.1
+    static let quietAfterEcho = 0.12
+    static func readyToSubmit(elapsed: Double, sinceLastOutput: Double?, maxDelay: Double,
+                              minDelay: Double = pasteMinDelay, quiet: Double = quietAfterEcho) -> Bool {
+        if elapsed >= maxDelay { return true }
+        if elapsed < minDelay { return false }
+        guard let since = sinceLastOutput else { return false }
+        return since >= quiet
+    }
 
     /// How a companion's message is delivered (GM's multi-agent test, 2026-09-25). A short single
     /// line typed as keys submits reliably. A long or multi-line one typed as keys did not: Claude
