@@ -36,12 +36,13 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 
 | # | Item | Status | Note |
 |---|---|---|---|
-| 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
+| 1 | ~~The program as the credential~~ | **dropped**, [program-as-credential.md](program-as-credential.md) | Does not work on this door. The app never holds the caller's socket, and the program on the other end is `curl`. **Replaced by: move the local door to a unix socket.** The sequencing worry that ranked it first does not apply, so Phase 4 is unblocked. |
 | 2 | The chrome is ports too | **scoped**, [chrome-as-ports.md](chrome-as-ports.md) | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
 | 3 | One guided permission flow | **scoped**, [permission-flow.md](permission-flow.md) | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
 | 4 | Share, and fork what you were shared | **scoped**, [share-a-ports-code.md](share-a-ports-code.md) | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
 | 5 | Share a whole space | **moved up by GM** | Was 12. A space is a port, so this is the cascade question in `invite-over-libp2p.md`, not a separate mechanism. |
 | 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
+| 8 | RPC-rendered ports | **scoped**, [rpc-rendered-ports.md](rpc-rendered-ports.md) | Viable for a read-only markup-and-CSS port only. Markup is 7% of a real port; a canvas has no readable DOM. |
 | 8 | A live media plane | GM: "would be cool" | Additive, and depends on Phase 4's transport existing. |
 | 9 | The membrane interprets | | Five docs already in `docs/membrane/`. |
 | 10 | Add Antigravity as a first-run path | GM, 2026-09-26: "add antigravity should be the thing, later" | Setup detects which CLI agent is installed and runs Echo on it (Claude Code and Codex today). The item is Antigravity specifically, not agents in general, and it stays late. |

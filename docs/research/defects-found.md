@@ -67,3 +67,23 @@ of 88 WebContent processes at 101 ports (`plan-webview-eviction.md:1-7`).
 
 Three permission tests assert `nil` for methods that do not exist and therefore pass vacuously
 (`PortPermissionTests.swift:40-53`).
+
+## Found 2026-09-26, after the first pass
+
+**The shipped `port42` CLI is not Developer ID signed.** `build.sh:383` signs `$MACOS/port42`, but
+`build.sh:326` bundles the file as `port42-cli`. The rename documented at `build.sh:309-313` never
+reached the signing line, so the CLI keeps the Go linker's ad-hoc signature (`a.out`, adhoc) inside a
+notarized bundle whose gateway and shim are both properly signed. Verified against `dist/Port42.app`.
+
+**`LOCAL_PEERCRED` on a TCP socket fails open and reports uid 0.** Recorded because
+`plan-caller-identity-fixes.md:79-80` already names kernel peer credentials as a deferred fix, so this
+is the first thing whoever picks it up will write. `SOL_LOCAL` is `0`, which on `AF_INET` means
+`IPPROTO_IP`, and `LOCAL_PEERCRED` through `LOCAL_PEERTOKEN` collide exactly with `IP_OPTIONS`
+through `IP_RECVRETOPTS`. Measured: five of six options return success with garbage on TCP, and a
+zero-filled `xucred` has `cr_version = 0`, which equals `XUCRED_VERSION`, so the two sanity checks a
+careful implementer writes both pass and the answer is **uid 0**. Only asserting the returned length
+and the socket family defends.
+
+**The guest page destroys the guest's state on every host write.** `gateway/guestpage.go:147` reloads
+the entire `srcdoc` on each `state` event, so scroll, focus and runtime state are lost every time the
+host writes to the port. Cheap to fix independently of anything else.
