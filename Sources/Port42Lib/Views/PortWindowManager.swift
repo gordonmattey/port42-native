@@ -751,6 +751,7 @@ public final class PortWindowManager: ObservableObject {
     public func minimize(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isBackground = true
+        if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(false, on: wv) }
         panels[idx].bridge.suspendAI()      // backgrounded = off-screen: stop billing the model
         persistPanel(id)
         NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
@@ -761,6 +762,7 @@ public final class PortWindowManager: ObservableObject {
     public func restore(_ id: String) -> Bool {
         guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return false }
         panels[idx].isBackground = false
+        if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(true, on: wv) }
         persistPanel(id)
         NSLog("[Port42] Port restored from background: %@", panels[idx].title)
         return true
@@ -1183,6 +1185,8 @@ public final class PortWindowManager: ObservableObject {
         }
 
         webViews[panel.id] = webView
+        // A port restored hidden starts with its timers unclamped, as hiding it would have left them.
+        if panel.isBackground { PortWebViewFactory.setUnseenTimerThrottling(false, on: webView) }
     }
 
     /// Clean up a webview and its associated handlers.
@@ -1231,6 +1235,27 @@ enum PortWebViewFactory {
     /// port view and the desktop tile factory load this document, so the CSP and theme can never
     /// drift between presentations (they once lived as two hand-synced copies). `overflow` is the
     /// single deliberate difference: tiles scroll ("auto"), inline ports self-size ("hidden").
+    /// HIDDEN PORTS RUN THEIR TIMERS AT FULL RATE (Phase 3.0 and 3.2, GM 2026-09-26). WebKit clamps a
+    /// page it considers unseen to one timer tick a second (measured: a 100 ms producer published
+    /// 10/s on screen and 1/s off it). That suits a parked chart, whose drawing should stop, and not a
+    /// hidden port, which exists to do background work. So a hidden port's page opts out of the timer
+    /// clamp; animation frames still stop. The switch is WebKit's own preference, set only when the
+    /// running WebKit has it, so a WebKit without it leaves the port throttled rather than crashing.
+    /// Returns whether the preference was there to set.
+    @discardableResult
+    static func setUnseenTimerThrottling(_ enabled: Bool, on webView: WKWebView) -> Bool {
+        let prefs = webView.configuration.preferences
+        var applied = false
+        for name in ["_setHiddenPageDOMTimerThrottlingEnabled:", "_setPageVisibilityBasedProcessSuppressionEnabled:"] {
+            let sel = NSSelectorFromString(name)
+            guard prefs.responds(to: sel) else { continue }
+            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(prefs.method(for: sel), to: Setter.self)(prefs, sel, enabled)
+            applied = true
+        }
+        return applied
+    }
+
     static func wrapHTML(_ body: String, overflow: String = "auto") -> String {
         let moduleBody = body
             .replacingOccurrences(of: "<script>", with: "<script type=\"module\">")

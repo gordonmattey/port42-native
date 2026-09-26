@@ -36,7 +36,7 @@ is not on screen, and when the receiver is a companion rather than a port.
    ("5 events on port 'x' since your last turn", then each). The first event of a quiet period waits
    one second before waking the agent, so a burst that arrives together is one turn, not one turn and
    then a batch.
-3. **A watch has no default floor, and a ceiling against runaway (recommended, open).** There is no
+3. **A watch has no default floor, and a ceiling against runaway (decided, GM 2026-09-26: start at 60 wakes an hour).** There is no
    right minimum gap between wakes in general: "review every edit" wants each one, "tell me when the
    scraper finds something" does not care. So the watch sets its own floor (`every`, seconds) and has
    none by default; decision 2 already keeps it to one turn at a time. The ceiling guards the one
@@ -150,11 +150,13 @@ second port subscribed to it, 10 s per row):
   after it had been parked once, even back on screen. Parking now stops only finite streams;
   closing still stops all (`ParkedSubscriptionTests`, a real web view, calibrated).
 
-**Open for GM: timers in hidden ports.** Off-screen throttling suits a parked chart (its drawing
-stops, its CPU falls). A hidden port (3.2) exists to do background work, so a 1 Hz ceiling on its
-timers is a limit it did not ask for. Recommended: hidden ports opt out of WebKit's hidden-page timer
-throttling (a WebKit preference, set only if the running WebKit has it), while animation frames stay
-stopped; parked and resting ports keep today's behavior. To measure again with 3.2.
+**Decided and built 2026-09-26: hidden ports run their timers at full rate.** A hidden port opts out
+of WebKit's clamp on unseen pages (its own `_setHiddenPageDOMTimerThrottlingEnabled` and process
+suppression preferences, set only when the running WebKit has them); animation frames still stop;
+parked and resting ports keep the clamp. `HiddenTimerTests` in a real web view: a 50 ms timer ticked
+at most 6 times in 2 s clamped and 23 hidden, and the clamp returns when the port is shown
+(calibrated by not setting the preference). The port manual now says when to make a port hidden and
+what runs off screen.
 
 ### 3.1 Errors reach port JS: already true
 
