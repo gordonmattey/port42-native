@@ -86,7 +86,10 @@ public enum CompanionProtocol {
         chat, or a port's chat with its id. Work on a port belongs in that port's chat: read it with \
         \(call) -d '{"method":"chat.read","args":{"port":"<port id>"}}' and post to it with \
         \(call) -d '{"method":"chat.post","args":{"port":"<port id>","text":"..."}}', which is posted as \
-        you. To reach another companion, @mention it by name in a chat; whoami lists who is here.
+        you. To reach another companion, @mention it by name in a chat; whoami lists who is here. \
+        WHEN YOU MAKE OR CHANGE A PORT, CHECK IT WORKS before you say it is done: read its console \
+        (\(call) -d '{"method":"port.console","args":{"id":"<port id>"}}') for errors, and its DOM \
+        (port.getDom) for the controls you added, then say what you checked.
         """
     }
 

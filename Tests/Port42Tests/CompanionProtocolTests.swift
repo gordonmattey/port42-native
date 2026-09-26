@@ -170,7 +170,8 @@ struct CompanionProtocolTests {
         let chats = CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port)
         #expect(baked.contains(chats))
         for phrase in ["\"method\":\"whoami\"", "\"method\":\"chat.read\"", "\"method\":\"chat.post\"",
-                       "every port in Port42 has a chat"] {
+                       "every port in Port42 has a chat", "\"method\":\"port.console\"",
+                       "CHECK IT WORKS before you say it is done"] {
             #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
         }
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
