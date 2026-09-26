@@ -269,7 +269,7 @@ mention, and the middle stage running as an invisible port. The `ls | grep | wc`
 ### Phase 4 · The remote pipe (4)
 
 **Detailed plan:** `plan-nautilus-phase4.md`, reviewed with Gordon 2026-09-26. **Progress:** 4.1
-remote callers scoped ✓. Its
+remote callers scoped ✓ · 4.2 instance key and address ✓. Its
 decisions, in short:
 
 - **Address** `port42://<peer>/<portId>`, the peer being the instance's Ed25519 public key in

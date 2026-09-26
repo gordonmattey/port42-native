@@ -76,6 +76,8 @@ struct DoorEnvelope: Codable {
     var payload: DoorPayload?
     var error: String?
     var code: String?
+    /// This instance's peer id, in the gateway's `welcome` to the host (nautilus Phase 4, 4.2).
+    var selfPeer: String?
 
     var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
 
@@ -96,6 +98,7 @@ struct DoorEnvelope: Codable {
         case payload
         case error
         case code
+        case selfPeer = "self_peer"
     }
 }
 
@@ -117,6 +120,9 @@ public final class GatewayDoor: NSObject, ObservableObject {
     /// both mints and verifies it. `emit` is how a streaming method sends a frame before it
     /// finishes; nil when the caller's door cannot carry mid-call frames (HTTP), so the method can
     /// refuse rather than emit into nothing.
+    /// The gateway told us this instance's peer id (derived from the key we handed it).
+    public var onSelfPeer: (@MainActor (String) -> Void)?
+
     public var onCallReceived: (@MainActor (String, String, String, [String: Any], String?,
                                             (@MainActor (Any) -> Void)?) async -> Any)?
 
@@ -209,6 +215,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
         case "welcome":
             isConnected = true
             p42log("[door] open as host \(envelope.senderId ?? "?")")
+            if let peer = envelope.selfPeer, !peer.isEmpty { onSelfPeer?(peer) }
         case "call":
             handleCall(envelope)
         case "error":

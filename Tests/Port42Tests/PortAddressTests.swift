@@ -44,23 +44,23 @@ struct PortAddressTests {
         #expect(PortAddress.parse("port42://agent/echo") == nil)             // wrong host
     }
 
-    // MARK: - The instance segment (slice-02 milestone B, step 1)
+    // MARK: - The remote form (nautilus Phase 4, 4.2)
     //
-    // `port42://<peerID>/space/<space>/<port>`. The local two-segment form is UNCHANGED, which is
-    // the whole point of having proved it locally first.
+    // `port42://<peer>/<portId>`, the peer a 52-character lowercase base32 key. No space segment. The
+    // local form is UNCHANGED.
     //
-    // **The trap, from §10b: a slot with one possible value is indistinguishable from a rename.**
-    // Nothing in production can produce a peer id yet, so every test here uses a FOREIGN one
-    // deliberately, exactly as `PortObjectGrantTests` had to for the grant object.
+    // **The trap, from slice-02 §10b: a slot with one possible value is indistinguishable from a
+    // rename.** So every test here uses FOREIGN peer ids deliberately.
 
-    static let peerA = "12D3KooWA1b2c3d4e5f6g7h8i9j0kLmNoPqRsTuVwXyZaBcDeFgH"
-    static let peerB = "12D3KooWZ9y8x7w6v5u4t3s2r1q0pOnMlKjIhGfEdCbAzYxWvUtS"
+    /// RFC 8032 test 1's public key as a peer id (the gateway's test pins the same value).
+    static let peerA = "25njqamcweflpvkl73j4szahhihoc4xt3ktcgjnpaingr5yhkena"
+    static let peerB = "aaaqeayeaudaocajbifqydiob4ibceqtcqkrmfyydenbwha5dypq"
 
-    @Test("parses the peer-qualified form")
-    func parsesPeerQualified() throws {
-        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/space/SPACE-1/PORT-9"))
+    @Test("parses the remote form: a peer and a port, no space")
+    func parsesRemoteForm() throws {
+        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/PORT-9"))
         #expect(a.peerID == Self.peerA)
-        #expect(a.spaceId == "SPACE-1")
+        #expect(a.spaceId == nil)
         #expect(a.portId == "PORT-9")
     }
 
@@ -71,22 +71,20 @@ struct PortAddressTests {
         #expect(a.canonical == "port42://space/SPACE-1/PORT-9", "the local rendering must not move")
     }
 
-    @Test("a peer-qualified address round-trips, including with a nil space")
-    func peerRoundTrips() throws {
-        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/space/SPACE-1/PORT-9"))
-        #expect(a.canonical == "port42://\(Self.peerA)/space/SPACE-1/PORT-9")
+    @Test("a remote address round-trips, and an uppercased one reads as the same peer")
+    func remoteRoundTrips() throws {
+        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/A1B2-UDID"))
+        #expect(a.canonical == "port42://\(Self.peerA)/A1B2-UDID")
         #expect(PortAddress.parse(a.canonical) == a)
-
-        let noSpace = PortAddress(peerID: Self.peerA, spaceId: nil, portId: "A1B2-UDID")
-        #expect(noSpace.canonical == "port42://\(Self.peerA)/space/_/A1B2-UDID")
-        #expect(PortAddress.parse(noSpace.canonical) == noSpace)
+        let shouted = try #require(PortAddress.parse("port42://\(Self.peerA.uppercased())/A1B2-UDID"))
+        #expect(shouted == a, "a linkifier that uppercases the host must not change the peer")
     }
 
-    @Test("two peers naming the same space and port are DIFFERENT addresses")
+    @Test("two peers naming the same port are DIFFERENT addresses")
     func peersAreDistinct() throws {
-        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/space/S/P"))
-        let b = try #require(PortAddress.parse("port42://\(Self.peerB)/space/S/P"))
-        let local = try #require(PortAddress.parse("port42://space/S/P"))
+        let a = try #require(PortAddress.parse("port42://\(Self.peerA)/P"))
+        let b = try #require(PortAddress.parse("port42://\(Self.peerB)/P"))
+        let local = PortAddress(spaceId: nil, portId: "P")
         #expect(a != b, "the peer is part of the identity, not decoration")
         #expect(a != local)
         #expect(b != local)
@@ -112,7 +110,8 @@ struct PortAddressTests {
             for (n, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let t = line.trimmingCharacters(in: .whitespaces)
                 guard !t.hasPrefix("//"), !t.hasPrefix("///"), !t.hasPrefix("*") else { continue }
-                if t.contains("port42://"), t.contains("/space/") {
+                // The local form, or an interpolated host: the remote form is `port42://\(peer)/…`.
+                if t.contains("port42://"), t.contains("/space/") || t.contains("port42://\\(") {
                     offenders.append("\(url.lastPathComponent):\(n + 1)  \(t)")
                 }
             }
@@ -120,14 +119,16 @@ struct PortAddressTests {
         #expect(offenders.isEmpty, "a port address built outside PortAddress.swift: \(offenders)")
     }
 
-    @Test("rejects malformed peer-qualified forms")
-    func rejectsMalformedPeerForms() {
-        // A peer with no `space` marker, so the path shape is ambiguous.
-        #expect(PortAddress.parse("port42://\(Self.peerA)/SPACE-1/PORT-9") == nil)
-        // A peer and a space marker but no port.
-        #expect(PortAddress.parse("port42://\(Self.peerA)/space/SPACE-1") == nil)
-        // Too many segments.
-        #expect(PortAddress.parse("port42://\(Self.peerA)/space/S/P/extra") == nil)
+    @Test("rejects malformed remote forms")
+    func rejectsMalformedRemoteForms() {
+        // The old peer form with a space segment is not an address any more.
+        #expect(PortAddress.parse("port42://\(Self.peerA)/space/SPACE-1/PORT-9") == nil)
+        // A peer and no port, or too many segments.
+        #expect(PortAddress.parse("port42://\(Self.peerA)") == nil)
+        #expect(PortAddress.parse("port42://\(Self.peerA)/P/extra") == nil)
+        // A host that is not a peer id: wrong length, or a character base32 does not use.
+        #expect(PortAddress.parse("port42://12D3KooWA1b2c3d4/P") == nil)
+        #expect(PortAddress.parse("port42://\(String(Self.peerA.dropLast()))1/P") == nil)
         // The literal host `space` is the LOCAL marker and can never be a peer id.
         #expect(PortAddress.parse("port42://space/space/S/P") == nil)
     }
@@ -231,19 +232,18 @@ struct PortResolutionTests {
 
     @Test("an address naming ANOTHER peer does not resolve to a local port of the same id")
     func foreignPeerDoesNotResolveLocally() {
-        let foreign = "port42://\(PortAddressTests.peerA)/space/SPACE-7/PANEL-UDID-1"
+        let foreign = "port42://\(PortAddressTests.peerA)/PANEL-UDID-1"
         #expect(resolve(foreign) == nil, "a remote address resolved to a local port")
         // The identical address without the peer still resolves, so the peer is what refused it.
-        #expect(resolve("port42://space/SPACE-7/PANEL-UDID-1")?.id == "PANEL-ID-1")
+        #expect(resolve("PANEL-UDID-1")?.id == "PANEL-ID-1")
     }
 
     @Test("an address naming THIS instance's own peer resolves locally")
     func ownPeerResolvesLocally() {
-        let mine = "port42://\(PortAddressTests.peerA)/space/SPACE-7/PANEL-UDID-1"
+        let mine = "port42://\(PortAddressTests.peerA)/PANEL-UDID-1"
         let r = PortResolution.resolve(mine, terminals: terminals, panels: panels,
                                        inlineMessageIds: inlineIds, dbHas: { _ in false },
                                        localPeerID: PortAddressTests.peerA)
         #expect(r?.id == "PANEL-ID-1", "our own peer id must not make a local port unreachable")
-        #expect(r?.spaceId == "SPACE-7")
     }
 }

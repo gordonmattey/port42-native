@@ -70,6 +70,11 @@ type Envelope struct {
 	// The app reads this to REFUSE a subscription it could not deliver, rather than accepting one it
 	// will silently drop. A door that cannot stream should say so, not go quiet.
 	Streamable bool `json:"streamable,omitempty"`
+
+	// SelfPeer is this instance's peer id, sent to the proven host in its `welcome` and to nobody
+	// else (nautilus Phase 4, 4.2). The gateway derives it from the key handed over on stdin, so the
+	// app never implements the encoding.
+	SelfPeer string `json:"self_peer,omitempty"`
 }
 
 // Peer is one WebSocket connection: the app's host connection, or a caller.
@@ -132,6 +137,9 @@ type Gateway struct {
 	// hostCred is the credential an `is_host` claim must present, handed over by the app on stdin at
 	// spawn. Zero value = not configured, which is the hand-launched gateway case.
 	hostCred HostCredential
+	// peer is the instance's peer identity, handed over on stdin after the host credential. Zero
+	// value = none, and then the host's welcome carries no peer id.
+	peer PeerIdentity
 }
 
 // SetHostCredential is called once, from the watch-parent goroutine, before any peer can identify.
@@ -139,6 +147,19 @@ func (g *Gateway) SetHostCredential(c HostCredential) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.hostCred = c
+}
+
+// SetPeerIdentity is called once, from the watch-parent goroutine, after SetHostCredential.
+func (g *Gateway) SetPeerIdentity(p PeerIdentity) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.peer = p
+}
+
+func (g *Gateway) selfPeerID() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.peer.ID()
 }
 
 func (g *Gateway) hostCredentialConfigured() bool {
@@ -232,7 +253,15 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	}
 
 	log.Printf("[gateway] peer connected: %s", peer.ID)
-	peer.Send(ctx, Envelope{Type: "welcome", SenderID: peer.ID})
+	welcome := Envelope{Type: "welcome", SenderID: peer.ID}
+	// Only the proven host learns the instance's peer id this way; a caller has no use for it here.
+	g.mu.RLock()
+	provenHost := peer.IsHost && g.globalHostID == peer.ID
+	g.mu.RUnlock()
+	if provenHost {
+		welcome.SelfPeer = g.selfPeerID()
+	}
+	peer.Send(ctx, welcome)
 
 	conn.SetReadLimit(maxMessageSize)
 

@@ -216,6 +216,9 @@ public final class AppState: ObservableObject {
     /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
+    /// This instance's peer id, the `<peer>` in `port42://<peer>/<portId>` (nautilus Phase 4, 4.2).
+    /// Told to us by the gateway, which derives it from the key we hand over; nil until it has.
+    public internal(set) var localPeerID: String?
 
     /// Companions watching ports (nautilus Phase 3.3). Started once ports are restored.
     lazy var companionWatches: CompanionWatchService = {
@@ -444,6 +447,8 @@ public final class AppState: ObservableObject {
         }
         portWindows.setDatabase(db)
         portWindows.appState = self
+        // The gateway names this instance's peer id in its welcome (nautilus Phase 4, 4.2).
+        door.onSelfPeer = { [weak self] peer in self?.localPeerID = peer }
         // Every Notify carries the emitting port's activity token, and the BUS resolves it rather
         // than each publish site attaching one (slice-02 OUTPUT seam). A site that had to remember
         // would be a to-do list; resolved here, an emitter added tomorrow carries a token by
@@ -1731,7 +1736,8 @@ public final class AppState: ObservableObject {
                                       terminals: terminals,
                                       panels: panels,
                                       inlineMessageIds: inlineIds,
-                                      dbHas: { udid in (try? database.fetchPortHtml(udid: udid)) != nil })
+                                      dbHas: { udid in (try? database.fetchPortHtml(udid: udid)) != nil },
+                                      localPeerID: localPeerID)
     }
 
     /// Create a native Ghostty `terminal` port and return its **port id** (UDID).

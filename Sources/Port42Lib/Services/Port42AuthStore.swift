@@ -163,6 +163,17 @@ public final class Port42AuthStore {
         saveKeychainValue(value, account: rootSecretAccount(instance))
     }
 
+    private func peerSeedAccount(_ instance: String) -> String { "peer-key-\(instance)" }
+
+    /// The instance's Ed25519 seed, base64 (nautilus Phase 4, 4.2). Per instance, never per person.
+    public func peerSeed(instance: String) -> String? {
+        loadKeychainValue(account: peerSeedAccount(instance))
+    }
+
+    public func savePeerSeed(_ value: String, instance: String) {
+        saveKeychainValue(value, account: peerSeedAccount(instance))
+    }
+
     public func deleteGatewayRootSecret(instance: String) {
         deleteKeychainValue(account: rootSecretAccount(instance))
     }

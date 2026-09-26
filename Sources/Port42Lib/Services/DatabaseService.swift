@@ -873,6 +873,16 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v56-peer-clients") { db in
+            // Nautilus Phase 4, 4.2: a client may be another instance or a browser guest, recognized
+            // by its peer id rather than a token. Nullable, since every other kind has none.
+            try db.alter(table: "clients") { t in
+                t.add(column: "peerKey", .text)
+            }
+            try db.create(index: "clients_peerKey", on: "clients", columns: ["peerKey"],
+                          unique: true, condition: Column("peerKey") != nil)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -880,6 +890,28 @@ public final class DatabaseService {
 
     /// Register or re-issue. Re-registering an existing slug keeps `createdAt` and any grants, and
     /// CLEARS `revokedAt` — re-enrolling a revoked client is a deliberate act by the same user.
+    /// Enrol another instance or a browser guest by its peer id (nautilus Phase 4). Re-enrolling the
+    /// same peer keeps its row, and so its grants.
+    public func upsertPeerClient(id: String, name: String, peerKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                     INSERT INTO clients (id, name, kind, peerKey, createdAt) VALUES (?, ?, 'peer', ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET name = excluded.name, peerKey = excluded.peerKey,
+                                                   revokedAt = NULL
+                     """,
+                arguments: [id, name, peerKey, Date()])
+        }
+    }
+
+    /// The enrolled client for a peer id, if any.
+    public func client(peerKey: String) throws -> Port42Client? {
+        try dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM clients WHERE peerKey = ?", arguments: [peerKey])
+                .flatMap(Self.client(from:))
+        }
+    }
+
     public func upsertClient(id: String, name: String, kind: String) throws {
         try dbQueue.write { db in
             try db.execute(
@@ -930,9 +962,11 @@ public final class DatabaseService {
 
     private static func client(from row: Row) -> Port42Client? {
         guard let kind = Port42Client.Kind(rawValue: row["kind"]) else { return nil }
-        return Port42Client(id: row["id"], name: row["name"], kind: kind,
-                            createdAt: row["createdAt"], lastSeenAt: row["lastSeenAt"],
-                            revokedAt: row["revokedAt"])
+        var c = Port42Client(id: row["id"], name: row["name"], kind: kind,
+                             createdAt: row["createdAt"], lastSeenAt: row["lastSeenAt"],
+                             revokedAt: row["revokedAt"])
+        c.peerKey = row["peerKey"]
+        return c
     }
 
     // MARK: - Grants (slice-02 milestone A step 2)

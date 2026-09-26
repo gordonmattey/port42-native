@@ -32,6 +32,9 @@ public struct Port42Client: Equatable, Identifiable {
     public let createdAt: Date
     public let lastSeenAt: Date?
     public let revokedAt: Date?
+    /// For a `peer`: the other instance's peer id, which is how a call from it is recognized. nil for
+    /// every other kind.
+    public var peerKey: String? = nil
 
     public enum Kind: String, Equatable {
         /// A caller Port42 did not spawn, approved by the user through pairing.
@@ -51,6 +54,10 @@ public struct Port42Client: Equatable, Identifiable {
         ///
         /// Distinct from `manual` because the user did not name this one; Port42 knows what it is.
         case installed
+        /// Another instance, or a browser guest, enrolled by redeeming an invite (nautilus Phase 4).
+        /// It has no token: it is recognized by `peerKey`, which the transport authenticates. Its
+        /// grants are rights on ports (`RemoteRight`), never machine capabilities.
+        case peer
     }
 
     public var isActive: Bool { revokedAt == nil }

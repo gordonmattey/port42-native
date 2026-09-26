@@ -41,6 +41,13 @@ public final class GatewayProcess: ObservableObject {
         return Data(bytes).base64EncodedString()
     }
 
+    /// What the gateway reads from stdin at spawn: the host credential, then the instance's peer key
+    /// seed (nautilus Phase 4, 4.2), one per line. The only way either reaches the gateway: never the
+    /// environment, which `ps -E` publishes, and never the arguments.
+    nonisolated static func handover(host: String, peerSeed: String) -> String {
+        host + "\n" + peerSeed + "\n"
+    }
+
     public static let shared = GatewayProcess()
 
     private var terminationObserver: NSObjectProtocol?
@@ -166,7 +173,7 @@ public final class GatewayProcess: ObservableObject {
             // already pulled in (spike C's carried detail, pinned by a Go test).
             //
             // Never logged, here or there (NFR2).
-            if let data = (host + "\n").data(using: .utf8) {
+            if let data = Self.handover(host: host, peerSeed: InstanceKey.seed()).data(using: .utf8) {
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
             }
 

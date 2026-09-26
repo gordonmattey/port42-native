@@ -258,6 +258,25 @@ stage and watching agent, once the harness client held the terminal grant.
 peer resolves locally; the local form unchanged; the key reaches the gateway only on stdin (tree
 scan, calibrated by passing it in the environment); the peer id survives a Dev2 restart.
 
+**Built 2026-09-26.** The seed is 32 random bytes in the Keychain (`peer-key-<instance>`, in memory
+under tests, `InstanceKey.swift`). The stdin handover is two lines, the host credential then the
+seed, so the credential and the death-watch are unchanged (`GatewayProcess.handover`,
+`gateway/peer.go`). The gateway derives the peer id, lowercase base32 without padding (52
+characters), logs it, and sends it only in the proven host's `welcome` (`self_peer`); the app keeps it
+as `AppState.localPeerID` and the resolver uses it. `PortAddress` parses `port42://<peer>/<portId>`,
+accepts an uppercased peer, and no longer parses the old form with a space. Migration v56 adds
+`clients.peerKey`, unique when set, and the `peer` kind.
+
+Gates: `InstanceIdentityTests` (6) and the rewritten remote cases in `PortAddressTests` and
+`PortResolutionTests`; `peer_test.go` (4) with RFC 8032's key as a vector checked against a second
+base32 implementation. Each calibrated: wrong alphabet, the peer id sent to any peer, no key read
+from the handover, the resolver not given the peer id, the welcome not wired, a second place reading
+the key, no lowercasing, a non-unique peer key, a hand-built remote address. The one-address-builder
+gate now also catches an interpolated `port42://` host. Suite 1270 green (one run hit a timing flake
+in nautilus's `StartupPromptTests`, green alone and on rerun), Go green. Live on Dev2: peer id
+`56dvfh4ylpfgpyvn2rygu5bttdop5bxjuchgdlv5wg2g34tc7mxa`, the same across a restart; an address
+naming it reaches its own port, and the same port id under another peer is refused.
+
 ### 4.3 The door over a seam, proven with a fake transport
 
 Go. No relay yet.

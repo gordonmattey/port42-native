@@ -37,41 +37,38 @@ public struct PortAddress: Equatable {
         self.portId = portId
     }
 
-    /// Parse the canonical `port42://space/<spaceId>/<portId>` form. Returns nil for anything else —
-    /// including a bare id (not an address) and a `port42://space?…` space *invite* (that form carries
-    /// query items and no path; a port address carries exactly two path segments and is disjoint from it).
     /// Parse either form. The HOST decides which:
     ///
-    ///     port42://space/<spaceId>/<portId>              local, 2 path segments
-    ///     port42://<peerID>/space/<spaceId>/<portId>     remote, 3 path segments
+    ///     port42://space/<spaceId>/<portId>     local, 2 path segments
+    ///     port42://<peer>/<portId>              remote, 1 path segment (nautilus Phase 4, 4.2)
     ///
-    /// Unambiguous because the literal `space` is the local marker and is not a legal peer id, so a
-    /// host is either the marker or an instance and never both.
+    /// Returns nil for anything else, including a bare id (not an address) and a `port42://space?…`
+    /// invite (query items and no path). The remote form carries no space: a port id is unique on its
+    /// machine, a space is where a port sits and can change, and naming it would hand a guest the id
+    /// of a space it was not given. A host is the `space` marker or a peer id, never both, because a
+    /// peer id is 52 base32 characters and `space` is not one.
     public static func parse(_ s: String) -> PortAddress? {
         guard let comps = URLComponents(string: s), comps.scheme == "port42",
               let host = comps.host, !host.isEmpty else { return nil }
         let segments = comps.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
 
-        let peerID: String?
-        let rest: [String]
         if host == "space" {
-            peerID = nil
-            rest = segments
-        } else {
-            // A peer id followed by the `space` marker. Without the marker the shape is ambiguous
-            // (is the first segment a space or a port?), so it is required rather than inferred.
-            guard segments.first == "space" else { return nil }
-            peerID = host
-            rest = Array(segments.dropFirst())
+            guard segments.count == 2, !segments[0].isEmpty, !segments[1].isEmpty else { return nil }
+            // `_` is the reserved nil-space placeholder, so canonical ∘ parse is identity for a
+            // nil-space alias too (a bare id round-trips through its canonical form).
+            let spaceId: String? = (segments[0] == "_") ? nil : segments[0]
+            return PortAddress(spaceId: spaceId, portId: segments[1])
         }
+        // A peer id is case-blind base32; a linkifier may have uppercased it.
+        let peer = host.lowercased()
+        guard isPeerID(peer), segments.count == 1, !segments[0].isEmpty else { return nil }
+        return PortAddress(peerID: peer, spaceId: nil, portId: segments[0])
+    }
 
-        guard rest.count == 2 else { return nil }
-        let rawSpace = rest[0], portId = rest[1]
-        guard !rawSpace.isEmpty, !portId.isEmpty else { return nil }
-        // `_` is the reserved nil-space placeholder, so canonical ∘ parse is identity for a nil-space
-        // alias too (a bare id round-trips through its canonical form).
-        let spaceId: String? = (rawSpace == "_") ? nil : rawSpace
-        return PortAddress(peerID: peerID, spaceId: spaceId, portId: portId)
+    /// A peer id: the lowercase base32 (no padding) of a 32-byte Ed25519 public key, 52 characters.
+    /// The gateway derives it (gateway/peer.go); this only recognizes one.
+    public static func isPeerID(_ s: String) -> Bool {
+        s.count == 52 && s.allSatisfy { ("a"..."z").contains($0) || ("2"..."7").contains($0) }
     }
 
     /// The canonical string form. A nil space renders as the reserved `_` placeholder, which `parse`
@@ -79,6 +76,6 @@ public struct PortAddress: Equatable {
     /// A nil peer renders the LOCAL form byte for byte, unchanged from before step 1.
     public var canonical: String {
         guard let peerID else { return "port42://space/\(spaceId ?? "_")/\(portId)" }
-        return "port42://\(peerID)/space/\(spaceId ?? "_")/\(portId)"
+        return "port42://\(peerID)/\(portId)"
     }
 }

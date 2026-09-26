@@ -101,6 +101,12 @@ func main() {
 			} else {
 				log.Println("[gateway] no host credential — channel routing only")
 			}
+			// The second line: the instance's peer key (nautilus Phase 4, 4.2). Only the id is logged;
+			// it is public, the key is not.
+			if peer := ReadPeerIdentity(rest); peer.Configured() {
+				gw.SetPeerIdentity(peer)
+				log.Printf("[gateway] peer id %s", peer.ID())
+			}
 			io.Copy(io.Discard, rest)
 			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
 			done <- syscall.SIGTERM

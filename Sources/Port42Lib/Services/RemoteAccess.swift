@@ -136,6 +136,7 @@ public enum RemoteAccess {
         "companions.watch": .never,
         "companions.unwatch": .never,
         "companions.watches": .never,
+        "imagine.start": .never,
 
         // NEVER for now: storage keys on the caller, so a guest would read its own empty bucket, not
         // the port's. Settled with the browser lane (4.7), which is where a port's storage calls first
