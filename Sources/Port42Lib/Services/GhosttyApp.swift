@@ -28,7 +28,7 @@ public final class GhosttyApp {
 
         if !didGlobalInit {
             let rc = ghostty_init(0, nil)
-            NSLog("[Ghostty] ghostty_init -> \(rc) (0 == success)")
+            p42log("[Ghostty] ghostty_init -> \(rc) (0 == success)")
             didGlobalInit = true
         }
 
@@ -62,11 +62,11 @@ public final class GhosttyApp {
         rt.tmux_control_cb = { _, _, _, _, _ in }
 
         guard let newApp = ghostty_app_new(&rt, cfg) else {
-            NSLog("[Ghostty] ghostty_app_new returned nil")
+            p42log("[Ghostty] ghostty_app_new returned nil")
             return nil
         }
         app = newApp
-        NSLog("[Ghostty] app created (singleton): \(newApp)")
+        p42log("[Ghostty] app created (singleton): \(newApp)")
         return newApp
     }
 

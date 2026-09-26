@@ -203,7 +203,7 @@ public struct CLIHookProducer: Sendable {
         for (name, out) in outputs {
             for (k, v) in out.env {
                 if let owner = claimedBy[k] {
-                    NSLog("[hooks] env collision on %@: '%@' keeps it, '%@' ignored", k, owner, name)
+                    p42log("[hooks] env collision on %@: '%@' keeps it, '%@' ignored", k, owner, name)
                     continue
                 }
                 claimedBy[k] = name

@@ -139,7 +139,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
 
     public func connect() {
         guard let url, let senderId else {
-            NSLog("[door] not configured")
+            p42log("[door] not configured")
             return
         }
         disconnect()
@@ -153,7 +153,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
         send(DoorEnvelope(type: "identify", senderId: senderId, senderName: senderName, isHost: true,
                           hostCredential: GatewayProcess.shared.hostCredential))
         receiveLoop()
-        NSLog("[door] connecting to \(url.absoluteString)")
+        p42log("[door] connecting to \(url.absoluteString)")
     }
 
     public func disconnect() {
@@ -172,7 +172,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8) else { return }
         if let sendOverride { sendOverride(text); return }
         webSocket?.send(.string(text)) { error in
-            if let error { NSLog("[door] send error: \(error)") }
+            if let error { p42log("[door] send error: \(error)") }
         }
     }
 
@@ -191,7 +191,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
                 case .success:
                     self.receiveLoop()
                 case .failure(let error):
-                    NSLog("[door] receive error: \(error)")
+                    p42log("[door] receive error: \(error)")
                     self.connectionLost()
                 }
             }
@@ -202,17 +202,17 @@ public final class GatewayDoor: NSObject, ObservableObject {
     func receive(_ text: String) {
         guard let data = text.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(DoorEnvelope.self, from: data) else {
-            NSLog("[door] undecodable frame")
+            p42log("[door] undecodable frame")
             return
         }
         switch envelope.type {
         case "welcome":
             isConnected = true
-            NSLog("[door] open as host \(envelope.senderId ?? "?")")
+            p42log("[door] open as host \(envelope.senderId ?? "?")")
         case "call":
             handleCall(envelope)
         case "error":
-            NSLog("[door] gateway error: \(envelope.error ?? "?") \(envelope.code ?? "")")
+            p42log("[door] gateway error: \(envelope.error ?? "?") \(envelope.code ?? "")")
         default:
             break   // `no_auth`, `challenge`: the local door identifies at connect and needs neither
         }
@@ -268,7 +268,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             reconnectTask = nil
             guard !Task.isCancelled, shouldReconnect else { return }
-            NSLog("[door] reconnecting")
+            p42log("[door] reconnecting")
             connect()
         }
     }
@@ -279,7 +279,7 @@ extension GatewayDoor: URLSessionWebSocketDelegate {
                                        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         Task { @MainActor in
             guard webSocketTask === self.webSocket else { return }
-            NSLog("[door] closed: \(closeCode)")
+            p42log("[door] closed: \(closeCode)")
             self.connectionLost()
         }
     }
@@ -288,7 +288,7 @@ extension GatewayDoor: URLSessionWebSocketDelegate {
         guard let error else { return }
         Task { @MainActor in
             guard (task as? URLSessionWebSocketTask) === self.webSocket else { return }
-            NSLog("[door] connection failed: \(error.localizedDescription)")
+            p42log("[door] connection failed: \(error.localizedDescription)")
             self.connectionLost()
         }
     }

@@ -123,7 +123,7 @@ extension CLIHookProducer {
                     //
                 ]
             } catch {
-                NSLog("[hooks] codex: failed to write config.toml: \(error)")
+                p42log("[hooks] codex: failed to write config.toml: \(error)")
             }
             return out
         })

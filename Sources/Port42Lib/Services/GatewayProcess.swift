@@ -81,7 +81,7 @@ public final class GatewayProcess: ObservableObject {
         stopRequested = false
 
         guard let path = binaryPath else {
-            NSLog("[gateway] binary not found in app bundle")
+            p42log("[gateway] binary not found in app bundle")
             return
         }
 
@@ -129,7 +129,7 @@ public final class GatewayProcess: ObservableObject {
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if !data.isEmpty, let line = String(data: data, encoding: .utf8) {
-                NSLog("[gateway] %@", line.trimmingCharacters(in: .whitespacesAndNewlines))
+                p42log("[gateway] %@", line.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         }
 
@@ -140,16 +140,16 @@ public final class GatewayProcess: ObservableObject {
                 // HOW it ended, so a crash explains itself: an uncaught signal (SIGKILL, SIGSEGV) and a
                 // clean exit with a status are different failures, and nothing recorded which until now.
                 let how = ended.terminationReason == .uncaughtSignal ? "signal" : "exit"
-                NSLog("[gateway] process ended: %@ %d%@", how, ended.terminationStatus,
+                p42log("[gateway] process ended: %@ %d%@", how, ended.terminationStatus,
                       self.stopRequested ? " (asked to stop)" : "")
                 guard !self.stopRequested, !AppState.isTestProcess else { return }
                 let now = Date()
                 guard Self.shouldRespawn(after: self.respawns, now: now) else {
-                    NSLog("[gateway] died again; respawn limit reached, staying down")
+                    p42log("[gateway] died again; respawn limit reached, staying down")
                     return
                 }
                 self.respawns = self.respawns.filter { now.timeIntervalSince($0) < 60 } + [now]
-                NSLog("[gateway] died unasked; respawning")
+                p42log("[gateway] died unasked; respawning")
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 self.start()
             }

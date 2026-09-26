@@ -246,7 +246,7 @@ public struct PortView: NSViewRepresentable {
                       let body = message.body as? [String: Any],
                       let level = body["level"] as? String,
                       let msg = body["message"] as? String {
-                NSLog("[Port42:port:%@] %@", level, msg)
+                p42log("[Port42:port:%@] %@", level, msg)
                 // Also RETAIN it. NSLog alone means a port's own runtime errors are visible to a
                 // human reading the app's log file and to nobody else — least of all the agent that
                 // generated the port and could fix it. An inline port is keyed by its bridge's

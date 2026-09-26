@@ -28,7 +28,7 @@ public final class NotificationBridge {
                 authorized = granted
                 return granted
             } catch {
-                NSLog("[Port42] notification auth error: %@", error.localizedDescription)
+                p42log("[Port42] notification auth error: %@", error.localizedDescription)
                 return false
             }
         default:

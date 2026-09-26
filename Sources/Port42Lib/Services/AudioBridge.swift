@@ -55,7 +55,7 @@ public final class AudioBridge: PortOwnedResource {
         // Request macOS system microphone permission (TCC)
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
-            NSLog("[Port42] audio.capture: system microphone permission denied")
+            p42log("[Port42] audio.capture: system microphone permission denied")
             return ["error": "microphone access denied by system. Check System Settings > Privacy & Security > Microphone", "code": BridgeErrorCode.permissionDenied.wire]
         }
 
@@ -67,7 +67,7 @@ public final class AudioBridge: PortOwnedResource {
                 }
             }
             guard speechStatus == .authorized else {
-                NSLog("[Port42] audio.capture: speech recognition permission denied (status=%d)", speechStatus.rawValue)
+                p42log("[Port42] audio.capture: speech recognition permission denied (status=%d)", speechStatus.rawValue)
                 return ["error": "speech recognition permission denied. Check System Settings > Privacy & Security > Speech Recognition", "code": BridgeErrorCode.permissionDenied.wire]
             }
         }
@@ -78,7 +78,7 @@ public final class AudioBridge: PortOwnedResource {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
         guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            NSLog("[Port42] audio.capture: no valid audio input format (sampleRate=%.0f, channels=%d)",
+            p42log("[Port42] audio.capture: no valid audio input format (sampleRate=%.0f, channels=%d)",
                   recordingFormat.sampleRate, recordingFormat.channelCount)
             return ["error": "no audio input device available"]
         }
@@ -93,7 +93,7 @@ public final class AudioBridge: PortOwnedResource {
             recognizer = SFSpeechRecognizer(locale: locale)
 
             guard let recognizer, recognizer.isAvailable else {
-                NSLog("[Port42] audio.capture: speech recognizer unavailable for locale %@", language)
+                p42log("[Port42] audio.capture: speech recognizer unavailable for locale %@", language)
                 return ["error": "speech recognizer not available for language '\(language)'", "code": BridgeErrorCode.unsupported.wire]
             }
 
@@ -120,7 +120,7 @@ public final class AudioBridge: PortOwnedResource {
                     let nsError = error as NSError
                     // Skip normal cancellation (216) and no-speech timeout (1110)
                     if nsError.code != 216 && nsError.code != 1110 {
-                        NSLog("[Port42] speech recognition error: %@", error.localizedDescription)
+                        p42log("[Port42] speech recognition error: %@", error.localizedDescription)
                         Task { @MainActor in
                             bridgeRef?.pushEvent(.audioTranscription, data: .object([
                                 "text": .string(""),
@@ -162,7 +162,7 @@ public final class AudioBridge: PortOwnedResource {
             engine.prepare()
             try engine.start()
         } catch {
-            NSLog("[Port42] audio.capture: engine start failed: %@", error.localizedDescription)
+            p42log("[Port42] audio.capture: engine start failed: %@", error.localizedDescription)
             inputNode.removeTap(onBus: 0)
             task?.cancel()
             return ["error": "failed to start audio capture: \(error.localizedDescription)"]
@@ -176,7 +176,7 @@ public final class AudioBridge: PortOwnedResource {
         self.owner = owner
         self.ownerPortId = owner?.messageId
 
-        NSLog("[Port42] audio.capture started (transcribe=%d, language=%@, rawAudio=%d, sampleRate=%.0f)",
+        p42log("[Port42] audio.capture started (transcribe=%d, language=%@, rawAudio=%d, sampleRate=%.0f)",
               transcribe, language, rawAudio, sampleRate)
         return ["ok": true, "sampleRate": sampleRate]
     }
@@ -200,7 +200,7 @@ public final class AudioBridge: PortOwnedResource {
         owner = nil
         ownerPortId = nil
 
-        NSLog("[Port42] audio.capture stopped")
+        p42log("[Port42] audio.capture stopped")
         return ["ok": true]
     }
 
@@ -237,7 +237,7 @@ public final class AudioBridge: PortOwnedResource {
         if let voice = AVSpeechSynthesisVoice(language: voiceId) {
             utterance.voice = voice
         } else {
-            NSLog("[Port42] audio.speak: voice not found for '%@', using default", voiceId)
+            p42log("[Port42] audio.speak: voice not found for '%@', using default", voiceId)
         }
 
         if let rate = opts?["rate"] as? Double {
@@ -270,7 +270,7 @@ public final class AudioBridge: PortOwnedResource {
         }
 
         self.speakPortId = nil
-        NSLog("[Port42] audio.speak completed: %d chars", text.count)
+        p42log("[Port42] audio.speak completed: %d chars", text.count)
         return result
     }
 
@@ -301,10 +301,10 @@ public final class AudioBridge: PortOwnedResource {
             self.audioPlayer = player
             self.playPortId = owner?.messageId
 
-            NSLog("[Port42] audio.play started: %.1fs duration", player.duration)
+            p42log("[Port42] audio.play started: %.1fs duration", player.duration)
             return ["ok": true, "duration": player.duration]
         } catch {
-            NSLog("[Port42] audio.play failed: %@", error.localizedDescription)
+            p42log("[Port42] audio.play failed: %@", error.localizedDescription)
             return ["error": "failed to play audio: \(error.localizedDescription)"]
         }
     }

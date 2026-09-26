@@ -4,7 +4,7 @@ import GRDB
 public final class DatabaseService {
     public let dbQueue: DatabaseQueue
 
-    public init(subdirectory: String = "Port42") throws {
+    public convenience init(subdirectory: String = "Port42") throws {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!.appendingPathComponent(subdirectory, isDirectory: true)
@@ -14,7 +14,25 @@ public final class DatabaseService {
         )
 
         let dbPath = appSupport.appendingPathComponent("port42.sqlite").path
-        dbQueue = try DatabaseQueue(path: dbPath)
+        try self.init(path: dbPath)
+    }
+
+    /// A database file at `path`, in WAL mode.
+    ///
+    /// WAL, with `synchronous = NORMAL` (2026-09-26). The default rollback journal copies every page
+    /// it changes to a journal and syncs both files on each commit, and the app commits on the main
+    /// thread: with the disk busy (Dropbox's file provider at 112% CPU while this repo was built),
+    /// one commit held the main thread long enough for gateway calls to time out (sampled on Dev4 in
+    /// `pagerAddPageToRollbackJournal`). WAL appends to one file and, at NORMAL, syncs only at
+    /// checkpoints: a commit is a sequential write. A crash can lose the last commits, never the
+    /// database's integrity.
+    public init(path: String) throws {
+        var config = Configuration()
+        config.prepareDatabase { db in
+            _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+        }
+        dbQueue = try DatabaseQueue(path: path, configuration: config)
         try migrate()
     }
 
@@ -573,7 +591,7 @@ public final class DatabaseService {
             for row in dupRows {
                 let aid: String = row["agentId"]
                 let c: Int = row["c"]
-                NSLog("[Port42][v35] WARNING companion %@ has %d direct spaces (dup DM) — oldest wins; manual cleanup advised", aid, c)
+                p42log("[Port42][v35] WARNING companion %@ has %d direct spaces (dup DM) — oldest wins; manual cleanup advised", aid, c)
             }
         }
 
@@ -1061,7 +1079,7 @@ public final class DatabaseService {
                 let msgs = try Int.fetchOne(
                     db, sql: "SELECT COUNT(*) FROM messages WHERE spaceId = ?",
                     arguments: [oldId]) ?? 0
-                NSLog("[Port42][v35] dropping dead swim %@ (%d messages, agent gone)", oldId, msgs)
+                p42log("[Port42][v35] dropping dead swim %@ (%d messages, agent gone)", oldId, msgs)
                 try Self.deleteSpaceAndChildren(db, spaceId: oldId)
                 return
             }

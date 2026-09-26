@@ -136,7 +136,7 @@ public final class CLIInstallService: ObservableObject {
     public func install(bundleID: String? = Bundle.main.bundleIdentifier,
                         registry: ClientRegistry? = nil) -> Bool {
         guard let bundled = Self.bundledCLIPath() else {
-            NSLog("[cli-install] no bundled \(Self.bundledExecutableName) in this build; skipping")
+            p42log("[cli-install] no bundled \(Self.bundledExecutableName) in this build; skipping")
             return false
         }
 
@@ -159,7 +159,7 @@ public final class CLIInstallService: ObservableObject {
         do {
             try fm.createDirectory(atPath: installDir, withIntermediateDirectories: true)
         } catch {
-            NSLog("[cli-install] cannot create \(installDir): \(error)")
+            p42log("[cli-install] cannot create \(installDir): \(error)")
             return false
         }
 
@@ -174,7 +174,7 @@ public final class CLIInstallService: ObservableObject {
         case .alreadyCorrect:
             break
         case .leaveForeignAlone(let what):
-            NSLog("[cli-install] \(link) is not ours (\(what)); leaving it alone")
+            p42log("[cli-install] \(link) is not ours (\(what)); leaving it alone")
             installedPath = nil
             // Published, so Settings can say WHAT is in the way and let the user decide. The
             // refusal is deliberate; leaving them to find it in the system log was not.
@@ -183,7 +183,7 @@ public final class CLIInstallService: ObservableObject {
         case .create:
             guard createLink(at: link, to: bundled) else { return false }
         case .repoint(let from):
-            NSLog("[cli-install] re-pointing \(link) from \(from)")
+            p42log("[cli-install] re-pointing \(link) from \(from)")
             try? fm.removeItem(atPath: link)
             guard createLink(at: link, to: bundled) else { return false }
         }
@@ -193,7 +193,7 @@ public final class CLIInstallService: ObservableObject {
 
         notOnPath = !Self.pathContains(installDir, path: ProcessInfo.processInfo.environment["PATH"])
         if notOnPath {
-            NSLog("[cli-install] installed at \(link) but \(installDir) is not on PATH")
+            p42log("[cli-install] installed at \(link) but \(installDir) is not on PATH")
         }
         return true
     }
@@ -220,7 +220,7 @@ public final class CLIInstallService: ObservableObject {
     private func enrol(registry: ClientRegistry?) {
         if let registry {
             if registry.register(id: Self.clientID, name: Self.clientName, kind: .installed) != nil {
-                NSLog("[cli-install] enrolled as '\(Self.clientID)'")   // never the token (NFR2)
+                p42log("[cli-install] enrolled as '\(Self.clientID)'")   // never the token (NFR2)
                 // WHICH INSTANCE IS ON WHICH PORT. The CLI targets a PORT (it probes 4242, 4243,
                 // 4245…), but a token lives under an INSTANCE directory, and nothing connected the
                 // two — a dev machine runs several instances at once and a token minted by one fails
@@ -237,7 +237,7 @@ public final class CLIInstallService: ObservableObject {
                 // the CLI its name, it costs it every call. Nothing here changed; the thing the
                 // sentence depended on did, one commit later, which is why a comment asserting
                 // another component's behavior has to be re-read whenever that component moves.
-                NSLog("[cli-install] WARNING: could not enrol \(Self.clientID); every call it makes "
+                p42log("[cli-install] WARNING: could not enrol \(Self.clientID); every call it makes "
                       + "will be refused with auth_required until it is enrolled")
             }
         }
@@ -246,10 +246,10 @@ public final class CLIInstallService: ObservableObject {
     private func createLink(at link: String, to destination: String) -> Bool {
         do {
             try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: destination)
-            NSLog("[cli-install] linked \(link) -> \(destination)")
+            p42log("[cli-install] linked \(link) -> \(destination)")
             return true
         } catch {
-            NSLog("[cli-install] failed to link \(link): \(error)")
+            p42log("[cli-install] failed to link \(link): \(error)")
             return false
         }
     }

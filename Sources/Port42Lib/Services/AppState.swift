@@ -470,11 +470,11 @@ public final class AppState: ObservableObject {
             guard let self = self else { return }
             // F8: a port whose space was deleted is removed before anything lists or draws it.
             if let reaped = try? self.db.reapOrphanPortPanels(), reaped > 0 {
-                NSLog("[Port42] Removed %d port(s) whose space no longer exists", reaped)
+                p42log("[Port42] Removed %d port(s) whose space no longer exists", reaped)
             }
             // A chat goes with its port (docs/design-chat-port.md).
             if let reaped = try? self.db.reapOrphanChats(), reaped > 0 {
-                NSLog("[Port42] Removed %d chat entr(ies) whose port no longer exists", reaped)
+                p42log("[Port42] Removed %d chat entr(ies) whose port no longer exists", reaped)
             }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
@@ -839,7 +839,7 @@ public final class AppState: ObservableObject {
                 // risk in this operation, so it is stated rather than implied.
                 let reaped = self.clientRegistry.reapOrphanTokenFiles()
                 if !reaped.isEmpty {
-                    NSLog("[Port42] reaped %d orphan token file(s): %@",
+                    p42log("[Port42] reaped %d orphan token file(s): %@",
                           reaped.count, reaped.joined(separator: ", "))   // names, never contents
                 }
             }
@@ -1008,12 +1008,12 @@ public final class AppState: ObservableObject {
             let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             for pidStr in output.split(separator: "\n") {
                 if let pid = Int32(pidStr.trimmingCharacters(in: .whitespaces)) {
-                    NSLog("[gateway] killing stale process on port %d (pid %d)", port, pid)
+                    p42log("[gateway] killing stale process on port %d (pid %d)", port, pid)
                     kill(pid, SIGTERM)
                 }
             }
         } catch {
-            NSLog("[gateway] lsof failed: %@", error.localizedDescription)
+            p42log("[gateway] lsof failed: %@", error.localizedDescription)
         }
     }
 
@@ -1065,7 +1065,7 @@ public final class AppState: ObservableObject {
             // Live terminal: inject now AND arm the next turnComplete so only this reply is posted.
             controller.inject(line)
             setTerminalTyping(name: name, spaceId: spaceId)
-            NSLog("[Port42] Routed '%@' to native terminal", key)
+            p42log("[Port42] Routed '%@' to native terminal", key)
         } else {
             // Terminal closed/minimized (or mid-(re)spawn): queue the message and ensure a live
             // terminal exists. The controller drains the queue once the CLI signals readiness
@@ -1073,7 +1073,7 @@ public final class AppState: ObservableObject {
             pendingTerminalInjections[key, default: []].append(line)
             ensureTerminalLive(companion: companion, spaceId: spaceId)
             setTerminalTyping(name: name, spaceId: spaceId)
-            NSLog("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
+            p42log("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
         }
     }
 
@@ -1106,10 +1106,10 @@ public final class AppState: ObservableObject {
         }
         // No panel at all → fully closed → spawn a fresh terminal port.
         guard let command = companion.command else {
-            NSLog("[Port42] ensureTerminalLive: '%@' has no command, cannot respawn", key)
+            p42log("[Port42] ensureTerminalLive: '%@' has no command, cannot respawn", key)
             return
         }
-        NSLog("[Port42] Respawning closed terminal for '%@'", key)
+        p42log("[Port42] Respawning closed terminal for '%@'", key)
         spawnTerminalAgentPort(companion: companion, command: command, spaceId: spaceId)
     }
 
@@ -1123,7 +1123,7 @@ public final class AppState: ObservableObject {
         terminalTypingTimers[key] = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                NSLog("[Port42] Terminal typing safety-timeout fired for '%@' — clearing", name)
+                p42log("[Port42] Terminal typing safety-timeout fired for '%@' — clearing", name)
                 self.clearTerminalTyping(name: name, spaceId: spaceId)
             }
         }
@@ -1558,7 +1558,7 @@ public final class AppState: ObservableObject {
             let asked = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased())
             let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
             do { try self.postToChat(key: chat, text: content, from: who) }
-            catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
+            catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainKey = config.companionName.lowercased()
@@ -1648,9 +1648,9 @@ public final class AppState: ObservableObject {
             try db.saveAgent(agent)
             companions = try db.getAllAgents()
             autoRegisteredCompanions[panelId] = agent.id
-            NSLog("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
+            p42log("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
         } catch {
-            NSLog("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
+            p42log("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
             return
         }
         // Membership + the "joined" announcement (once) via the shared seam.
@@ -1685,9 +1685,9 @@ public final class AppState: ObservableObject {
             try db.removeAllSpacesForAgent(agentId)
             try db.deleteAgent(id: agentId)
             companions = try db.getAllAgents()
-            NSLog("[Port42] removed auto-registered CLI companion id=%@", agentId)
+            p42log("[Port42] removed auto-registered CLI companion id=%@", agentId)
         } catch {
-            NSLog("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
+            p42log("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
         }
     }
 
@@ -1814,7 +1814,7 @@ public final class AppState: ObservableObject {
                 try? db.deleteAgent(id: agent.id)
                 live.remove(agent.displayName)
                 reaped += 1
-                NSLog("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
+                p42log("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
                       agent.displayName, handle)
             } else {
                 var renamed = agent
@@ -1823,7 +1823,7 @@ public final class AppState: ObservableObject {
                 live.remove(agent.displayName)
                 live.insert(handle)
                 folded += 1
-                NSLog("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
+                p42log("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
             }
         }
 
@@ -1905,7 +1905,7 @@ public final class AppState: ObservableObject {
             initialInput: initialInput
         )
         guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
-            NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
+            p42log("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
             return nil
         }
 
@@ -1916,7 +1916,7 @@ public final class AppState: ObservableObject {
         if let panel = portWindows.panels.first(where: { $0.id == portId }) {
             buildTerminalSurface(for: panel, config: config)
         }
-        NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
+        p42log("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
 
         // Step 5b: record params so the card's play can respawn after a close, and track the
         // currently-live port id under the stable card key (`recordKey` on respawn, else portId).

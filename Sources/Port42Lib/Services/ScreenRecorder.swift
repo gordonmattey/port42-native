@@ -330,14 +330,14 @@ public final class ScreenRecorder {
             }
             try await stream.startCapture()
         } catch {
-            NSLog("[Port42] screen.record: start failed: %@", error.localizedDescription)
+            p42log("[Port42] screen.record: start failed: %@", error.localizedDescription)
             return ["error": "screen.record start failed: \(error.localizedDescription)"]
         }
 
         active[id] = Active(id: id, stream: stream, writer: writer,
                             url: url, width: outWidth, height: outHeight, fps: cfg.fps,
                             startedAt: Date(), ownerPortId: ownerPortId)
-        NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
+        p42log("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
               id, outWidth, outHeight, cfg.fps, cfg.capturesAudio ? 1 : 0, targetLabel, url.lastPathComponent)
         return ["recordingId": id, "width": outWidth, "height": outHeight, "target": targetLabel]
     }
@@ -360,7 +360,7 @@ public final class ScreenRecorder {
             let done: () -> Void = { if !resumed { resumed = true; cont.resume() } }
             Task {
                 do { try await rec.stream.stopCapture() }
-                catch { NSLog("[Port42] screen.record: stopCapture error: %@", error.localizedDescription) }
+                catch { p42log("[Port42] screen.record: stopCapture error: %@", error.localizedDescription) }
                 writer.finish { done() }
             }
             Task {
@@ -375,7 +375,7 @@ public final class ScreenRecorder {
         if let sz = (try? FileManager.default.attributesOfItem(atPath: rec.url.path))?[.size] as? Int {
             bytes = sz
         }
-        NSLog("[Port42] screen.record: stopped %@ %.2fs %ld bytes", recordingId, seconds, bytes)
+        p42log("[Port42] screen.record: stopped %@ %.2fs %ld bytes", recordingId, seconds, bytes)
         return [
             "path": rec.url.path,
             "width": rec.width,
@@ -394,7 +394,7 @@ public final class ScreenRecorder {
         let owned = active.filter { $0.value.ownerPortId == id }
         for (rid, rec) in owned {
             active[rid] = nil
-            NSLog("[Port42] screen.record: finalizing %@ on owner %@ teardown", rid, id)
+            p42log("[Port42] screen.record: finalizing %@ on owner %@ teardown", rid, id)
             Task {
                 try? await rec.stream.stopCapture()
                 if #available(macOS 15, *) { (rec.writer as? RecordingWriter)?.finish {} }

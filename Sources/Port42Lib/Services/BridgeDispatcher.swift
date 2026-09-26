@@ -427,7 +427,7 @@ extension AppState {
 
         #if DEBUG
         if human != nil {
-            NSLog("[Port42:presence] path=input port=%@ takeover=%d", portId, alreadyDriving ? 0 : 1)
+            p42log("[Port42:presence] path=input port=%@ takeover=%d", portId, alreadyDriving ? 0 : 1)
         }
         #endif
         broadcastDriverChange(outcome.driverChanged, port: portId)
@@ -486,7 +486,7 @@ extension AppState {
     /// whether to wait) learns for free and no side channel exists to fall out of sync.
     func broadcastDriverChange(_ driver: Driver?, port key: String) {
         guard let d = driver else { return }
-        NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
+        p42log("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key), kind: PortEventKind.driver.wire,
                           payload: .object(["driver": .string(d.ref.description),
                                             "driverName": .string(d.name),

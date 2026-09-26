@@ -39,18 +39,18 @@ public final class FileBridge {
         // blocking the Swift concurrency runtime. runModal() creates a
         // nested run loop that conflicts with async/await on MainActor,
         // causing the panel to silently cancel.
-        NSLog("[Port42] pickOpen: presenting panel, keyWindow=%@, mainWindow=%@",
+        p42log("[Port42] pickOpen: presenting panel, keyWindow=%@, mainWindow=%@",
               NSApp.keyWindow?.description ?? "nil", NSApp.mainWindow?.description ?? "nil")
         let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
             panel.begin { response in
-                NSLog("[Port42] pickOpen: panel completed with response=%d (OK=%d, cancel=%d)",
+                p42log("[Port42] pickOpen: panel completed with response=%d (OK=%d, cancel=%d)",
                       response.rawValue, NSApplication.ModalResponse.OK.rawValue, NSApplication.ModalResponse.cancel.rawValue)
                 continuation.resume(returning: response)
             }
         }
 
         guard response == .OK else {
-            NSLog("[Port42] pickOpen: cancelled/failed")
+            p42log("[Port42] pickOpen: cancelled/failed")
             return ["cancelled": true]
         }
 
@@ -76,16 +76,16 @@ public final class FileBridge {
             }
         }
 
-        NSLog("[Port42] pickSave: presenting panel, keyWindow=%@", NSApp.keyWindow?.description ?? "nil")
+        p42log("[Port42] pickSave: presenting panel, keyWindow=%@", NSApp.keyWindow?.description ?? "nil")
         let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
             panel.begin { response in
-                NSLog("[Port42] pickSave: panel completed with response=%d", response.rawValue)
+                p42log("[Port42] pickSave: panel completed with response=%d", response.rawValue)
                 continuation.resume(returning: response)
             }
         }
 
         guard response == .OK, let url = panel.url else {
-            NSLog("[Port42] pickSave: cancelled/failed")
+            p42log("[Port42] pickSave: cancelled/failed")
             return ["cancelled": true]
         }
 

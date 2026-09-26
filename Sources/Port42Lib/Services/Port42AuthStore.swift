@@ -70,7 +70,7 @@ public final class Port42AuthStore {
         ]
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         if status != errSecSuccess {
-            NSLog("[Port42] Failed to save secret '%@': %d", name, status)
+            p42log("[Port42] Failed to save secret '%@': %d", name, status)
         }
 
         // Store metadata (type) in UserDefaults — not sensitive
@@ -82,7 +82,7 @@ public final class Port42AuthStore {
             names.append(name)
             UserDefaults.standard.set(names, forKey: "port42SecretNames")
         }
-        NSLog("[Port42] Secret saved: %@ (%@)", name, type.rawValue)
+        p42log("[Port42] Secret saved: %@ (%@)", name, type.rawValue)
     }
 
     /// Load a named secret's value from Keychain. Returns nil if not found.
@@ -104,7 +104,7 @@ public final class Port42AuthStore {
         var names = secretNames()
         names.removeAll { $0 == name }
         UserDefaults.standard.set(names, forKey: "port42SecretNames")
-        NSLog("[Port42] Secret deleted: %@", name)
+        p42log("[Port42] Secret deleted: %@", name)
     }
 
     /// List all named secrets (metadata only, no values).
@@ -184,7 +184,7 @@ public final class Port42AuthStore {
         ] as CFDictionary, nil)
         if status != errSecSuccess {
             // NEVER log the value (NFR2) — only that it failed, and with what code.
-            NSLog("[Port42] Failed to save keychain value for %@: %d", account, status)
+            p42log("[Port42] Failed to save keychain value for %@: %d", account, status)
         }
     }
 

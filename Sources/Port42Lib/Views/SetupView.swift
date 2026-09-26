@@ -645,7 +645,7 @@ public struct SetupView: View {
             try appState.db.saveUser(user)
             appState.currentUser = user
         } catch {
-            NSLog("[Port42] Failed to save user during key gen: \(error)")
+            p42log("[Port42] Failed to save user during key gen: \(error)")
         }
 
         Task {

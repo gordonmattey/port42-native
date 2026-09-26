@@ -31,6 +31,6 @@ public func ghosttyProbe() -> Bool {
     default: mode = "unknown"
     }
 
-    NSLog("[Port42] GhosttyKit probe: true (version=%@, build=%@)", version, mode)
+    p42log("[Port42] GhosttyKit probe: true (version=%@, build=%@)", version, mode)
     return true
 }

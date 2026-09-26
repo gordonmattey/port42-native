@@ -204,10 +204,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // carries the full identity, so each branch uses the key its accessor keys on (terminal id /
         // webViews-key / inline messageId). Terminal-wins precedence lives in PortResolution now, not here.
         guard let ref = appState.resolvePortRef(id) else {
-            NSLog("[Port42][portdrive] push id=%@ → NOTFOUND space=%@", id, appState.currentSpace?.name ?? "?")
+            p42log("[Port42][portdrive] push id=%@ → NOTFOUND space=%@", id, appState.currentSpace?.name ?? "?")
             throw BridgeError.notFound("port '\(id)'")
         }
-        NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
+        p42log("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
         // A TERMINAL TAKES KEYSTROKES, and there is no keystroke for null. Presence alone closes the
         // reported bug (an omitted `data` can no longer reach the prompt), but `{"data": null}` would
         // still serialize to the string "null" at the branch below and type it. Refused here rather

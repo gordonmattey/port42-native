@@ -73,7 +73,7 @@ public actor TerminalHooksService {
     private func startListening() {
         let f = socket(AF_UNIX, SOCK_STREAM, 0)
         guard f >= 0 else {
-            NSLog("[hooks] socket() failed errno=\(errno)")
+            p42log("[hooks] socket() failed errno=\(errno)")
             return
         }
         unlink(socketPath)
@@ -83,7 +83,7 @@ public actor TerminalHooksService {
         let copied: Bool = socketPath.withCString { cstr in
             let n = strlen(cstr)
             guard n < MemoryLayout.size(ofValue: addr.sun_path) else {
-                NSLog("[hooks] socket path too long (\(n)): \(socketPath)")
+                p42log("[hooks] socket path too long (\(n)): \(socketPath)")
                 return false
             }
             withUnsafeMutablePointer(to: &addr.sun_path) {
@@ -101,17 +101,17 @@ public actor TerminalHooksService {
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(f, $0, len) }
         }
         guard bindRes == 0 else {
-            NSLog("[hooks] bind(\(socketPath)) failed errno=\(errno)")
+            p42log("[hooks] bind(\(socketPath)) failed errno=\(errno)")
             close(f)
             return
         }
         guard listen(f, 16) == 0 else {
-            NSLog("[hooks] listen failed errno=\(errno)")
+            p42log("[hooks] listen failed errno=\(errno)")
             close(f)
             return
         }
         self.fd = f
-        NSLog("[hooks] listening on \(socketPath)")
+        p42log("[hooks] listening on \(socketPath)")
 
         let cont = continuation
         queue.async { Self.acceptLoop(fd: f, continuation: cont) }
@@ -159,12 +159,12 @@ public actor TerminalHooksService {
             // Diagnostic for the reply-post bug. Two failure modes, both from the transcript
             // the Stop hook hands over: EMPTY (no post) and STALE (a previous turn's text,
             // posted wrongly). Log the file + size + length on EVERY turn so both are visible.
-            NSLog("[hooks] turnComplete: transcript=%@ bytes=%lld len=%d sid=%@",
+            p42log("[hooks] turnComplete: transcript=%@ bytes=%lld len=%d sid=%@",
                   w.transcript ?? "nil", w.transcriptBytes ?? -1, (w.text ?? "").count,
                   w.sessionId ?? "nil")
             return .turnComplete(text: w.text ?? "", exitCode: w.exitCode ?? 0)
         case "needsAttention":
-            NSLog("[hooks] needsAttention: %@", w.text ?? "")
+            p42log("[hooks] needsAttention: %@", w.text ?? "")
             return .needsAttention(message: w.text ?? "")
         case "toolStarting":   return .toolStarting(tool: w.tool ?? "", input: w.input ?? "")
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
@@ -369,7 +369,7 @@ public enum TerminalSessionBootstrap {
         ]
         for (name, body) in files {
             do { try body.write(toFile: "\(dir)/\(name)", atomically: true, encoding: .utf8) }
-            catch { NSLog("[hooks] failed to write \(name): \(error)"); return false }
+            catch { p42log("[hooks] failed to write \(name): \(error)"); return false }
         }
         return true
     }

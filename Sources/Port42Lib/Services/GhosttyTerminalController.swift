@@ -171,7 +171,7 @@ final class GhosttyTerminalController {
     /// Whether a live Ghostty surface is bound — i.e. inject() can reach the PTY right now.
     var isSurfaceBound: Bool { injectToSurface != nil }
 
-    private func log(_ msg: String) { NSLog("[ctl:%@] %@", config.companionName, msg) }
+    private func log(_ msg: String) { p42log("[ctl:%@] %@", config.companionName, msg) }
 
     init(panelId: String, config: TerminalPortConfig,
          post: @escaping (String) -> Void,
@@ -214,7 +214,7 @@ final class GhosttyTerminalController {
             producer: nil
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
-        NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
+        p42log("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
               config.companionName, panelId, hooksCapable ? "Y" : "N", session.socketPath,
               config.spaceId, config.cwd, config.startupCommand)
 

@@ -38,7 +38,7 @@ extension CLIHookProducer {
                     try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: shimPath)
                     out.pathPrefix = ctx.tempDir
                 } catch {
-                    NSLog("[hooks] failed to symlink claude shim: \(error)")
+                    p42log("[hooks] failed to symlink claude shim: \(error)")
                 }
 
                 // The function itself is contributed as a LINE; the assembler writes the file and
