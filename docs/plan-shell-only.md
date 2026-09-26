@@ -370,6 +370,11 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **`/imagine`** (GM, 2026-09-25). Type one line ("a shader that reacts to music") and Port42 writes
+  the brief, opens a new space with a lead and two engineers, and briefs the lead; the team builds and
+  improves the port in its chat by rounds and reports DONE. The pieces exist and ran live
+  (`scripts/scenarios/team.py`); what is new is turning the line into the brief. Product idea;
+  whether people want it is unvalidated.
 - **Windows and Linux** (GM wants Windows, 2026-09-25; demand unvalidated). A research branch
   (`research-windows-port`, `docs/recommend-kernel-boundary.md`) proposes moving the kernel to Go so
   other shells become clients of the door. Against this plan:
