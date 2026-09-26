@@ -135,18 +135,18 @@ struct CompanionProtocolTests {
             .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
 
         // A codex the user runs normally also reads this file. It must be told when the section
-        // applies, rather than being informed it lives in a space it has never heard of.
-        #expect(md.contains("PORT42_SPACE_ID"),
-                "the companion section must name the env var that gates it")
+        // applies. The gate is the token file, which every Port42 terminal has; the space id did not
+        // always reach a Codex session's shell, so the section was ignored (2026-09-25).
+        #expect(md.contains("PORT42_TOKEN_FILE"), "the companion section must name the env var that gates it")
+        #expect(!md.contains("Applies only when `PORT42_SPACE_ID`"), "the old gate must be gone")
     }
 
-    /// A companion's space is FIXED at spawn. `space.current` called bare returns the space the USER
-    /// is looking at right now, so a companion in #general would report whatever space was on screen
-    /// and would change its answer whenever the human switched. GM caught this in the instructions
-    /// before it shipped: true at the moment I tested it, false the moment anyone navigated.
-    @Test("the space lookup passes space_id — bare, it returns the USER's current space")
+    /// A companion's space is FIXED at spawn, and `space.current` called bare returns the space the
+    /// USER is looking at. So a companion learns where it is from `whoami`, which answers from its own
+    /// credential, never from what is on screen.
+    @Test("a companion learns who and where it is from whoami, not a bare space lookup")
     @MainActor
-    func spaceLookupIsScopedToTheCompanion() {
+    func whoamiFirst() {
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
         try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: home) }
@@ -154,13 +154,31 @@ struct CompanionProtocolTests {
         svc.installInstructions(for: "codex")
         let md = (try? String(contentsOfFile: (home as NSString)
             .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
+        #expect(md.contains("\"method\":\"whoami\""))
+        #expect(!md.contains("\"method\":\"space.current\""), "a bare space lookup reports the user's space")
+    }
 
-        #expect(md.contains("\"space_id\""),
-                "the example must pass space_id, or it reports the wrong space")
-        // And the example must feed it the companion's OWN id rather than a literal.
-        #expect(md.contains("$PORT42_SPACE_ID"))
-        // The warning matters as much as the example: an agent that reads only the code block and
-        // drops the argument gets a plausible, wrong answer with nothing to flag it.
-        #expect(md.lowercased().contains("never call it without"))
+    /// GM's multi-agent test, 2026-09-25: agents did not know which room to use. Both surfaces teach
+    /// the chats from one source.
+    @Test("both surfaces teach the chats: whoami, chat.read and chat.post on a port")
+    @MainActor
+    func chatsTaughtOnBothSurfaces() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        state.createSpace(name: "general")
+        let id = state.spaces.first(where: { $0.name == "general" })!.id
+        let baked = state.bakeCompanionPrompt(name: "scout", spaceId: id, systemPrompt: nil)
+        let chats = CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port)
+        #expect(baked.contains(chats))
+        for phrase in ["\"method\":\"whoami\"", "\"method\":\"chat.read\"", "\"method\":\"chat.post\"",
+                       "every port in Port42 has a chat"] {
+            #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
+        }
+        let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        InstructionService(homeDirectory: home).installInstructions(for: "codex")
+        let md = (try? String(contentsOfFile: (home as NSString)
+            .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
+        #expect(md.contains(chats))
     }
 }

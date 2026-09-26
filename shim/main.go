@@ -39,7 +39,11 @@ import (
 func main() {
 	// notify mode: `port42-claude-shim notify <event>`
 	if len(os.Args) >= 3 && os.Args[1] == "notify" {
-		runNotify(os.Args[2])
+		cli := ""
+		if len(os.Args) >= 4 {
+			cli = os.Args[3] // which CLI's hook this is ("claude" or "codex"), so the app registers it right
+		}
+		runNotify(os.Args[2], cli)
 		return
 	}
 
@@ -207,7 +211,7 @@ func buildSettings(selfPath string) string {
 		Hooks   []hookCmd `json:"hooks"`
 	}
 	notify := func(event string) string {
-		return shellQuote(selfPath) + " notify " + event
+		return shellQuote(selfPath) + " notify " + event + " claude"
 	}
 	settings := map[string]any{
 		"hooks": map[string]any{
@@ -268,11 +272,14 @@ type normalizedEvent struct {
 	// event uses (the shim's own stderr does not reach the app).
 	Transcript      string `json:"transcript,omitempty"`
 	TranscriptBytes int64  `json:"transcriptBytes,omitempty"`
+	// Which CLI raised the hook. A plain terminal where the person typed `codex` used to be
+	// registered as Claude, because nothing said otherwise (2026-09-25).
+	CLI string `json:"cli,omitempty"`
 }
 
 // runNotify reads Claude's raw hook payload from stdin, translates it to a normalized event,
 // and writes it to the hooks socket.
-func runNotify(event string) {
+func runNotify(event, cli string) {
 	socket := os.Getenv("PORT42_HOOKS_SOCKET")
 	if socket == "" {
 		return
@@ -282,7 +289,7 @@ func runNotify(event string) {
 	var payload map[string]any
 	_ = json.Unmarshal(raw, &payload)
 
-	out := normalizedEvent{Event: event}
+	out := normalizedEvent{Event: event, CLI: cli}
 	if sid, ok := payload["session_id"].(string); ok {
 		out.SessionID = sid
 	}

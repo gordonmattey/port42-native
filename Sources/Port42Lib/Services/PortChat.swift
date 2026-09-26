@@ -147,7 +147,7 @@ extension AppState {
     func chatSourceLabel(key: String, panel: PortPanel?) -> String {
         if key == PortChat.desktopKey { return ChatRouting.sourceLabel(desktop: true) }
         if let space = spaces.first(where: { $0.id == key }) { return ChatRouting.sourceLabel(space: space.name) }
-        return ChatRouting.sourceLabel(port: panel?.title ?? "port",
+        return ChatRouting.sourceLabel(port: panel?.title ?? "port", portId: panel?.udid,
                                        ownTerminal: panel?.terminalConfig?.companionName.isEmpty == false)
     }
 }
@@ -161,12 +161,16 @@ public enum ChatRouting {
         return "[@\(sender) in \(source)]: \(text)\r"
     }
 
+    /// A port's chat names the port's id as well as its title, so a companion can post there
+    /// without searching `ports.list` for it (GM's multi-agent test, 2026-09-25).
     public static func sourceLabel(desktop: Bool = false, space: String? = nil,
-                                   port: String? = nil, ownTerminal: Bool = false) -> String {
+                                   port: String? = nil, portId: String? = nil,
+                                   ownTerminal: Bool = false) -> String {
         if desktop { return "the desktop chat" }
         if let space { return "#\(space)" }
         if ownTerminal { return "your terminal's chat" }
-        return "the chat of port '\(port ?? "port")'"
+        let title = "the chat of port '\(port ?? "port")'"
+        return portId.map { "\(title) (id \($0))" } ?? title
     }
 
     /// The @name being typed at the end of a draft ("" right after a bare @), or nil if none.
@@ -252,6 +256,28 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         }
         let entry = try appState.postToChat(key: k, text: text, from: p)
         return .object(["ok": .bool(true), "entry": entry.bridgeValue])
+    }
+
+    r["whoami"] = BridgeMethod(permission: nil,
+        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. Call it first.",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
+        var o: [String: BridgeValue] = ["name": .string(p.displayName), "kind": .string(p.kind.rawValue)]
+        var spaceId = p.spaceId
+        if let panelId = appState.terminalClientPanels[p.id],
+           let panel = appState.portWindows.panels.first(where: { $0.id == panelId }) {
+            if let name = panel.terminalConfig?.companionName, !name.isEmpty { o["name"] = .string(name) }
+            o["terminal_port"] = .string(panel.udid)
+            o["chat"] = .string(panel.udid)
+            spaceId = panel.spaceId ?? spaceId
+        }
+        if let sid = spaceId, let space = appState.spaces.first(where: { $0.id == sid }) {
+            o["space_id"] = .string(sid)
+            o["space_name"] = .string(space.name)
+            let me = o["name"]
+            o["companions"] = .array(appState.companions(forSpace: sid)
+                .map(\.displayName).filter { BridgeValue.string($0) != me }.map { .string($0) })
+        }
+        return .object(o)
     }
 
     r["chat.read"] = BridgeMethod(permission: nil, paramNames: ["port", "after", "limit"],

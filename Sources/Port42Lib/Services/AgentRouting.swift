@@ -64,7 +64,7 @@ public enum CompanionProtocol {
     Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: \
     — this prefix only tells you who sent the message; never copy that leading prefix into your \
     reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write \
-    your response normally — it is delivered to the space automatically. Do NOT also post that reply \
+    your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply \
     via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another \
     companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for \
     example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — \
@@ -72,18 +72,36 @@ public enum CompanionProtocol {
     e.g. "Built the login form, @Critic please review."
     """
 
+    /// How chats work, taught to every companion (GM's multi-agent test, 2026-09-25: agents did not
+    /// know which room to use, and one searched the file system to find out where it was). One source
+    /// for Claude's system prompt and Codex's AGENTS.md, like `rules`. `gatewayPort` is the live
+    /// instance's, so the example curls reach it.
+    public static func chats(gatewayPort: Int) -> String {
+        let call = "curl -s http://127.0.0.1:\(gatewayPort)/call -H \"Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")\""
+        return """
+        FIRST, FIND OUT WHO AND WHERE YOU ARE: \(call) -d '{"method":"whoami"}' returns your name, your \
+        space, your terminal port and its chat, and the companions you can @mention. \
+        CHATS: every port in Port42 has a chat, and so does every space. A message reaches you as \
+        [@sender in <where>]: text, where <where> is the chat it came from: a #space, your terminal's \
+        chat, or a port's chat with its id. Work on a port belongs in that port's chat: read it with \
+        \(call) -d '{"method":"chat.read","args":{"port":"<port id>"}}' and post to it with \
+        \(call) -d '{"method":"chat.post","args":{"port":"<port id>","text":"..."}}', which is posted as \
+        you. To reach another companion, @mention it by name in a chat; whoami lists who is here.
+        """
+    }
+
     /// The EXACT text claude has been running with, kept as a literal so the extraction can be
     /// proved to have changed nothing. Extracting shared prose is a refactor; a refactor that
     /// quietly reworded a live system prompt would be a behaviour change wearing a refactor's
     /// clothes. `CompanionProtocolTests` compares `rules` against this, character for character.
-    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\""
+    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered back to the chat it came from automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\""
 
     /// The sentence fragments a surface must carry to count as stating the protocol. Used by the
     /// anti-drift test rather than comparing whole strings, so wording can be improved in one place
     /// without the gate becoming a copy of the thing it guards.
     static let loadBearingPhrases = [
         "never copy that leading prefix",
-        "it is delivered to the space automatically",
+        "it is delivered back to the chat it came from automatically",
         "the ONLY thing that delivers your message",
     ]
 }

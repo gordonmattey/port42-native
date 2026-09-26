@@ -179,20 +179,10 @@ A granted permission is per caller, and the user can see and revoke it in Port42
 
 ## If you were launched as a SPACE COMPANION
 
-Applies only when `PORT42_SPACE_ID` is set, which Port42 does for a companion terminal. If it is \
-unset, ignore this section.
+Applies only when `PORT42_TOKEN_FILE` is set, which Port42 does for every terminal it starts. If it \
+is unset, ignore this section.
 
-**Your space is `$PORT42_SPACE_ID` and you must PASS IT** — look it up for the name and roster:
-
-```bash
-curl -s -H "Authorization: Bearer $(cat \\"$PORT42_TOKEN_FILE\\")" \\\\
-  http://127.0.0.1:\(GatewayProcess.shared.port)/call \\\\
-  -d '{"method":"space.current","args":{"space_id":"'"$PORT42_SPACE_ID"'"}}'
-```
-
-**Never call it without `space_id`.** Bare, it returns the space the USER is looking at, which is not \
-yours and changes when they switch. Your space is fixed for life; only the name and roster change, \
-so ask again rather than remembering.
+\(CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port))
 
 **How to behave:** \(CompanionProtocol.rules)
 """

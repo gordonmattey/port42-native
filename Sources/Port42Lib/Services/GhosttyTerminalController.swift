@@ -133,7 +133,7 @@ final class GhosttyTerminalController {
     /// Fired the first time the CLI signals it has started (SessionStart). AppState uses it to
     /// auto-register an ad-hoc `claude` terminal as a space companion (docs/summer2026-todo.md).
     /// Fires at most once per controller. No-op by default (tests / non-companion terminals).
-    private let onSessionStarted: () -> Void
+    private let onSessionStarted: (String?) -> Void
     /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
@@ -162,7 +162,7 @@ final class GhosttyTerminalController {
          post: @escaping (String) -> Void,
          onOutput: @escaping @MainActor (String) -> Void = { _ in },
          drainPending: @escaping () -> [String] = { [] },
-         onSessionStarted: @escaping () -> Void = {},
+         onSessionStarted: @escaping (String?) -> Void = { _ in },
          onSessionEnded: @escaping () -> Void = {},
          onNeedsAttention: @escaping (String) -> Void = { _ in }) {
         self.panelId = panelId
@@ -270,14 +270,14 @@ final class GhosttyTerminalController {
         case .inputSubmitted(let prompt):
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box
-        case .sessionStarted:
-            log("event=sessionStarted")
+        case .sessionStarted(let cli):
+            log("event=sessionStarted cli=\(cli ?? "?")")
             // CLI is up → deliver any messages queued while it was (re)spawning.
             flushPending(reason: "sessionStarted")
             // First launch → let AppState auto-register this terminal as a companion (once).
             if !didNotifySessionStart {
                 didNotifySessionStart = true
-                onSessionStarted()
+                onSessionStarted(cli)
             }
         case .sessionEnded:
             log("event=sessionEnded")

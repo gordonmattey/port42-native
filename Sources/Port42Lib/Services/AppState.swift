@@ -223,6 +223,9 @@ public final class AppState: ObservableObject {
     /// Companion name (lowercased) → the port chat its next reply goes to. Set when a port chat
     /// routes to it; absent means the reply goes to the space's own chat.
     var chatReplyTargets: [String: String] = [:]
+    /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
+    /// space and chat it is from its credential alone.
+    var terminalClientPanels: [String: String] = [:]
     /// panelId → auto-registered companion id. A live `claude` in a plain terminal is registered
     /// as a space companion on SessionStart (docs/summer2026-todo.md); the entry is removed when
     /// the terminal tears down, so the roster reflects only terminals that are actually live.
@@ -1439,6 +1442,7 @@ public final class AppState: ObservableObject {
             id: terminalClientId,
             name: config.companionName.isEmpty ? "Terminal in \(config.spaceName)" : config.companionName,
             kind: .child)
+        terminalClientPanels[terminalClientId] = panel.id   // whoami: this credential is this terminal
         // Inject the space-posting behaviour so the controller's gate/dedup logic stays
         // decoupled from AppState (and unit-testable).
         let post: (String) -> Void = { [weak self] content in
@@ -1469,9 +1473,9 @@ public final class AppState: ObservableObject {
         // On CLI launch, register an ad-hoc claude terminal as a space companion (no-op for
         // named companions and for non-claude terminals that never fire SessionStart); on exit,
         // remove it (it leaves the space and announces "left", even if the shell stays open).
-        let onSessionStarted: () -> Void = { [weak self] in
+        let onSessionStarted: (String?) -> Void = { [weak self] cli in
             guard let self else { return }
-            self.autoRegisterTerminalCompanion(config: config, panelId: panel.id)
+            self.autoRegisterTerminalCompanion(config: config, panelId: panel.id, cli: cli)
             // A prefilled prompt waits in the CLI's input box for the user to send. SessionStart
             // is the only honest "the TUI is up" signal — typing on a timer races the CLI's boot
             // (and its first-run trust prompt), which drops or misdirects the characters.
@@ -1533,14 +1537,13 @@ public final class AppState: ObservableObject {
     /// (docs/summer2026-todo.md). Mention-gated: it appears in the roster and is @-addressable, but
     /// the post gate still arms on inject, so the user's own private turns are not broadcast.
     /// Idempotent per (name, port). No terminal is spawned — this one is already live.
-    func autoRegisterTerminalCompanion(config: TerminalPortConfig, panelId: String) {
+    func autoRegisterTerminalCompanion(config: TerminalPortConfig, panelId: String, cli: String? = nil) {
         let name = config.companionName
         guard Self.shouldAutoRegisterTerminal(name: name, existingCompanionNames: companions.map(\.displayName)),
               autoRegisteredCompanions[panelId] == nil,
               let ownerId = currentUser?.id else { return }
-        let claudePath = AgentConfig.CLIPreset.claude.resolvedPath ?? "claude"
         let agent = AgentConfig.createCommand(
-            ownerId: ownerId, displayName: name, command: claudePath,
+            ownerId: ownerId, displayName: name, command: Self.autoRegisterCommand(cli: cli),
             openInTerminal: true, trigger: .mentionOnly)
         do {
             try db.saveAgent(agent)
@@ -1553,6 +1556,13 @@ public final class AppState: ObservableObject {
         }
         // Membership + the "joined" announcement (once) via the shared seam.
         joinCompanionToSpace(agent, spaceId: config.spaceId)
+    }
+
+    /// The command an auto-registered terminal companion runs: the CLI whose hook said it started.
+    /// Unnamed means claude, the only CLI whose hooks predate the name.
+    static func autoRegisterCommand(cli: String?) -> String {
+        if cli == "codex" { return ClaudeCodeSetup.findBinary("codex") ?? "codex" }
+        return AgentConfig.CLIPreset.claude.resolvedPath ?? "claude"
     }
 
     /// Remove an auto-registered CLI companion when its terminal goes away (it exists only while
@@ -1663,7 +1673,8 @@ public final class AppState: ObservableObject {
         // surface knows: who this companion is, which space, its own self-post command, and how to
         // authenticate it.
         let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
-            + CompanionProtocol.rules
+            + CompanionProtocol.rules + " "
+            + CompanionProtocol.chats(gatewayPort: gwPort)
             + " POSTING ON YOUR OWN INITIATIVE: to post a NEW message when you are NOT replying (e.g. to share an update or raise something proactively), post it to the space's chat with curl: curl -s http://127.0.0.1:\(gwPort)/call -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\" -d '{\"method\":\"chat.post\",\"args\":{\"port\":\"\(spaceId)\",\"text\":\"your message\"}}' — it is posted as you. Only for self-initiated messages, never to deliver a reply. EVERY Port42 call needs that header: $PORT42_TOKEN_FILE is the path to YOUR OWN token, and $PORT42_CLIENT_ID is the name Port42 knows you by. Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)

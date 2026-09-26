@@ -108,7 +108,7 @@ struct CodexConfigMergeTests {
         // Ours, merged in.
         #expect(toml.contains("hooks = true"))
         #expect(toml.contains("trust_level = \"trusted\""))
-        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted\""))
+        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted codex\""))
         #expect(toml.contains("command = \"'/x/shim' notify turnComplete\""))
 
         // The rejection case: exactly one of each colliding table.
@@ -244,5 +244,18 @@ struct CodexConfigMergeTests {
             seen.insert(t)
         }
         #expect(toml.contains("hooks = true"))
+    }
+
+    /// A user who set their own sandbox table keeps one table, with the network allowed for this
+    /// Port42 session (a companion's whole job is calling Port42, loopback included).
+    @Test("a user's own sandbox table is merged, and the network is allowed")
+    func sandboxMergedNotRepeated() {
+        let user = "[sandbox_workspace_write]\nnetwork_access = false\nwritable_roots = [\"/tmp\"]\n"
+        let toml = CLIHookProducer.codexConfig(shimPath: "/x/shim", cwd: "/tmp/work", userConfig: user)
+        let lines = toml.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        #expect(lines.filter { $0 == "[sandbox_workspace_write]" }.count == 1)
+        #expect(toml.contains("network_access = true"))
+        #expect(!toml.contains("network_access = false"))
+        #expect(toml.contains("writable_roots"), "the user's other sandbox settings survive")
     }
 }

@@ -117,7 +117,11 @@ struct CLIHookProducerTests {
         // The turn-end event, routed to the shim in notify mode.
         #expect(toml.contains("[[hooks.Stop]]"))
         #expect(toml.contains("command = \"'/x/shim' notify turnComplete\""))
-        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted\""))
+        #expect(toml.contains("command = \"'/x/shim' notify sessionStarted codex\""),
+                "the session start names codex, so a codex terminal is not registered as claude")
+        // Codex's sandbox blocks the network, loopback included; a companion must reach Port42.
+        #expect(toml.contains("[sandbox_workspace_write]"))
+        #expect(toml.contains("network_access = true"))
     }
 
     @Test("an empty cwd still yields a trusted directory rather than a broken table")

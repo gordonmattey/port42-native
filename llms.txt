@@ -234,6 +234,8 @@ Generated from the live method registry: every entry below is served exactly as 
         topic (string): Optional. "ports" = the port-authoring manual. Omit for the API reference.
   presentation()
       The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
+  whoami()
+      Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. Call it first.
 
 ### notify
 

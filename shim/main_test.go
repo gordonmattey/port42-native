@@ -154,7 +154,7 @@ func TestBuildSettingsShape(t *testing.T) {
 		t.Fatalf("unexpected Stop shape: %s", s)
 	}
 	cmd := parsed.Hooks.Stop[0].Hooks[0].Command
-	want := `'/path/with space/port42-claude-shim' notify turnComplete`
+	want := `'/path/with space/port42-claude-shim' notify turnComplete claude`
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
 	}
@@ -179,7 +179,7 @@ func TestBuildSettingsSessionStart(t *testing.T) {
 	if len(parsed.Hooks.SessionStart) != 1 || len(parsed.Hooks.SessionStart[0].Hooks) != 1 {
 		t.Fatalf("SessionStart not wired: %s", s)
 	}
-	if got := parsed.Hooks.SessionStart[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionStarted` {
+	if got := parsed.Hooks.SessionStart[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionStarted claude` {
 		t.Fatalf("SessionStart command = %q", got)
 	}
 }
@@ -203,7 +203,7 @@ func TestBuildSettingsSessionEnd(t *testing.T) {
 	if len(parsed.Hooks.SessionEnd) != 1 || len(parsed.Hooks.SessionEnd[0].Hooks) != 1 {
 		t.Fatalf("SessionEnd not wired: %s", s)
 	}
-	if got := parsed.Hooks.SessionEnd[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionEnded` {
+	if got := parsed.Hooks.SessionEnd[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionEnded claude` {
 		t.Fatalf("SessionEnd command = %q", got)
 	}
 }
@@ -228,7 +228,7 @@ func TestBuildSettingsNotification(t *testing.T) {
 	if len(parsed.Hooks.Notification) != 1 || len(parsed.Hooks.Notification[0].Hooks) != 1 {
 		t.Fatalf("Notification not wired: %s", s)
 	}
-	if got := parsed.Hooks.Notification[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify needsAttention` {
+	if got := parsed.Hooks.Notification[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify needsAttention claude` {
 		t.Fatalf("Notification command = %q", got)
 	}
 }
@@ -268,7 +268,7 @@ func TestNotifyCarriesTheAttentionReason(t *testing.T) {
 	}()
 
 	t.Setenv("PORT42_HOOKS_SOCKET", sock)
-	runNotify("needsAttention")
+	runNotify("needsAttention", "")
 
 	select {
 	case msg := <-got:
@@ -290,6 +290,12 @@ func TestNotifyCarriesTheAttentionReason(t *testing.T) {
 // notifyRoundTrip runs `runNotify` against a throwaway socket with `payload` on stdin and
 // returns the normalized event the receiver got.
 func notifyRoundTrip(t *testing.T, payload string) normalizedEvent {
+	t.Helper()
+	return notifyRoundTripAs(t, "turnComplete", "", payload)
+}
+
+// notifyRoundTripAs is notifyRoundTrip for any event, raised as `cli`.
+func notifyRoundTripAs(t *testing.T, event, cli, payload string) normalizedEvent {
 	t.Helper()
 	// NOT t.TempDir(): its path plus a long test name overruns sockaddr_un.sun_path (104 on
 	// macOS) and bind fails with EINVAL. Same limit TerminalHooksService keeps short ids for.
@@ -321,7 +327,7 @@ func notifyRoundTrip(t *testing.T, payload string) normalizedEvent {
 	go func() { w.Write([]byte(payload)); w.Close() }()
 
 	t.Setenv("PORT42_HOOKS_SOCKET", sock)
-	runNotify("turnComplete")
+	runNotify(event, cli)
 
 	select {
 	case msg := <-got:
@@ -401,7 +407,7 @@ func TestNotifyRoundTrip(t *testing.T) {
 	}()
 
 	t.Setenv("PORT42_HOOKS_SOCKET", sock)
-	runNotify("turnComplete")
+	runNotify("turnComplete", "")
 
 	select {
 	case msg := <-got:
@@ -461,5 +467,17 @@ func TestResumeDirReadsTheSessionsOwnDirectory(t *testing.T) {
 	}
 	if got := resumeDir(home, "missing"); got != "" {
 		t.Fatalf("resumeDir for a missing session = %q, want empty", got)
+	}
+}
+
+// A plain terminal where the person typed `codex` was registered as Claude, because the session
+// start did not say which CLI raised it (2026-09-25). The hook now names its CLI.
+func TestSessionStartNamesItsCLI(t *testing.T) {
+	ev := notifyRoundTripAs(t, "sessionStarted", "codex", `{"session_id":"s1"}`)
+	if ev.Event != "sessionStarted" || ev.CLI != "codex" {
+		t.Fatalf("event = %+v, want sessionStarted from codex", ev)
+	}
+	if ev := notifyRoundTripAs(t, "sessionStarted", "", `{}`); ev.CLI != "" {
+		t.Fatalf("an unnamed hook must not claim a CLI, got %q", ev.CLI)
 	}
 }

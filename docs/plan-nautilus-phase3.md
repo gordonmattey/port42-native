@@ -40,6 +40,30 @@ is not on screen, and when the receiver is a companion rather than a port.
   needed. It has no port.
 - **There is no tile-less port.** Every port is tiled, parked or the wallpaper.
 
+## Before this phase: agents in a room (GM's multi-agent test, 2026-09-25)
+
+Two Claude companions and a Codex companion tried to work on one port through its chat. Found and
+fixed, each with tests calibrated by removing the fix:
+
+- **Every reply is posted.** A turn typed into the terminal was never posted, so its @mention
+  hand-off went nowhere. Replies go to the chat that asked, else the terminal's own chat, whose
+  @mentions then route. Companions must @mention each other there, so two cannot loop.
+- **Messages arrive whole.** A long or multi-line message goes in as one paste with an Enter that
+  waits for it; typed as keys, one lost about 1,100 characters and its Enter. An unsent first-run
+  prefill is cleared before the next message.
+- **Codex can take part.** Its sandbox blocked the network, loopback included, so it concluded Port42
+  was not running; this session's config now allows it. Its instructions keyed on an env var that did
+  not reach its shell; they key on the token file now. A terminal that starts codex is registered as
+  codex, not claude (the session-start hook names its CLI).
+- **Agents know where they are.** A new `whoami` answers, from the caller's credential, its name,
+  space, terminal port and chat, and who else is here. Claude's prompt and Codex's AGENTS.md teach the
+  chats from one source (`CompanionProtocol.chats`): whoami first, a message names the chat it came
+  from, a port's work belongs in that port's chat (`chat.read`, `chat.post`), @mention to reach
+  someone. A port's chat is named with its id. Replies are "delivered back to the chat it came from".
+
+Open from the same test: a person's plain post in a web port's chat reaches nobody (who counts as in
+that chat is 3.3's watch), and the MIC ON button GM reported missing in the mic shader port.
+
 ## Steps
 
 Each step is its own commit: suite green, harness five of five, plans updated.
@@ -84,6 +108,18 @@ identity, as the model says; the grant stays on port 0 as today.
 
 *Gates:* two callers' commands run in two different ports; a caller's second command reuses its port;
 output, exit code and timeout behave as before; the port is listed hidden with its creator.
+
+### 3.6 Port42 as native tools, not curl
+
+Companions reach Port42 by curl, so Codex asks for approval on every call and each call is a shell
+round trip. Port42 runs an MCP server generated from the registry (the tool list already is, as
+`generatedToolDefinitions`) and registers it in each companion's session: Claude through its MCP
+config, Codex through `[mcp_servers]` in its per-session config. `whoami`, `chat.post`,
+`port.create` and the rest become tool calls, authenticated as the companion. The stale
+`port42-mcp.js` (hardcoded port 4242, removed methods) is replaced.
+
+*Gates:* the MCP tool list equals the registry's generated one; a call through it is attributed to
+the companion's client; both CLIs' session configs name the server.
 
 ### 3.5 Scenario 3, extended
 

@@ -25,7 +25,8 @@ public enum TerminalHookEvent: Sendable, Equatable {
     case toolFinished(tool: String, output: String)
     case approvalRequired(tool: String, input: String, sessionId: String)
     case inputSubmitted(prompt: String)
-    case sessionStarted
+    /// The CLI is up. `cli` names which one raised it ("claude", "codex"), when its hook says.
+    case sessionStarted(cli: String?)
     case sessionEnded
 }
 
@@ -148,6 +149,7 @@ public actor TerminalHooksService {
         var sessionId: String?
         var transcript: String?
         var transcriptBytes: Int64?
+        var cli: String?
     }
 
     private nonisolated static func decode(_ data: Data) -> TerminalHookEvent? {
@@ -168,7 +170,7 @@ public actor TerminalHooksService {
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
         case "approvalRequired": return .approvalRequired(tool: w.tool ?? "", input: w.input ?? "", sessionId: w.sessionId ?? "")
         case "inputSubmitted": return .inputSubmitted(prompt: w.prompt ?? "")
-        case "sessionStarted": return .sessionStarted
+        case "sessionStarted": return .sessionStarted(cli: w.cli)
         case "sessionEnded":   return .sessionEnded
         default:               return nil
         }

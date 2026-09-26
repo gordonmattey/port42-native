@@ -165,6 +165,13 @@ extension CLIHookProducer {
         // Hooks are OFF by default, and this key may already exist in the user's own [features].
         toml = CodexConfigMerge.setKey("hooks", to: "true", inTable: "features", of: toml)
 
+        // Codex's workspace sandbox blocks the network by default, and that includes loopback, so
+        // every call a Codex companion made to Port42 failed and it concluded Port42 was not running
+        // (GM's multi-agent test, 2026-09-25). A companion's whole job is calling Port42, so this
+        // session's sandbox allows the network. Only this Port42 session's config; ~/.codex is not
+        // touched.
+        toml = CodexConfigMerge.setKey("network_access", to: "true", inTable: "sandbox_workspace_write", of: toml)
+
         // Without trust codex refuses to START, which looks exactly like hooks failing. Merged per
         // directory, so a project the user already trusts keeps its other settings.
         for dir in trustedDirectories(for: cwd) {
@@ -185,7 +192,7 @@ extension CLIHookProducer {
 
         [[hooks.SessionStart.hooks]]
         type = "command"
-        command = "'\(quotedShim)' notify sessionStarted"
+        command = "'\(quotedShim)' notify sessionStarted codex"
 
         """
         // Codex's own trust record goes LAST, after the hooks it refers to.

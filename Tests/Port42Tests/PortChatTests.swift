@@ -275,4 +275,46 @@ struct PortChatTests {
         #expect(w.state.chatReplyTargets["alpha"] == key)
         withExtendedLifetime(w.state) {}
     }
+
+    // MARK: - Knowing who and where you are (GM's multi-agent test, 2026-09-25)
+
+    @Test("a port's chat is named with its id, so a companion can post there without searching")
+    func labelCarriesPortId() {
+        #expect(ChatRouting.sourceLabel(port: "mic shader", portId: "BB8C")
+                == "the chat of port 'mic shader' (id BB8C)")
+    }
+
+    @Test("whoami tells a terminal companion its name, space, terminal port and who else is here")
+    func whoami() async throws {
+        let w = try makeParityWorld()
+        var b = AgentConfig.createCommand(ownerId: try #require(w.state.currentUser?.id), displayName: "beta",
+                                          command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        b.openInTerminal = true
+        try w.state.db.saveAgent(b)
+        try w.state.db.assignAgentToSpace(agentId: b.id, spaceId: w.space.id)
+        try w.state.db.assignAgentToSpace(agentId: w.companion.id, spaceId: w.space.id)
+        w.state.companions = [w.companion, b]
+        w.state.spaceAgentIds = [w.space.id: [w.companion.id, b.id]]
+        let panelId = try #require(w.state.spawnNativeTerminalPort(
+            command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id, title: "beta",
+            companionName: "beta", companionId: b.id, systemPrompt: nil, postCard: false))
+        let clientId = try #require(w.state.terminalClientPanels.first { $0.value == panelId }?.key)
+        let v = try await w.state.runBridgeMethod("whoami", principal: .peer(id: clientId, displayName: "beta"),
+                                                  args: BridgeArgs([:]))
+        let o = try #require(v.toJSONObject() as? [String: Any])
+        let udid = try #require(w.state.portWindows.panels.first { $0.id == panelId }?.udid)
+        #expect(o["name"] as? String == "beta")
+        #expect(o["terminal_port"] as? String == udid)
+        #expect(o["chat"] as? String == udid)
+        #expect(o["space_id"] as? String == w.space.id)
+        #expect((o["companions"] as? [String]) == [w.companion.displayName], "who else is here, not itself")
+        withExtendedLifetime(w.state) {}
+    }
+
+    @Test("a terminal that started codex is registered as codex, not claude")
+    func autoRegisterNamesTheCLI() {
+        #expect(AppState.autoRegisterCommand(cli: "codex").hasSuffix("codex"))
+        #expect(AppState.autoRegisterCommand(cli: nil).hasSuffix("claude"))
+        #expect(AppState.autoRegisterCommand(cli: "claude").hasSuffix("claude"))
+    }
 }

@@ -26,7 +26,7 @@ struct TerminalControllerDrainTests {
             drainPending: { let q = queue; queue = []; return q })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted)
+        ctl.handleEvent(.sessionStarted(cli: nil))
 
         #expect(injected == ["[gordon]: @claude9 hi\r"])
         ctl.teardown()
@@ -41,7 +41,7 @@ struct TerminalControllerDrainTests {
             drainPending: { let q = queue; queue = []; return q })
         ctl.bindSurface { _, done in done() }
 
-        ctl.handleEvent(.sessionStarted)                       // drains + injects + arms
+        ctl.handleEvent(.sessionStarted(cli: nil))                       // drains + injects + arms
         ctl.handleEvent(.turnComplete(text: "Hey gordon", exitCode: 0))
 
         #expect(posted == ["Hey gordon"])                      // armed by the flushed inject
@@ -57,8 +57,8 @@ struct TerminalControllerDrainTests {
             drainPending: { drains += 1; return drains == 1 ? ["[gordon]: x\r"] : ["LATE\r"] })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted)
-        ctl.handleEvent(.sessionStarted)                       // second readiness signal
+        ctl.handleEvent(.sessionStarted(cli: nil))
+        ctl.handleEvent(.sessionStarted(cli: nil))                       // second readiness signal
 
         #expect(injected == ["[gordon]: x\r"])                 // only the first drain delivered
         #expect(drains == 1)                                   // queue not re-read
@@ -73,7 +73,7 @@ struct TerminalControllerDrainTests {
             drainPending: { [] })
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
-        ctl.handleEvent(.sessionStarted)
+        ctl.handleEvent(.sessionStarted(cli: nil))
 
         #expect(injected.isEmpty)
         ctl.teardown()
@@ -87,12 +87,12 @@ struct TerminalControllerDrainTests {
             panelId: "p5", config: makeConfig(), post: { _ in },
             drainPending: { let q = queue; queue = []; return q })
 
-        ctl.handleEvent(.sessionStarted)                       // no surface yet → deferred, must not crash
+        ctl.handleEvent(.sessionStarted(cli: nil))                       // no surface yet → deferred, must not crash
         #expect(injected.isEmpty)
         #expect(queue == ["[gordon]: hi\r"])                   // still queued, not drained
 
         ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
-        ctl.handleEvent(.sessionStarted)                       // now bound → delivers
+        ctl.handleEvent(.sessionStarted(cli: nil))                       // now bound → delivers
         #expect(injected == ["[gordon]: hi\r"])
         ctl.teardown()
     }
