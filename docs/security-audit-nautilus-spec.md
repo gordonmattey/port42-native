@@ -112,8 +112,13 @@ UNPROVEN is a result, not a gap in the audit, provided it says what would settle
   read it, and a compromised or rotated key revokes what it authorized.
 - **R9.** Chunk reassembly is bounded and cannot be used to exhaust memory or to splice frames from
   different senders.
-- **R10.** A debug affordance, including `PORT42_DEV_AUTO_UNLOCK`, cannot be enabled in a release
-  build.
+- **R10.** A debug affordance cannot be enabled in a release build, proven by build configuration
+  rather than by convention.
+- **R11.** The lock screen is not treated as access control anywhere. `lockApp()` sets
+  `showDreamscape = true` and `unlock()` sets it to false, with no credential checked and no consumer
+  of the state outside the UI; the gateway answers calls throughout. The requirement is that nothing
+  depends on it for security, and that it is documented as presentation. Making it a real boundary is
+  separate work, specified in `docs/research/os-authentication-lock.md`.
 
 **Consent**
 
@@ -257,9 +262,13 @@ what the approving human is shown and whether it is enough to decide on.
 **T23. Peer identity binding.** Present a call whose claimed peer id differs from the handshake's.
 Replay a handshake transcript. Reconnect with the same key after revocation. Covers R1.
 
-**T24. Dev flag in release.** Confirm `PORT42_DEV_AUTO_UNLOCK` cannot skip the lock screen in a
-release build, by build configuration rather than by convention. A debug affordance that ships is a
-lock screen that does not lock.
+**T24. Dev flags in release.** Enumerate every debug affordance, including `PORT42_DEV_AUTO_UNLOCK`,
+and confirm by build configuration that none is reachable in a release build. Covers R10.
+
+**T25. What the lock screen protects.** With the shell locked, call the bridge as an enrolled client:
+read a port, read a chat, push to a terminal, use a granted device capability. Record what is
+refused. Expect nothing to be. The finding is not that the calls succeed; it is whether anything in
+the product, the docs or the UI implies they would not. Covers R11.
 
 ## Code review
 
