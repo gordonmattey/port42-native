@@ -289,6 +289,32 @@ which creates the watch), working dir, prompt and secrets. The presets and their
 files are gone. The settings card's TRIGGER became RUNS, which hides or shows the live terminal.
 Gates in `NewCompanionCardTests`, calibrated. Not yet looked at by GM.
 
+**GM's review of the card, and testing every combination (2026-09-26).** Wording is "in a port" /
+"hidden", never "tile"; secrets moved to the companion's settings (an agent CLI calls APIs from its
+own shell); "bring one from another space" lists companions under the space each is in now, and
+joins the same companion to this space (its terminal stays where it runs). The card and a new
+`companions.create` share one path (`AppState.createCompanion`), so the harness proves what the card
+does. Running all eight combinations (claude and codex × in a port and hidden × this space and a
+port) on Dev4 found and fixed, each with a calibrated test:
+
+- **The missing Enter** (GM saw it live). A message typed before Claude was ready sat unsent as
+  typeahead. Messages now wait for the CLI's SessionStart and a quiet screen; after the CLI exits
+  they are held rather than run in the bare shell; and Claude now reports a submitted prompt
+  (UserPromptSubmit), so an unconfirmed message gets Enter again, up to three times. Verified: two of
+  four Claude companions needed the second Enter and then answered.
+- **A hidden companion put back on the desktop** when woken while its terminal started.
+- **The app froze.** AVKit's `AVPlayerView` (lock screen and boot videos) deadlocked the main thread
+  with a media thread; the videos are drawn with a bare `AVPlayerLayer`.
+- **Calls timed out under load.** The main thread re-scanned every terminal's output buffer with
+  freshly compiled regexes on every chunk, and cleaned output nobody reads; and it committed a
+  client's last-seen to disk on every gateway call. Both fixed.
+
+Result: all eight combinations PASS. Open: with the disk busy (Dropbox's file provider at 112% CPU
+while this repo was being committed and built), the harness's own polling still saw one 30 s call,
+sampled as the main thread blocked in a synchronous write to its log file. The app still logs and
+commits to SQLite on the main thread; moving that I/O off it is the remaining fix, recorded here and
+not yet done.
+
 **Antigravity spike (2026-09-26).** `agy` (installed at `~/.local/bin/agy`) is an interactive terminal
 agent with a print mode (`-p`), resume (`--conversation`, `--continue`) and plugins. It has lifecycle
 hooks, among them SessionStart, Stop, Pre/PostInvocation and PostTool, loaded from a plugin's
