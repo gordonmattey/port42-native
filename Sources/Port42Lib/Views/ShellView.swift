@@ -364,10 +364,10 @@ public struct ShellView: View {
                 .opacity(breakoutOpacity)
                 .allowsHitTesting(false)                  // a moment you watch, not a surface you use
                 .onAppear {
-                    // A beat on the port's frame so the eye registers where it came from, then a slow
-                    // grow: the expansion is the moment, so it should be watched, not glimpsed.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        withAnimation(.easeInOut(duration: 2.6)) { breakoutExpanded = true }
+                    // It grows with the zoom-out under it, the same spring, at once (GM, 2026-09-27:
+                    // the slow grow lagged behind the port shrinking beneath it).
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.4)) { breakoutExpanded = true }
                     }
                 }
         }
