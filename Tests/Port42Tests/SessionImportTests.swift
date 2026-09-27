@@ -230,3 +230,13 @@ struct EchoImportedBriefTests {
         }
     }
 }
+
+@Suite("Session list says what the groups are")
+struct SessionGroupingNoteTests {
+    @Test("the list says it grouped the sessions into spaces, and how many")
+    func note() {
+        #expect(SessionImportList.groupingNote(spaces: 3).hasPrefix("port42 grouped them into 3 spaces for you"))
+        #expect(SessionImportList.groupingNote(spaces: 1).contains("into one space"))
+        #expect(SessionImportList.groupingNote(spaces: 2).contains("each # is a space"))
+    }
+}

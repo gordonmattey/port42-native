@@ -365,11 +365,13 @@ them; an item leaves only when it is done and verified.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Boot cinematic: pressing a key runs through every scene instead of moving one on | Open |
-| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Open |
+| 1 | Boot cinematic: pressing a key right after the first scene appears skips to the BIOS | Done: the first scene's video took keyboard focus, so later keys never reached the cinematic and its scenes ran on by their timers (replayed on Dev5). Keys now come from a window monitor while it is up; a held key's repeats do nothing. Replayed live: ten spaces, one scene each, the tenth ends it; GM confirmed on a fresh Dev5 |
+| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Built, awaiting GM's check: a bar on each chat's bottom edge; a port's chat drags down to cover the whole port (double-click toggles that and the default), the space chat's bar sets its height and its corner grip the width too (double-click resets). Sizes hold for the session |
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
+| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Open: GM's words for the replacement, or the line removed |
+| 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 
 ## Future roadmap
 

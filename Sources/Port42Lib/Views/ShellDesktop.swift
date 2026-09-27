@@ -411,9 +411,8 @@ struct ShellTile: View {
     private var chatKey: String? { tile.panel?.udid }
     /// Height the open chat takes from the port body.
     private var chatPanelH: CGFloat {
-        guard chatOpen, chatKey != nil, !isPeeking else { return 0 }
-        let body = liveSize.height - headerH
-        return min(max(150, body * 0.45), max(0, body - 60))
+        guard chatOpen, let key = chatKey, !isPeeking else { return 0 }
+        return ShellState.portChatHeight(share: shell.portChatShare[key], body: liveSize.height - headerH)
     }
 
     /// Refresh + versions apply to authored HTML ports only: a terminal has no HTML to reload,
@@ -553,7 +552,16 @@ struct ShellTile: View {
                     AppKitLayer(content: VStack(spacing: 0) {
                         if chatPanelH > 0, let key = chatKey {
                             PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
-                                .frame(width: liveSize.width, height: chatPanelH)
+                                .frame(width: liveSize.width, height: max(0, chatPanelH - ChatResizeBar.height))
+                            // Drag to size the chat, down to covering the whole port; double-click
+                            // toggles between that and the default.
+                            let body = liveSize.height - headerH
+                            ChatResizeBar(accent: tileAccent, size: CGSize(width: liveSize.width, height: chatPanelH),
+                                          corner: false) { proposed in
+                                shell.portChatShare[key] = ShellState.portChatShare(height: proposed.height, body: body)
+                            } onDoubleClick: {
+                                shell.portChatShare[key] = (shell.portChatShare[key] ?? 0) >= 0.99 ? nil : 1
+                            }
                         }
                         if consolePanelH > 0, let key = consoleKey {
                             PortConsolePanel(key: key, accent: tileAccent)
