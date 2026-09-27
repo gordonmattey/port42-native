@@ -550,7 +550,11 @@ Things that would be cool once the five scenarios hold.
   engineer), and more on the Elements page. A crew is a small file of role briefs, the same path as
   `Imagine.leadRole`/`engineerRole`; `imagine.start` and the deep link take an optional `crew`, else the
   lead picks one from the line or defaults to engineers. Crews editable and shareable like ports.
-  Product idea; the site says crews by kind are coming, not that they exist.
+  **Decided (GM, 2026-09-27): after the v1 release.** Spec: `port42-growth/nautilus-crews-spec.md`. A
+  crew is data (a lead and two members, each a role from `catalog.json` `roles[]`, 17 roles with
+  briefs); `imagine.start` and the deep link take an optional crew; the choice is an explicit crew, then
+  the recipe's crew, then engineers, with no model call to pick; the ⌘I box shows the three crew chips,
+  changeable before Enter; cost unchanged. The site lists crews as coming soon.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
