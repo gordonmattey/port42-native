@@ -59,36 +59,42 @@ struct PortChatPanel: View {
     let accent: Color
 
     @State private var draft = ""
+    /// The time of the top message in view, shown while the transcript scrolls.
+    @State private var scrollTime: Date?
+    @State private var scrollTimeHide: DispatchWorkItem?
     @State private var error: String?
     @FocusState private var inputFocused: Bool
 
     var body: some View {
         let list = chats.entries[key] ?? []
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if list.isEmpty {
-                            Text("No messages yet. What you say here belongs to this port.")
-                                .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                                .padding(.top, 8)
-                        }
-                        // ONE selectable text for the whole transcript, so a drag copies any number of
-                        // messages (GM, 2026-09-25: one Text per message allowed copying one at a time).
-                        Text(Self.transcript(list))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Color.clear.frame(height: 1).id(list.last?.seq ?? 0)
+            // The transcript: yours on the right, others on the left, one selectable text
+            // (ChatTranscript). While it scrolls, a pill shows the time of the top message in view.
+            ZStack(alignment: .top) {
+                if list.isEmpty {
+                    Text("No messages yet. What you say here belongs to this port.")
+                        .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.top, 14).padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    ChatTranscriptView(entries: list, me: appState.currentUser?.id, accent: accent) { date in
+                        showScrollTime(date)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .onAppear { proxy.scrollTo(list.last?.seq, anchor: .bottom) }
-                .onChange(of: list.last?.seq) { _, last in
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
-                    chats.markRead(key)
+                if let scrollTime {
+                    Text(ChatTranscript.label(scrollTime))
+                        .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textPrimary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Port42Theme.bgInput.opacity(0.92), in: Capsule())
+                        .overlay(Capsule().stroke(accent.opacity(0.3), lineWidth: 1))
+                        .padding(.top, 6)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: list.last?.seq) { _, _ in chats.markRead(key) }
+            ChatPresenceStrip(presence: appState.presence, key: key, accent: accent)
             if !suggestions.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(suggestions, id: \.id) { c in
@@ -109,15 +115,12 @@ struct PortChatPanel: View {
                 Text(error).font(Port42Theme.mono(9)).foregroundStyle(.red.opacity(0.8))
                     .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 6) {
-                // Vertical, so a long message wraps instead of scrolling off the right edge. Typing
-                // always had this; dictation made it obvious, because a spoken sentence is longer than a
-                // typed one and the words kept arriving at the end of the first line. Return still sends
-                // (onSubmit), the same as ImagineBox.
+            HStack(alignment: .bottom, spacing: 6) {
+                // Wraps onto more lines as the message grows (GM, 2026-09-27); Return still sends.
                 TextField("say something", text: $draft, axis: .vertical)
+                    .lineLimit(1...8)
                     .textFieldStyle(.plain)
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                    .lineLimit(1...6)
                     .focused($inputFocused)
                     .onSubmit(send)
                     // Tab completes the @name being typed to the first suggestion.
@@ -150,22 +153,13 @@ struct PortChatPanel: View {
         return Array(MentionParser.autocomplete(query: "@" + q, agents: appState.companions).prefix(5))
     }
 
-    /// The whole transcript as one attributed text: each message is its sender (in the sender's
-    /// color, bold) then the text, one blank line between messages. Copying a selection gives
-    /// "name  text" lines a person can paste anywhere.
-    static func transcript(_ entries: [PortChatEntry]) -> AttributedString {
-        var out = AttributedString()
-        for (i, e) in entries.enumerated() {
-            var name = AttributedString((e.fromName.isEmpty ? e.fromId : e.fromName) + "  ")
-            name.font = Port42Theme.monoBold(10)
-            name.foregroundColor = ShellDock.avatarColor(e.fromId)
-            var body = AttributedString(ChatRouting.displayText(e.text) + (i == entries.count - 1 ? "" : "\n\n"))
-            body.font = Port42Theme.mono(11)
-            body.foregroundColor = Port42Theme.textPrimary.opacity(0.9)
-            out += name
-            out += body
-        }
-        return out
+    /// Show the scroll pill at `date`, and hide it a moment after scrolling stops.
+    private func showScrollTime(_ date: Date) {
+        if scrollTime != date { withAnimation(.easeOut(duration: 0.15)) { scrollTime = date } }
+        scrollTimeHide?.cancel()
+        let hide = DispatchWorkItem { withAnimation(.easeOut(duration: 0.4)) { scrollTime = nil } }
+        scrollTimeHide = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: hide)
     }
 
     private func send() {
@@ -238,5 +232,66 @@ struct PortConsolePanel: View {
         case "warn": return .orange
         default: return Port42Theme.textSecondary
         }
+    }
+}
+
+/// Under a chat's transcript: each agent on a message from this chat, and for how long (ChatPresence).
+struct ChatPresenceStrip: View {
+    @ObservedObject var presence: ChatPresenceStore
+    let key: String
+    let accent: Color
+
+    var body: some View {
+        let list = presence.entries(key)
+        if !list.isEmpty {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(list, id: \.name) { p in
+                        HStack(spacing: 6) {
+                            Circle().fill(Self.waiting(p) ? Color.orange : accent)
+                                .frame(width: 5, height: 5)
+                                .opacity(Self.waiting(p) ? 1 : 0.5 + 0.5 * abs(sin(ctx.date.timeIntervalSinceReferenceDate * 2)))
+                            Text("@\(p.name) \(ChatPresenceStore.line(p, now: ctx.date))")
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(Self.waiting(p) ? Color.orange : Port42Theme.textSecondary)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private static func waiting(_ p: ChatPresence) -> Bool {
+        if case .waiting = p.state { return true }
+        return false
+    }
+}
+
+/// Where a chat is dragged to size it (GM, 2026-09-26, release hit list): invisible, like a port's
+/// own resize zones. A port's chat drags by its bottom edge (height); the space chat by its
+/// bottom-right corner (width and height), as a port does.
+struct ChatResizeZone: View {
+    enum Edge { case bottom, corner }
+    let size: CGSize
+    let edge: Edge
+    let onResize: (CGSize) -> Void
+    @State private var start: CGSize?
+
+    var body: some View {
+        Color.clear
+            .frame(width: edge == .corner ? 16 : size.width, height: edge == .corner ? 16 : 6)
+            .contentShape(Rectangle())
+            // Global coordinates: the zone moves with the edge it drags.
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { v in
+                    let s = start ?? size
+                    start = s
+                    onResize(CGSize(width: edge == .corner ? s.width + v.translation.width : s.width,
+                                    height: s.height + v.translation.height))
+                }
+                .onEnded { _ in start = nil })
     }
 }

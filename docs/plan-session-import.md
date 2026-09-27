@@ -66,7 +66,7 @@ Drag a row onto a `#` heading to move it, onto `+ new space` to start one; ✎ r
 active in the last day are ticked; older ones are collapsed and unticked. No sessions: no step.
 After Enter each prints as it lands (`✓ port42-native  claude nautilus → @port42-native-nautilus`),
 then "close the originals now, they'll fall behind" with each original's terminal app and path, and
-`continue ↵` lands on the first imported space's desktop (Echo is still made). ⌘K "bring in running
+`continue ↵` lands on echo in genesis, as a first run always does (GM, 2026-09-26); the imported sessions wait in their spaces. ⌘K "bring in running
 sessions" opens the same list in a command box.
 
 ## What a fork is
@@ -130,7 +130,10 @@ Sessions on another machine, sessions of other CLIs, and moving (quitting the or
   `codex resume <new id>`. A companion's saved environment now reaches its terminal.
 - **Screens:** the step in the setup terminal (widened to 780) after the agent choice, with the grouped
   list, drag between groups and onto "new space", rename, the fork note, then what came in and the
-  originals to close, landing on the first imported session; the ⌘K action "bring in running sessions"
+  originals to close, landing on echo in genesis; the ⌘K action "bring in running sessions"
   with the same list in a command box.
+- **Echo's welcome names them** (GM, 2026-09-26): after it says what Port42 is, echo tells the person
+  which spaces were made and who waits in each (`AppState.echoImportedNote`, the `{{IMPORTED}}` slot in
+  `echo-prompt.txt`), and that the originals can be closed.
 - **Not yet:** window titles through AppleScript (matched on tty) for the close list; a live import.
 

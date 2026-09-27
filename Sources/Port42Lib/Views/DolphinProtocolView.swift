@@ -31,6 +31,21 @@ private enum DolphinStage: Int, CaseIterable {
     }
 }
 
+/// What a key does in the boot cinematic. Any key moves one scene on (the screen says "press any
+/// key"); `s` skips to the last screen once past the first; Esc exits. A held key's repeats do nothing,
+/// so holding one down cannot run through the scenes.
+enum DolphinKeys {
+    enum Action: Equatable { case next, skipToEnd, exit, ignore }
+
+    static func action(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                       cinematic: Bool, onFirstScreen: Bool, complete: Bool) -> Action {
+        if isRepeat { return .ignore }
+        if keyCode == 53 { return .exit }
+        if characters == "s" && cinematic && !complete && !onFirstScreen { return .skipToEnd }
+        return .next
+    }
+}
+
 private enum ProtocolPhase {
     case cinematic   // full-screen stage sequence
     case bios        // terminal boot window
@@ -65,7 +80,8 @@ public struct DolphinProtocolView: View {
         self.skipBios = skipBios
     }
 
-    @FocusState private var isFocused: Bool
+    /// The window's key monitor while the cinematic is up (see `onAppear`).
+    @State private var keyMonitor: Any?
 
     public var body: some View {
         ZStack {
@@ -82,27 +98,33 @@ public struct DolphinProtocolView: View {
         .onTapGesture {
             _ = handleKeyPress()
         }
-        .focusable()
-        .focusEffectDisabled()
-        .focused($isFocused)
-        .onAppear { isFocused = true }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 530_000_000)
                 cursorVisible.toggle()
             }
         }
-        .onKeyPress(.escape) {
-            dismiss()
-            return .handled
-        }
-        // Any key, not just return and space: the screen says "press any key".
-        .onKeyPress(phases: .down) { press in
-            if press.characters == "s" && phase == .cinematic && !sequenceComplete && currentStage != .glitch {
-                skipToEnd()
-                return .handled
+        // Keys are taken from the window while the cinematic is up, not from SwiftUI focus: the first
+        // scene's video took focus, so every key after it went nowhere and the scenes ran on by their
+        // timers (GM, 2026-09-26: "if I press space right after the first words show up, it jumps
+        // straight to the BIOS"; replayed on Dev5, two spaces after the video never arrived).
+        .onAppear {
+            guard keyMonitor == nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                switch DolphinKeys.action(keyCode: event.keyCode, characters: event.characters,
+                                          isRepeat: event.isARepeat, cinematic: phase == .cinematic,
+                                          onFirstScreen: currentStage == .glitch, complete: sequenceComplete) {
+                case .exit: dismiss()
+                case .skipToEnd: skipToEnd()
+                case .next: if handleKeyPress() == .ignored { return event }
+                case .ignore: break
+                }
+                return nil
             }
-            return handleKeyPress()
+        }
+        .onDisappear {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
         }
     }
 
@@ -165,7 +187,6 @@ public struct DolphinProtocolView: View {
         withAnimation(.easeOut(duration: 0.8)) { stageOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             phase = .bios
-            isFocused = true
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 biosVisible = true
             }

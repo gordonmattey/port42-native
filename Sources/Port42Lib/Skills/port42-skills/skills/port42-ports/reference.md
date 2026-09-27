@@ -12,12 +12,13 @@ Close the calling port.
 
 ## port.console
 
-Read what a port has printed — a web port's console.log/warn/error, or a terminal's output. Returns the most recent lines, oldest first, each with a level and a timestamp. Use it to debug a port you built: a generative port that throws at runtime says so here, and a terminal whose command died says nothing else at all. Pass the id from ports_list; tail defaults to 100.
+Check a port for problems. level=count returns only how many errors and warnings it has logged, no text: the cheap check that a port you built works. The default (problems) adds the errors and warnings themselves (the most recent 20), to deal with them. level=all reads everything it printed, for debugging. A terminal's output has no levels, so for a terminal the default is its last 50 lines. `omitted` says how many lines were left out.
 
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
-        tail (integer): How many recent lines to return (default 100).
+        level (string): count: the numbers only. problems (default for a web port): errors and warnings. all: every line, for debugging.
+        tail (integer): How many recent lines to return (default 20 for problems, 50 for all).
 
-    port42 port.console id=… tail=…
+    port42 port.console id=… level=… tail=…
 
 ## port.create
 

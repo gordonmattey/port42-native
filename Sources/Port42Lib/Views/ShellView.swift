@@ -196,9 +196,12 @@ public struct ShellView: View {
             if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = appState.currentSpace?.id {
                 GeometryReader { geo in
                     // Drop-down size, or zoomed to a full view like a focused port.
+                    // Or the size the person dragged it to (GM, 2026-09-26).
                     let expanded = shell.spaceChatExpanded
-                    let w = expanded ? max(440, geo.size.width - 120) : 440
-                    let h = expanded ? max(360, geo.size.height - topInset - 50 - 110) : 360
+                    let room = CGSize(width: geo.size.width - 120, height: geo.size.height - topInset - 50 - 110)
+                    let size = expanded ? ShellState.spaceChatSize(room, room: room)
+                                        : ShellState.spaceChatSize(shell.spaceChatSize, room: room)
+                    let w = size.width, h = size.height
                     VStack {
                         HStack {
                             // Hosted in its own AppKit view, so it wins clicks and scrolls over the ports
@@ -206,6 +209,14 @@ public struct ShellView: View {
                             // (GM, 2026-09-25: a full space chat could not be used where it covered one).
                             AppKitLayer(content:
                                 PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                                    .frame(width: w, height: h)
+                                    // Its bottom-right corner drags, like a port's: an invisible zone.
+                                    .overlay(alignment: .bottomTrailing) {
+                                        ChatResizeZone(size: CGSize(width: w, height: h), edge: .corner) { proposed in
+                                            shell.spaceChatExpanded = false
+                                            shell.spaceChatSize = ShellState.spaceChatSize(proposed, room: room)
+                                        }
+                                    }
                                     .frame(width: w, height: h)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1))

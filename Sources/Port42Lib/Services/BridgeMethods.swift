@@ -1636,28 +1636,43 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
     // caller who most needs it — an agent that GENERATED a port and wants to know why it is throwing,
     // or anyone asking why a terminal looks empty. Subscribing does not help, because nobody
     // subscribes before the thing they did not expect.
-    r["port.console"] = BridgeMethod(permission: nil, paramNames: ["id", "tail"],
-        description: "Read what a port has printed — a web port's console.log/warn/error, or a terminal's output. Returns the most recent lines, oldest first, each with a level and a timestamp. Use it to debug a port you built: a generative port that throws at runtime says so here, and a terminal whose command died says nothing else at all. Pass the id from ports_list; tail defaults to 100.",
+    r["port.console"] = BridgeMethod(permission: nil, paramNames: ["id", "level", "tail"],
+        description: "Check a port for problems. level=count returns only how many errors and warnings it has logged, no text: the cheap check that a port you built works. The default (problems) adds the errors and warnings themselves (the most recent 20), to deal with them. level=all reads everything it printed, for debugging. A terminal's output has no levels, so for a terminal the default is its last 50 lines. `omitted` says how many lines were left out.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list), or a terminal's name."],
-                "tail": ["type": "integer", "description": "How many recent lines to return (default 100)."]
+                "level": ["type": "string", "enum": ["count", "problems", "all"], "description": "count: the numbers only. problems (default for a web port): errors and warnings. all: every line, for debugging."],
+                "tail": ["type": "integer", "description": "How many recent lines to return (default 20 for problems, 50 for all)."]
             ],
             "required": ["id"]
         ]) { _, args in
         let id = try args.requireString("id")
-        let tail = args.int("tail") ?? 100
         // Resolve through the same seam every other port verb uses, so a name, a panel id and a udid
         // all work here exactly as they do for port.push.
         guard let key = appState.resolvePortRef(id)?.key else {
             throw BridgeError(code: .notFound, message: "no port \(id)")
         }
-        let lines = PortConsole.shared.recent(portId: key, tail: tail)
+        let isTerminal = appState.portWindows.panels.first { $0.udid == key || $0.id == key }?.portType == "terminal"
+        let level = args.string("level") ?? (isTerminal ? "all" : "problems")
+        guard ["count", "problems", "all"].contains(level) else {
+            throw BridgeError.badArg("level must be count, problems or all")
+        }
+        let problems = level != "all"
+        let view = PortConsole.view(PortConsole.shared.all(portId: key), problemsOnly: problems,
+                                    tail: level == "count" ? 0 : args.int("tail") ?? (problems ? 20 : 50))
+        if level == "count" {
+            return .object(["id": .string(key), "level": .string(level),
+                            "errors": .int(view.errors), "warnings": .int(view.warnings)])
+        }
         let iso = ISO8601DateFormatter()
         return .object([
             "id": .string(key),
-            "lines": .array(lines.map { line in
+            "level": .string(level),
+            "errors": .int(view.errors),
+            "warnings": .int(view.warnings),
+            "omitted": .int(view.omitted),
+            "lines": .array(view.lines.map { line in
                 .object(["level": .string(line.level),
                          "message": .string(line.text),
                          "at": .string(iso.string(from: line.at))])

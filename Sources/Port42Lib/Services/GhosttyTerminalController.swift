@@ -159,6 +159,8 @@ final class GhosttyTerminalController {
     private let onSessionStarted: (String?) -> Void
     /// The CLI's own session id, on every start that reports one.
     var onSessionId: ((String) -> Void)?
+    /// What the chat shows of this agent (ChatPresence): took the message up, needs the person, done.
+    var onPresence: ((ChatPresence.State?) -> Void)?
     /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
@@ -272,6 +274,7 @@ final class GhosttyTerminalController {
     func handleEvent(_ event: TerminalHookEvent) {
         switch event {
         case .turnComplete(let text, let exit):
+            onPresence?(nil)
             log("event=turnComplete armed=\(gate.armed) exit=\(exit) len=\(text.count) preview=\(text.prefix(60).debugDescription)")
             let out = gate.onTurnComplete(text)
             if out.isEmpty {
@@ -294,6 +297,7 @@ final class GhosttyTerminalController {
             // interpreting WHAT was said.
             onNeedsAttention(text)
         case .needsAttention(let message):
+            onPresence?(.waiting(message))
             log("event=needsAttention message=\(message.prefix(80).debugDescription)")
             onNeedsAttention(message)
         case .toolStarting(let tool, let input):
@@ -303,6 +307,7 @@ final class GhosttyTerminalController {
         case .approvalRequired(let tool, _, _):
             log("event=approvalRequired tool=\(tool)")
         case .inputSubmitted(let prompt):
+            onPresence?(.working)
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box
             if unconfirmed > 0 { unconfirmed -= 1 }
@@ -323,6 +328,7 @@ final class GhosttyTerminalController {
             }
         case .sessionEnded:
             log("event=sessionEnded")
+            onPresence?(nil)
             cliRunning = false
             inputReady = false
             // Allow re-registration if the user runs claude again in this same terminal.

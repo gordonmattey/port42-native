@@ -278,6 +278,30 @@ struct PortChatTests {
         withExtendedLifetime(w.state) {}
     }
 
+    @Test("a companion posting through its terminal is recorded as the companion, so its posts and replies are one sender")
+    func postAsCompanion() async throws {
+        let w = try makeParityWorld()
+        var b = AgentConfig.createCommand(ownerId: try #require(w.state.currentUser?.id), displayName: "beta",
+                                          command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        b.openInTerminal = true
+        try w.state.db.saveAgent(b)
+        w.state.companions = [w.companion, b]
+        let panelId = try #require(w.state.spawnNativeTerminalPort(
+            command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id, title: "beta",
+            companionName: "beta", companionId: b.id, systemPrompt: nil, postCard: false))
+        let clientId = try #require(w.state.terminalClientPanels.first { $0.value == panelId }?.key)
+        _ = try await w.state.runBridgeMethod("chat.post", principal: .peer(id: clientId, displayName: "beta"),
+                                              args: BridgeArgs(["port": w.space.id, "text": "one"]))
+        let last = try #require(w.state.db.chatEntries(chat: w.space.id, after: 0, limit: 10).last)
+        #expect(last.fromId == b.id, "recorded under the terminal's client id")
+        #expect(last.fromKind == Principal.Kind.companion.rawValue)
+        // A client that is no companion's terminal stays itself.
+        _ = try await w.state.runBridgeMethod("chat.post", principal: .peer(id: "some-tool", displayName: "tool"),
+                                              args: BridgeArgs(["port": w.space.id, "text": "two"]))
+        #expect(try w.state.db.chatEntries(chat: w.space.id, after: 0, limit: 10).last?.fromId == "some-tool")
+        withExtendedLifetime(w.state) {}
+    }
+
     // MARK: - Knowing who and where you are (GM's multi-agent test, 2026-09-25)
 
     @Test("a port's chat is named with its id, so a companion can post there without searching")
@@ -390,7 +414,7 @@ struct PortChatTests {
 
     @Test("the transcript is one text, so a drag copies several messages")
     func transcriptIsOneText() {
-        let t = PortChatPanel.transcript([e(1, "gordon", "first"), e(2, "swift-fox", "second")])
-        #expect(String(t.characters) == "gordon  first\n\nswift-fox  second")
+        let t = ChatTranscript.build([e(1, "gordon", "first"), e(2, "swift-fox", "second")], me: nil, accent: .green)
+        #expect(t.text.string == "gordon\nfirst\nswift-fox\nsecond")
     }
 }

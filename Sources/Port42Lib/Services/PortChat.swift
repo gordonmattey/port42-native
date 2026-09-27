@@ -307,7 +307,13 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         guard text.count <= PortChat.maxTextLength else {
             throw BridgeError.badArg("chat.post text is longer than \(PortChat.maxTextLength) characters")
         }
-        let entry = try appState.postToChat(key: k, text: text, from: p)
+        // A companion posting through its terminal's credential is the companion, not the terminal's
+        // client: one sender, so its own posts and its replies group and color as one (GM, 2026-09-27:
+        // echo's three posts read as a different sender from its reply).
+        let from = appState.companion(actingAs: p).map {
+            Principal.companion(id: $0.id, displayName: $0.displayName, spaceId: p.spaceId)
+        } ?? p
+        let entry = try appState.postToChat(key: k, text: text, from: from)
         return .object(["ok": .bool(true), "entry": entry.bridgeValue])
     }
 

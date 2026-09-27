@@ -44,7 +44,7 @@ this is measured beyond the observations cited.
 | 4 | The startup-prompt test is flaky | Test hygiene, not a product defect | Gone with the detector it tested | Done |
 | 5 | A Claude slower than 30s to start is called stuck | A false notice in the space, every run | The detector is removed (GM, 2026-09-26) | Done |
 | 6 | Messages typed into Claude not submitted | Reproduced in scenario 3: a watch wake typed 1.2 s after a turn ended was lost, and three Enters found an empty box | Held until the screen is quiet after a turn, as at startup (`645f2b3`); scenario 3 passes live | Done |
-| 7 | No cap on tool results on the live path | Token cost per call (`port.console` can return ~400,000 characters). The 2 MB frame refusal (`too_large`) now bounds the worst case | Per-method limits on the verbose reads | Optional |
+| 7 | No cap on tool results on the live path | Token cost per call (`port.console` can return ~400,000 characters). The 2 MB frame refusal (`too_large`) now bounds the worst case | `port.console` levels: count, problems (default), all (GM, 2026-09-27) | Done for `port.console`, the read that was measured |
 | 8 | A name with a space cannot be mentioned | Reproduced: `app dev` was stored as typed, its terminal named `app-dev`, and neither mention reached it | Names are kept as typed (no hyphen folding, GM); a mention escapes what it cannot carry, as a URL does (`@app%20dev`); autocomplete and whoami give the escaped form | Done |
 | 9 | Settings opens on a tab named "AI" | It shows an accurate one-line note that agents are CLIs; the name is a leftover | Phase 4 is removing it | Phase 4 |
 | 10 | `aiPaused` / `isSuspended` dead, with a false comment | None at runtime | Delete | Cleanup |

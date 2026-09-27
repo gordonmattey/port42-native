@@ -962,6 +962,36 @@ public final class ShellState: ObservableObject {
     @Published public var spaceChatOpen = false
     /// The space's chat zoomed to a full view, like a focused port (GM, 2026-09-25).
     @Published public var spaceChatExpanded = false
+    /// Chats are resized by dragging (GM, 2026-09-26, release hit list): a port's chat by the share of
+    /// the port's body it covers, up to all of it, by port udid; the space chat by its size. Unset is
+    /// the default drop-down.
+    @Published public var portChatShare: [String: CGFloat] = [:]
+    @Published public var spaceChatSize: CGSize?
+
+    nonisolated static let chatMinHeight: CGFloat = 100
+    nonisolated static let spaceChatMin = CGSize(width: 320, height: 220)
+    nonisolated static let spaceChatDefault = CGSize(width: 440, height: 360)
+
+    /// The height of a port's open chat over a body `body` tall: dragged to a share of it (at least
+    /// `chatMinHeight`, at most the whole body), or the default.
+    nonisolated static func portChatHeight(share: CGFloat?, body: CGFloat) -> CGFloat {
+        guard body > 0 else { return 0 }
+        guard let share else { return min(max(150, body * 0.45), max(0, body - 60)) }
+        return min(body, max(min(chatMinHeight, body), share * body))
+    }
+
+    /// The share a drag to `height` sets, kept in range.
+    nonisolated static func portChatShare(height: CGFloat, body: CGFloat) -> CGFloat {
+        guard body > 0 else { return 1 }
+        return min(1, max(min(chatMinHeight, body) / body, height / body))
+    }
+
+    /// The space chat's size: dragged (kept between its minimum and the room there is), or the default.
+    nonisolated static func spaceChatSize(_ proposed: CGSize?, room: CGSize) -> CGSize {
+        let p = proposed ?? spaceChatDefault
+        return CGSize(width: min(max(spaceChatMin.width, p.width), max(spaceChatMin.width, room.width)),
+                      height: min(max(spaceChatMin.height, p.height), max(spaceChatMin.height, room.height)))
+    }
 
     /// Clicking a companion in the dock/member list. A CLI companion (claude/gemini, `openInTerminal`)
     /// launches/reveals its terminal port; a headless one is reached in the space's chat.

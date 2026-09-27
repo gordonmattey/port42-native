@@ -17,6 +17,11 @@ struct SessionImportList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // What the groups are, said outright (GM, 2026-09-26: nothing on the screen said they were
+            // spaces).
+            Text(Self.groupingNote(spaces: selection.groups.filter { !$0.sessions.isEmpty }.count))
+                .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 14) {
                 Text("\(selection.ticked.count) of \(candidates.count) selected")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
@@ -110,6 +115,12 @@ struct SessionImportList: View {
         .opacity(on ? 1 : 0.6)
     }
 
+    static func groupingNote(spaces: Int) -> String {
+        let n = spaces == 1 ? "one space" : "\(spaces) spaces"
+        return "port42 grouped them into \(n) for you, one per project. each # is a space: the sessions in it "
+             + "land there together. drag a session to another space or onto + new space, ✎ renames one."
+    }
+
     static func age(_ d: Date, now: Date = Date()) -> String {
         let s = max(0, Int(now.timeIntervalSince(d)))
         if s < 3600 { return "\(max(1, s / 60))m" }
@@ -131,13 +142,18 @@ struct SessionImportDone: View {
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.accent)
             }
             Spacer().frame(height: 8)
-            Text("> close the originals now. they'll fall behind:")
-                .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
-            ForEach(results, id: \.request.sessionId) { r in
-                let c = byId[r.request.sessionId]
-                Text("    \(c?.app ?? "terminal") · \(Self.short(r.request.cwd))\(c?.branch.map { " (\($0))" } ?? "")\(c?.tty.map { "  \($0)" } ?? "")")
-                    .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textSecondary)
+            // Information, not controls (GM): a sentence and dim bullets, nothing that looks tickable.
+            Text("Your original sessions are still open and will fall behind. Close them in:")
+                .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(results, id: \.request.sessionId) { r in
+                    let c = byId[r.request.sessionId]
+                    Text("• \(c?.app ?? "a terminal"), \(Self.short(r.request.cwd))\(c?.branch.map { " (\($0))" } ?? "")")
+                        .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                }
             }
+            .padding(.leading, 4)
+            .allowsHitTesting(false)
         }
     }
 

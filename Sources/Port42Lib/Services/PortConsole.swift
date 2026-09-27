@@ -78,6 +78,33 @@ public final class PortConsole: ObservableObject {
         return Array(all.suffix(tail))
     }
 
+    /// What `port.console` returns (GM, 2026-09-27: an agent checking its port needs to know whether
+    /// there are errors or warnings to deal with; the whole log is for debugging). `problems`: only
+    /// the errors and warnings, the most recent `tail`, each cut to `problemLineLength`. `all`: the
+    /// most recent `tail` lines of every level. The counts cover everything held, and `omitted` says
+    /// how many lines were left out, so a caller knows there is more.
+    public struct View: Equatable {
+        public let lines: [Line]
+        public let errors: Int
+        public let warnings: Int
+        public let omitted: Int
+    }
+    public static let problemLineLength = 1_000
+
+    public static func view(_ all: [Line], problemsOnly: Bool, tail: Int) -> View {
+        let errors = all.filter { $0.level == "error" }.count
+        let warnings = all.filter { $0.level == "warn" }.count
+        let pool = problemsOnly ? all.filter { $0.level == "error" || $0.level == "warn" } : all
+        let kept = tail > 0 && pool.count > tail ? Array(pool.suffix(tail)) : pool
+        let shown = problemsOnly ? kept.map { l in
+            l.text.count > problemLineLength ? Line(level: l.level, text: String(l.text.prefix(problemLineLength)) + "…", at: l.at) : l
+        } : kept
+        return View(lines: shown, errors: errors, warnings: warnings, omitted: all.count - shown.count)
+    }
+
+    /// Every line held for a port, oldest first.
+    public func all(portId: String) -> [Line] { lines[portId] ?? [] }
+
     /// Forget a port's output. Called when the port goes away, so a closed port's console does not
     /// outlive it.
     public func clear(portId: String) {

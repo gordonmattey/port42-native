@@ -42,8 +42,9 @@ struct CompanionNameTests {
     func display() {
         #expect(ChatRouting.displayText("ask @app%20dev and @scout") == "ask @app dev and @scout")
         #expect(ChatRouting.displayText("100%20off, mail me@x.com") == "100%20off, mail me@x.com", "only mentions are decoded")
-        let t = PortChatPanel.transcript([PortChatEntry(seq: 1, at: Date(), text: "hi @app%20dev", fromId: "u", fromName: "Alice", fromKind: "human")])
-        #expect(String(t.characters).contains("hi @app dev"))
+        let t = ChatTranscript.build([PortChatEntry(seq: 1, at: Date(), text: "hi @app%20dev", fromId: "u", fromName: "Alice", fromKind: "human")],
+                                     me: nil, accent: .green)
+        #expect(t.text.string.contains("hi @app dev"))
     }
 
     func person(_ w: ParityWorld) -> Principal { .human(id: w.state.currentUser!.id, displayName: "Alice", spaceId: w.space.id) }

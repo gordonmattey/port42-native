@@ -191,3 +191,52 @@ struct SessionImportFlowTests {
         #expect(w.state.onboardingFocusPortId == r[0].portId && r[0].portId != nil)
     }
 }
+
+/// Echo's welcome names what setup brought in (GM, 2026-09-26: after "what is this place", which spaces
+/// were made for you).
+@Suite("Echo knows the imported sessions")
+@MainActor
+struct EchoImportedBriefTests {
+
+    static let requests: [SessionImport.Request] = [
+        .init(sessionId: "s1", cli: .claude, cwd: "/w/port42-native", space: "port42-native", name: "port42-native-nautilus"),
+        .init(sessionId: "s2", cli: .codex, cwd: "/w/kynee", space: "kynee release", name: "kynee main"),
+        .init(sessionId: "s3", cli: .claude, cwd: "/w/port42-native", space: "port42-native", name: "port42-native-phase4"),
+    ]
+
+    @Test("the note lists each space once, with who is waiting in it, as they would be mentioned")
+    func note() {
+        let n = AppState.echoImportedNote(Self.requests)
+        #expect(n.contains("#port42-native: @port42-native-nautilus (claude), @port42-native-phase4 (claude)"))
+        #expect(n.contains("#kynee release: @kynee%20main (codex)"))
+        #expect(n.components(separatedBy: "#port42-native").count == 2, "a space listed twice")
+        #expect(AppState.echoImportedNote([]) == "")
+    }
+
+    @Test("completeSetup puts it in echo's brief, and leaves no placeholder when nothing came in")
+    func brief() throws {
+        for imported in [Self.requests, []] {
+            let db = try DatabaseService(inMemory: true)
+            let state = AppState(db: db)
+            let user = AppUser.createForTesting(displayName: "Gordon")
+            try db.saveUser(user)
+            state.currentUser = user
+            state.completeSetup(displayName: "Gordon", cli: "claude", imported: imported)
+            let echo = try #require(state.companions.first { $0.displayName == "echo" })
+            let prompt = echo.systemPrompt ?? ""
+            #expect(!prompt.contains("{{IMPORTED}}"))
+            #expect(prompt.contains("#kynee release") == !imported.isEmpty)
+            #expect(prompt.contains("it's their machine and their agent."))
+        }
+    }
+}
+
+@Suite("Session list says what the groups are")
+struct SessionGroupingNoteTests {
+    @Test("the list says it grouped the sessions into spaces, and how many")
+    func note() {
+        #expect(SessionImportList.groupingNote(spaces: 3).hasPrefix("port42 grouped them into 3 spaces for you"))
+        #expect(SessionImportList.groupingNote(spaces: 1).contains("into one space"))
+        #expect(SessionImportList.groupingNote(spaces: 2).contains("each # is a space"))
+    }
+}
