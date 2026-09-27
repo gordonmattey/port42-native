@@ -12,6 +12,8 @@ import Foundation
 public struct MirrorStatus: Equatable {
     public let hostName: String
     public var online: Bool
+    /// Whether a mention in the host's chat may wake this instance's companions (4.6c).
+    public var wakes: Bool = false
 }
 
 extension AppState {
@@ -76,7 +78,7 @@ extension AppState {
     /// Mirror a remote port into its tile until the tile goes.
     func startMirror(tile: String) {
         guard remoteMirrors[tile] == nil, let row = mirroredRemote(tile) else { return }
-        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true)
+        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true, wakes: row.wakes)
         remoteMirrors[tile] = Task { @MainActor [weak self] in
             var first = true
             while let self, !Task.isCancelled, self.portWindows.panels.contains(where: { $0.id == tile }) {
@@ -121,6 +123,7 @@ extension AppState {
             // The tile's chat is the host's: each post there is shown here as it lands, stored only there.
             if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
                 chats.received(key, entry)
+                wakeMentioned(tile: tile, key: key, entry: entry)
             }
         case PortEventKind.push.wire:
             // The host's page received this push as a `port42:data` event, so the copy does too. The
@@ -128,6 +131,60 @@ extension AppState {
             portWindows.panels.first { $0.id == tile }?.bridge.deliverData(o["payload"] ?? NSNull())
         default:
             break
+        }
+    }
+
+    /// The person's switch on a tile: may the host's chat wake this instance's companions.
+    public func setMirrorWakes(tile: String, _ on: Bool) {
+        guard let row = mirroredRemote(tile) else { return }
+        try? db.setRemotePortWakes(peerKey: row.peerKey, portKey: row.portKey, wakes: on)
+        mirrorStatus[tile]?.wakes = on
+    }
+
+    /// This instance's companions a post in a mirrored chat mentions, by the name the host knows them
+    /// by (`name (knownAs)`), exactly: another machine's companion of the same name is never one.
+    func mirroredMentions(_ text: String, knownAs: String) -> [AgentConfig] {
+        let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
+        return companions.filter { named.contains("\($0.displayName) (\(knownAs))".lowercased()) }
+    }
+
+    /// A mention in the host's chat of one of this instance's companions wakes it, when the tile's switch
+    /// is on; its reply goes to the tile's chat, so to the host (`postReply`). A companion never wakes
+    /// for its own post.
+    func wakeMentioned(tile: String, key: String, entry: PortChatEntry) {
+        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs,
+              let panel = portWindows.panels.first(where: { $0.id == tile }),
+              let spaceId = panel.spaceId ?? currentSpace?.id else { return }
+        let targets = mirroredMentions(entry.text, knownAs: knownAs)
+            .filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
+        guard !targets.isEmpty else { return }
+        let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel),
+                                            text: entry.text)
+        let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
+        for c in targets where c.openInTerminal {
+            deliverToTerminalCompanion(c, line: line, replyChat: key, spaceId: spaceId)
+        }
+        let headless = targets.filter { !$0.openInTerminal }
+        if !headless.isEmpty {
+            launchAgents(headless, spaceId: spaceId, spaceAgentIds: members, triggerContent: entry.text,
+                         senderId: entry.fromId, senderName: entry.fromName, replyChat: key)
+        }
+    }
+
+    /// A reply from this instance's companion into a chat: posted here, or, for a tile mirroring a port
+    /// on another instance, sent there as that companion.
+    func postReply(key: String, text: String, from p: Principal) throws {
+        guard let target = remotePort(for: key) else {
+            try postToChat(key: key, text: text, from: p)
+            return
+        }
+        Task { @MainActor in
+            do {
+                _ = try await forwardRemote("chat.post", to: (target.peer, target.port, "port"),
+                                            args: BridgeArgs(["port": key, "text": text]), as: p)
+            } catch {
+                p42log("[chat] reply to %@ on another instance failed: %@", key, error.localizedDescription)
+            }
         }
     }
 

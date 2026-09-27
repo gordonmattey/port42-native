@@ -934,6 +934,12 @@ public final class DatabaseService {
             try db.alter(table: "remote_ports") { t in t.add(column: "knownAs", .text) }
         }
 
+        migrator.registerMigration("v61-remote-port-wakes") { db in
+            // Nautilus Phase 4, 4.6c: whether the other instance's chat may wake this one's companions
+            // for this port. Off until the person turns it on: a wake spends this machine's model.
+            try db.alter(table: "remote_ports") { t in t.add(column: "wakes", .boolean).notNull().defaults(to: false) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1118,6 +1124,15 @@ public final class DatabaseService {
         public let hostName: String
         /// The name the other instance knows this one by (4.6c); nil before it said.
         public var knownAs: String? = nil
+        /// Whether a mention in the other instance's chat may wake this instance's companions (4.6c).
+        public var wakes: Bool = false
+    }
+
+    public func setRemotePortWakes(peerKey: String, portKey: String, wakes: Bool) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE remote_ports SET wakes = ? WHERE peerKey = ? AND portKey = ?",
+                           arguments: [wakes, peerKey, portKey])
+        }
     }
 
     /// Record the name the other instance knows this one by.
@@ -1165,7 +1180,7 @@ public final class DatabaseService {
                 RemotePortRow(peerKey: r["peerKey"], portKey: r["portKey"], title: r["title"],
                               rights: (r["rights"] as String).split(separator: ",").compactMap { RemoteRight(rawValue: String($0)) },
                               relays: (r["relays"] as String).split(separator: ",").map(String.init),
-                              hostName: r["hostName"], knownAs: r["knownAs"])
+                              hostName: r["hostName"], knownAs: r["knownAs"], wakes: r["wakes"] ?? false)
             }
         }
     }

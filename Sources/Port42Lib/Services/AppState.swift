@@ -1582,7 +1582,7 @@ public final class AppState: ObservableObject {
             // Posting there also routes the reply's @mentions, so a hand-off is never lost.
             let asked = self.chatReplyTargets.removeValue(forKey: name.lowercased())
             let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
-            do { try self.postToChat(key: chat, text: content, from: who) }
+            do { try self.postReply(key: chat, text: content, from: who) }
             catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.

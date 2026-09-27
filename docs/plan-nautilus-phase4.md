@@ -609,6 +609,16 @@ Gordon watches both desktops. Everything below is what that needs, and nothing e
    tile's switch is on; its reply goes back to the tile's chat, so to the host. Gate: off by default;
    on, one mention gives one wake and one reply in the host's chat; off again, none.
 
+   **Built 2026-09-26.** Each tile has a switch in its chrome, "wakes mine", off by default
+   (migration v61). With it on, a `chat` event from the host that mentions one of this instance's
+   companions by the name the host knows it by (`wise-tern (Ada)`, from `knownAs`), exactly, wakes
+   it here: a terminal companion by the same delivery as a local mention, a headless one by
+   `launchAgents`, never for its own post. Replies go through `postReply`, which sends a reply to a
+   mirrored tile's chat to the host as that companion, so nothing is kept here; both reply sites
+   (a terminal's turn, a command companion) use it. Gates: `RemoteTileTests` (switch off, another
+   machine's companion of the same name, its own post, on, off again; a reply goes to the host),
+   calibrated by five breaks. Suite 1316 green.
+
 **Live, the magic test (new spaces on Dev2 and Dev6; Gordon watches).** The shader on Dev2 shared with
 `see`, `use`, `edit` and `wake_agents`; a companion on each instance; Gordon turns on wakes in Dev6's
 tile and asks both, in the tile's chat, to build the shader together. It passes when both companions

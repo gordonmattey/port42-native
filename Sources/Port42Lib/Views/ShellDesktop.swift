@@ -636,6 +636,17 @@ struct ShellTile: View {
                         .background(Port42Theme.bgHover, in: Capsule())
                         .help(mirror.online ? "\(mirror.hostName)'s port, live from their machine."
                                             : "\(mirror.hostName)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own.")
+                    // The person's switch (4.6c): may a mention in their chat wake your companions.
+                    Button { appState.setMirrorWakes(tile: id, !mirror.wakes) } label: {
+                        Text(mirror.wakes ? "wakes mine: on" : "wakes mine: off")
+                            .font(Port42Theme.mono(9))
+                            .foregroundStyle(mirror.wakes ? Port42Theme.accent : Port42Theme.textSecondary)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Port42Theme.bgHover, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help(mirror.wakes ? "A mention of one of your companions in \(mirror.hostName)'s chat for this port wakes it here, on your model. Click to stop."
+                                       : "Mentions of your companions in \(mirror.hostName)'s chat for this port do not wake them. Click to allow it.")
                 }
                 // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
                 // recently. Silent when it is you — the chrome speaks only when there is contention.

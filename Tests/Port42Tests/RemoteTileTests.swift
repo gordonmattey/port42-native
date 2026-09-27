@@ -37,7 +37,7 @@ struct RemoteTileTests {
         gw.reply = { method, _ in
             switch method {
             case "invite.redeem":
-                return [RemotePortTests.response(["port": "P", "title": "shared chart", "rights": ["see", "use"]])]
+                return [RemotePortTests.response(["port": "P", "title": "shared chart", "rights": ["see", "use"], "knownAs": "Ada"])]
             case "port.getHtml":
                 return [RemotePortTests.response(html())]
             case "port.subscribe":
@@ -172,6 +172,62 @@ struct RemoteTileTests {
         #expect((post["args"] as? [String: Any])?["port"] as? String == "P", "the post did not go to the host's port")
         #expect(try state.db.chatEntries(chat: key, after: 0, limit: 50).isEmpty, "the tile kept its own chat")
         state.stopMirror(tile: tile)
+    }
+
+    @Test("a mention in the host's chat wakes this instance's companion only with the tile's switch on, and only by its own name there")
+    func wakesBySwitchAndExactName() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        var c = AgentConfig.createCommand(ownerId: "u", displayName: "wise-tern", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        c.openInTerminal = true
+        state.companions = [c]
+        let space = Space.create(name: "here")
+        try state.db.saveSpace(space)
+        state.spaces = [space]
+        state.currentSpace = space            // a tile opens on the current space, as in the app
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        state.stopMirror(tile: tile)
+        func hear(_ text: String, from: String = "alpha") async {
+            host(gw, html: { "<p>x</p>" }, events: [["kind": "chat", "payload": [
+                "seq": 1, "at": 1.0, "text": text, "from": ["id": "a", "name": from, "kind": "companion"]]]])
+            state.chatReplyTargets = [:]
+            state.startMirror(tile: tile)
+            await settle { state.chats.entries[key]?.contains { $0.text == text } == true }
+            state.stopMirror(tile: tile)
+        }
+        let mine = CompanionName.mention("wise-tern (Ada)")
+        await hear("\(mine) your turn")
+        #expect(state.chatReplyTargets["wise-tern"] == nil, "woke with the tile's switch off")
+
+        state.setMirrorWakes(tile: tile, true)
+        #expect(state.mirroredRemote(tile)?.wakes == true)
+        await hear("\(CompanionName.mention("wise-tern (Bob)")) your turn")
+        #expect(state.chatReplyTargets["wise-tern"] == nil, "another machine's wise-tern woke this one")
+        await hear("\(mine) same again", from: "wise-tern (Ada)")
+        #expect(state.chatReplyTargets["wise-tern"] == nil, "a companion woke for its own post")
+        await hear("\(mine) your turn, again")
+        #expect(state.chatReplyTargets["wise-tern"] == key, "the switch was on and it was named, and it did not wake")
+
+        state.setMirrorWakes(tile: tile, false)
+        await hear("\(mine) and once more")
+        #expect(state.chatReplyTargets["wise-tern"] == nil, "woke after the switch went off")
+    }
+
+    @Test("a companion's reply to the tile's chat goes to the host as that companion, stored only there")
+    func replyGoesToHost() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        let key = try #require(state.mirrorChatKey(tile))
+        let c = AgentConfig.createCommand(ownerId: "u", displayName: "wise-tern", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        try state.postReply(key: key, text: "done my part", from: .companion(id: c.id, displayName: "wise-tern", spaceId: nil))
+        await settle { gw.calls.contains { $0["method"] as? String == "chat.post" } }
+        let post = try #require(gw.calls.last { $0["method"] as? String == "chat.post" })
+        #expect((post["args"] as? [String: Any])?["port"] as? String == "P")
+        #expect((post["actor"] as? [String: String])?["kind"] == "companion")
+        #expect(try state.db.chatEntries(chat: key, after: 0, limit: 50).isEmpty, "the reply was kept here")
     }
 
     @Test("an ordinary tile's calls are never sent to another instance")

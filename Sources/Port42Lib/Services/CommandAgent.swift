@@ -58,7 +58,7 @@ final class CommandAgentHandler {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         do {
-            try appState.postToChat(key: replyChat, text: text,
+            try appState.postReply(key: replyChat, text: text,
                                     from: .companion(id: agent.id, displayName: agent.displayName, spaceId: spaceId))
         } catch {
             p42log("[Port42] Command agent reply to %@ failed: %@", replyChat, error.localizedDescription)
