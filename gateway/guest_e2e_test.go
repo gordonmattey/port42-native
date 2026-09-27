@@ -133,6 +133,22 @@ func TestABrowserGuestTheHostCannotReadIsRefused(t *testing.T) {
 	}
 }
 
+// The invite page's own tests (guest/test/*.test.mjs, in a browser DOM) run with the gateway's, so
+// `go test ./...` covers the whole browser lane.
+func TestTheInvitePage(t *testing.T) {
+	node, _ := guestRuntime(t)
+	root, _ := filepath.Abs("../guest")
+	files, _ := filepath.Glob(filepath.Join(root, "test", "*.test.mjs"))
+	if len(files) == 0 {
+		t.Fatal("no invite page tests found")
+	}
+	cmd := exec.Command(node, append([]string{"--test"}, files...)...)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the invite page's tests failed: %v\n%s", err, out)
+	}
+}
+
 func stringArg(args map[string]any, k string) string { s, _ := args[k].(string); return s }
 
 // guestRuntime finds node and the guest's end-to-end script. With no node or no installed guest

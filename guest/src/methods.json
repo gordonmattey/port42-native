@@ -1,0 +1,61 @@
+{
+  "chat.post" : [
+    "port",
+    "text"
+  ],
+  "chat.read" : [
+    "port",
+    "after",
+    "limit"
+  ],
+  "port.console" : [
+    "id",
+    "level",
+    "tail"
+  ],
+  "port.getDom" : [
+    "id",
+    "selector"
+  ],
+  "port.getHtml" : [
+    "id",
+    "version"
+  ],
+  "port.history" : [
+    "id"
+  ],
+  "port.patch" : [
+    "id",
+    "search",
+    "replace",
+    "token"
+  ],
+  "port.push" : [
+    "id",
+    "data",
+    "token"
+  ],
+  "port.rename" : [
+    "id",
+    "title",
+    "token"
+  ],
+  "port.restore" : [
+    "id",
+    "version",
+    "token"
+  ],
+  "port.subscribe" : [
+    "id"
+  ],
+  "port.update" : [
+    "id",
+    "html",
+    "token"
+  ],
+  "ports.list" : [
+    "capabilities",
+    "space_id",
+    "include_closed"
+  ]
+}
