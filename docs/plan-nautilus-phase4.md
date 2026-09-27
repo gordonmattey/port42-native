@@ -857,6 +857,31 @@ sharing, 1 by default, so one posted link can serve a limited group ("the first 
 opens it is their own guest, and the pill's panel shows "12 of 50 used". A link that works many
 times can be forwarded, which is its purpose; one-use stays the default.
 
+### 4.7b What the browser test found, and what follows (Gordon, 2026-09-27)
+
+Live on Dev2 with Safari and Chrome as two guests through relay1 (the page served from this Mac):
+both joined, clicks and chat crossed between them and Dev2. Found:
+
+1. **A late joiner starts empty.** The demo keeps its count in the page, so the second browser loaded
+   0 and its first click reset everyone to 1. The manual tells ports to keep state in
+   `port42.storage`, and storage is never reachable from another machine, so any port built the
+   recommended way loses its state when shared. Proposed (awaiting Gordon): **shared port storage**,
+   the copies of a shared port read (`see`) and write (`use`) that one port's storage on the host,
+   and each change is announced to every copy.
+2. **A guest asked a companion for something new, and it made a port the guest cannot see.** ember
+   on Dev2 made "shader" and posted its id. Decided: a port id in a chat is a link (it focuses the port
+   in Port42, opens it on the page if you have access); a companion never gives access on its own; it
+   **shares with the people in the chat** (grants the new port to the machines already in this
+   port's chat, with the per-port card on the host), and the companion instructions say that someone
+   on another machine sees only the ports shared with them.
+3. **The page becomes a small desktop** (Gordon): a thin bar (port42, Open in Port42, Get Port42) and
+   each shared port as a tile with the tile's chrome, movable, resizable, stacked, focusable,
+   closable; no spaces, dock or galaxy. A newly shared port arrives as a new tile on the same
+   session.
+
+Order: shared storage, sharing with the chat and clickable ids, the desktop, the companion
+instructions; then 4.8.
+
 ### 4.8 Scenario 4 in the harness
 
 The harness's scenario 4 becomes the master plan's test: a browser on another machine renders the
