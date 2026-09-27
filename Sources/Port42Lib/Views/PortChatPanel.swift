@@ -271,3 +271,54 @@ struct ChatPresenceStrip: View {
         return false
     }
 }
+
+/// The bottom edge of a chat, dragged to size it (GM, 2026-09-26, release hit list). The bar sets the
+/// height; with `corner`, its right end is a grip that sets the width too. Double-click goes back to
+/// the default (or, for a port's chat, toggles covering the whole port).
+struct ChatResizeBar: View {
+    static let height: CGFloat = 10
+    let accent: Color
+    let size: CGSize
+    let corner: Bool
+    let onResize: (CGSize) -> Void
+    let onDoubleClick: () -> Void
+    @State private var start: CGSize?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            Capsule().fill(accent.opacity(0.45)).frame(width: 36, height: 3)
+            Spacer()
+        }
+        .frame(width: size.width, height: Self.height)
+        .background(Port42Theme.shellCard)
+        .contentShape(Rectangle())
+        .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+        .gesture(drag(width: false))
+        .onTapGesture(count: 2, perform: onDoubleClick)
+        .overlay(alignment: .trailing) {
+            if corner {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 8)).foregroundStyle(accent.opacity(0.6))
+                    .frame(width: 18, height: Self.height)
+                    .contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+                    .gesture(drag(width: true))
+                    .help("Drag to size the chat")
+            }
+        }
+        .help("Drag to size the chat; double-click to reset")
+    }
+
+    /// Global coordinates: the bar moves with the edge it drags, so its own space would shift under it.
+    private func drag(width: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { v in
+                let s = start ?? size
+                start = s
+                onResize(CGSize(width: width ? s.width + v.translation.width : s.width,
+                                height: s.height + v.translation.height))
+            }
+            .onEnded { _ in start = nil }
+    }
+}
