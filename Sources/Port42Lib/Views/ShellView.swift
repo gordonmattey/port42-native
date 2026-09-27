@@ -1237,7 +1237,8 @@ struct ShellNewCompanionView: View {
     private var rosterBySpace: [(space: String, companions: [AgentConfig])] {
         var groups: [String: [AgentConfig]] = [:]
         for c in rosterNotHere {
-            let home = appState.spaces.first { s in appState.companions(forSpace: s.id).contains { $0.id == c.id } }
+            // The observed cache, not a query per space per redraw; it updates this view as it changes.
+            let home = appState.spaces.first { s in appState.spaceAgentIds[s.id]?.contains(c.id) == true }
             groups["#" + (home?.name ?? "no space"), default: []].append(c)
         }
         return groups.keys.sorted().map { ($0, groups[$0]!.sorted { $0.displayName < $1.displayName }) }

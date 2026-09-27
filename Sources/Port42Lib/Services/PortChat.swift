@@ -480,7 +480,8 @@ public final class PortChatStore: ObservableObject {
     /// Who is in a chat: everyone who has posted, the newest first, once each.
     public func participants(_ key: String) -> [(id: String, name: String)] {
         var seen = Set<String>(), out: [(id: String, name: String)] = []
-        for e in (entries[key] ?? []).reversed() where seen.insert(e.fromId).inserted {
+        // Port42's own notices are not a participant.
+        for e in (entries[key] ?? []).reversed() where e.fromId != ChatRouting.port42SenderId && seen.insert(e.fromId).inserted {
             out.append((e.fromId, e.fromName))
         }
         return out

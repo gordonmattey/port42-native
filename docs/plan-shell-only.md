@@ -352,11 +352,35 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | macOS 14 floor on Sonoma hardware | Not verified; GM has decided 14 ships |
 | Update feed | Never hand-edit `dist/appcast.xml`; `generate_appcast` regenerates it from the built bundle |
 | The call stall after a NaN (`2afbe1c`) and the lock screen video freeze (`bfb1053`) | Fixed, with tests |
-| Open defects (`defects-triage.md`) | To decide which ship in v1: terminal matched to companion by name, companion inflation, no cap on tool results, blank page after a WebContent crash |
-| Seen in the /imagine runs | The startup-stuck check is removed; still to watch: messages typed into a starting Claude not submitted (seen once) |
-| Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
+| Open defects (`defects-triage.md`) | Settled: terminal matched by name fixed (by id), companion per named terminal is by design (GM), blank page after a WebContent crash cleared (never observed), tool-result size fixed for `port.console` (levels). None left open for v1 |
+| Seen in the imagine runs | Settled: the startup-stuck check removed; messages typed as a turn ended were lost (#6), fixed and verified live |
+| Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
+| Voice input (GM, 2026-09-27: on the v1 list) | Feature-complete on `voice-input` (the "handoff: arrange" session, 2026-09-27): all five phases, confirmed by hand on Dev7, suite green (1351) merged against nautilus `e497a17`. Hold space past 0.2 s and speak; words stream into whatever has the keyboard (chat field, web port, terminal) and commit on release; other apps behind a setting and Accessibility. Parakeet TDT v3 on the Neural Engine via FluidAudio (new package, Apache 2.0). No migration, nothing in the bridge registry (a test pins that no port reaches the microphone or the typer). The 461 MB model is fetched on first use, not shipped; its CC BY 4.0 attribution goes in `THIRD-PARTY-LICENSES.txt` before release. Adds a Voice tab to Settings (`SignOutSheet`, which Phase 4 also changes). Voice starts from the app at launch, not `AppState.init`: starting it there doubled the suite and made a watch test flake |
+| Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; four decisions await GM |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
+| Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Publishing waits for the Phase 4 merge (GM, 2026-09-27): the repo is public and the relay's source is only on the unpushed Phase 4 branch. After the release reaches `main`: push `relay-v1.0.0` (the workflow publishes the image and binaries; GM grants `write:packages` once), make the image public, switch relay1 on Railway to `ghcr.io/gordonmattey/port42-relay:latest` (after Phase 4's sharing tests, which run through relay1), make the Railway template, and the port42.ai page (growth) |
+
+### Integration into nautilus (coordinated by the nautilus session, GM 2026-09-27)
+
+Four lines of work end in `nautilus`: `nautilus` itself, `nautilus-phase4` (sharing, relay, invites),
+`relay-dist` (relay packaging, cut from Phase 4) and `voice-input`. Order, each step only when the
+last is green:
+
+1. **`relay-dist` into `nautilus-phase4`.** New files only; Phase 4 merges it.
+2. **`nautilus-phase4` into `nautilus`,** when Phase 4 is done or at a checkpoint GM picks. Phase 4
+   merges the latest `nautilus` first and resolves its side; then nautilus merges it.
+3. **`voice-input` into `nautilus`,** after Phase 4 is in, so voice resolves once against the whole
+   tree. It merges `nautilus` first. It adds a package (FluidAudio), so the first build fetches it.
+4. **Pairing and scoped tokens** built on the integrated tree (migration v63), then the "…" menu
+   reorder.
+5. **Release build.**
+
+At every merge: the branch has merged `nautilus` in and resolved its own conflicts; `swift test` is
+green on the result; the generated files are regenerated, not hand-merged (the tool schema golden,
+`llms.txt`, skill references); migrations keep distinct numbers (Phase 4 v57 to v61, nautilus v62,
+pairing v63); the five scenarios pass on a dev instance. Overlapping files to watch: `AppState`,
+`ShellState`, `ShellDesktop`, `ShellView`, `PortWindowManager`, `BridgeMethods`.
 
 ### Final hit list (GM, 2026-09-26)
 
@@ -377,6 +401,7 @@ them; an item leaves only when it is done and verified.
 | 10 | Opening a port's chat crashed the app (Dev5, 2026-09-27) | Done (`53515ac`), confirmed by GM: TextKit 1, and the scroll moves the clip view; a test reproduces the crash on the old code |
 | 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
 | 12 | Checking a port put up to ~400 KB of log into an agent's context (`port.console` returned the last 100 lines of up to 4,000 characters) | Done: `level=count` gives only the error and warning counts; the default (`problems`) the errors and warnings themselves (last 20, each cut to 1,000 characters); `level=all` the whole log, for debugging. A terminal defaults to its last 50 lines. The ports skill and the /imagine roles check the count first and read errors only if there are any |
+| 13 | Opening port chats lagged and slowed the machine (prod, #port42-app: the biggest chat 257 messages, ~280 KB) | Done on nautilus, not yet on prod: the old transcript was one SwiftUI Text of the whole chat, laid out again on every change. The AppKit transcript (item 9) opens 300 messages of ~1,000 characters in about 0.1 to 0.25 s, and a new message is appended in place (0.5 ms in a full 200-message chat) instead of a rebuild; both timed in tests. Reaches prod with the daily-driver install |
 
 ## Future roadmap
 
@@ -412,7 +437,17 @@ Things that would be cool once the five scenarios hold.
   undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
   where the hooks live without writing into the user's project or global config. Findings in
   `plan-nautilus-phase3.md` (3.7).
-- **Hosted (SaaS) agents as companions** (GM, 2026-09-26). Agents that run as a service rather than
+- **Pairing and scoped tokens: in v1, built after the Phase 4 merge (GM, 2026-09-27).** Design in
+  `docs/plan-pairing-scopes.md`.
+- **Pairing** (GM, 2026-09-27). `port42 pair` from any terminal or app: it asks Port42 for access,
+  the app shows who is asking, the person accepts, and that process gets its own credential (the
+  registry already has a `paired` kind; the verb was dropped earlier). Pairing agents across spaces
+  is sharing (Phase 4). Decision pending: v1 or after.
+- **Scoped tokens** (GM, 2026-09-27). A credential today can do anything its permissions allow,
+  anywhere. Scope it to the galaxy (everything), one space, or one port; pairing and sharing grant a
+  scope. Decision pending: v1 or after.
+- **Hosted (SaaS) agents as companions** (GM, 2026-09-26; again 2026-09-27: GM had them working on
+  Railway before). Agents that run as a service rather than
   a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
   GM wants them back. Product idea; demand unvalidated.
 - **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping

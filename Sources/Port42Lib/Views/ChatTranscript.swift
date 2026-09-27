@@ -24,13 +24,24 @@ enum ChatTranscript {
 
     static func isMine(_ e: PortChatEntry, me: String?) -> Bool { me != nil && e.fromId == me }
 
+    /// Port42's own notices (a turn that failed, a budget spent) read as "system", not as a sender
+    /// named Port42 (GM, 2026-09-27). Stored notices keep their sender id, so older ones read the same.
+    static func isSystem(_ e: PortChatEntry) -> Bool { e.fromId == ChatRouting.port42SenderId }
+
+    static func senderName(_ e: PortChatEntry) -> String {
+        isSystem(e) ? "system" : (e.fromName.isEmpty ? e.fromId : e.fromName)
+    }
+
     /// Grouped under the message before it: the same sender, soon after.
     static func continues(_ e: PortChatEntry, after prev: PortChatEntry?) -> Bool {
         guard let prev else { return false }
         return prev.fromId == e.fromId && e.at.timeIntervalSince(prev.at) < groupGap
     }
 
-    static func build(_ entries: [PortChatEntry], me: String?, accent: NSColor, now: Date = Date()) -> Built {
+    /// `after`: the message already shown before these, when appending to a transcript: it decides
+    /// whether the first of these groups with it, and a line break is put first.
+    static func build(_ entries: [PortChatEntry], me: String?, accent: NSColor, after prev: PortChatEntry? = nil,
+                      now: Date = Date()) -> Built {
         let out = NSMutableAttributedString()
         var ranges: [NSRange] = []
         var bodyRanges: [NSRange] = []
@@ -39,9 +50,13 @@ enum ChatTranscript {
         let theirs = NSColor(Port42Theme.textPrimary).withAlphaComponent(0.85)
         let mine = accent.blended(withFraction: 0.55, of: .white) ?? accent
 
+        if prev != nil && !entries.isEmpty {
+            out.append(NSAttributedString(string: "\n", attributes: [.font: body]))
+        }
         for (i, e) in entries.enumerated() {
             let own = isMine(e, me: me)
-            let grouped = continues(e, after: i > 0 ? entries[i - 1] : nil)
+            let before = i > 0 ? entries[i - 1] : prev
+            let grouped = continues(e, after: before)
             let start = out.length
             let tip = tooltip(e.at)
             func para(before: CGFloat) -> NSParagraphStyle {
@@ -53,12 +68,12 @@ enum ChatTranscript {
                 p.lineBreakMode = .byWordWrapping
                 return p
             }
-            let gap: CGFloat = i == 0 ? 0 : (grouped ? 3 : 12)
+            let gap: CGFloat = before == nil ? 0 : (grouped ? 3 : 12)
             var bodyGap = gap
             if !own && !grouped {
-                let name = (e.fromName.isEmpty ? e.fromId : e.fromName)
-                out.append(NSAttributedString(string: name + "\n", attributes: [
-                    .font: bold, .foregroundColor: NSColor(ShellDock.avatarColor(e.fromId)),
+                let system = isSystem(e)
+                out.append(NSAttributedString(string: senderName(e) + "\n", attributes: [
+                    .font: bold, .foregroundColor: system ? NSColor(Port42Theme.textSecondary) : NSColor(ShellDock.avatarColor(e.fromId)),
                     .paragraphStyle: para(before: gap), .toolTip: tip,
                 ]))
                 bodyGap = 2
@@ -68,7 +83,7 @@ enum ChatTranscript {
             for (j, line) in lines.enumerated() {
                 let last = i == entries.count - 1 && j == lines.count - 1
                 out.append(NSAttributedString(string: line + (last ? "" : "\n"), attributes: [
-                    .font: body, .foregroundColor: own ? mine : theirs,
+                    .font: body, .foregroundColor: own ? mine : (isSystem(e) ? NSColor(Port42Theme.textSecondary) : theirs),
                     .paragraphStyle: para(before: j == 0 ? bodyGap : 0), .toolTip: tip,
                 ]))
             }
@@ -76,7 +91,7 @@ enum ChatTranscript {
             bodyRanges.append(NSRange(location: bodyStart, length: out.length - bodyStart))
         }
         return Built(text: out, ranges: ranges, bodyRanges: bodyRanges,
-                     senders: entries.map { $0.fromName.isEmpty ? $0.fromId : $0.fromName }, dates: entries.map(\.at))
+                     senders: entries.map(senderName), dates: entries.map(\.at))
     }
 
     /// What a copy puts on the pasteboard when the selection spans messages (GM, 2026-09-27): each
@@ -93,6 +108,67 @@ enum ChatTranscript {
             lines.append("[\(tooltip(b.dates[i]))] \(b.senders[i]): \(text)")
         }
         return lines.count > 1 ? lines.joined(separator: "\n") : nil
+    }
+
+    /// The transcript on screen and what it was built from, updated in place as messages come and go.
+    struct Layout {
+        var entries: [PortChatEntry] = []
+        var ranges: [NSRange] = []
+        var bodyRanges: [NSRange] = []
+
+        func built(_ text: NSAttributedString) -> Built {
+            Built(text: text, ranges: ranges, bodyRanges: bodyRanges,
+                  senders: entries.map(senderName), dates: entries.map(\.at))
+        }
+    }
+
+    /// Bring `storage` from `layout.entries` to `entries`. A chat grows at the end and, past what it
+    /// keeps, loses messages at the start, so that is done in place: the oldest cut off, the newest
+    /// appended. Rebuilding a 200-message transcript for every message cost a visible stall (GM,
+    /// 2026-09-27). Anything else is rebuilt whole. Returns whether it was done in place.
+    @discardableResult
+    static func update(_ storage: NSMutableAttributedString, _ layout: inout Layout, to entries: [PortChatEntry],
+                       me: String?, accent: NSColor) -> Bool {
+        let old = layout.entries
+        func rebuild() -> Bool {
+            let b = build(entries, me: me, accent: accent)
+            storage.setAttributedString(b.text)
+            layout = Layout(entries: entries, ranges: b.ranges, bodyRanges: b.bodyRanges)
+            return false
+        }
+        guard !old.isEmpty, let first = entries.first else { return rebuild() }
+        let drop = old.firstIndex { $0.seq == first.seq } ?? -1
+        guard drop >= 0 else { return rebuild() }
+        let kept = old[drop...]
+        guard entries.count >= kept.count,
+              zip(kept, entries).allSatisfy({ $0.seq == $1.seq }) else { return rebuild() }
+        // A cut inside a run from one sender would leave the new first message without its name.
+        if drop > 0 && continues(first, after: old[drop - 1]) { return rebuild() }
+        storage.beginEditing()
+        defer { storage.endEditing() }
+        if drop > 0 {
+            let cut = layout.ranges[drop].location
+            storage.deleteCharacters(in: NSRange(location: 0, length: cut))
+            layout.entries.removeFirst(drop)
+            layout.ranges = layout.ranges.dropFirst(drop).map { NSRange(location: $0.location - cut, length: $0.length) }
+            layout.bodyRanges = layout.bodyRanges.dropFirst(drop).map { NSRange(location: $0.location - cut, length: $0.length) }
+        }
+        let added = Array(entries.dropFirst(kept.count))
+        if !added.isEmpty {
+            let b = build(added, me: me, accent: accent, after: layout.entries.last)
+            let base = storage.length
+            storage.append(b.text)
+            // The appended text opens with the line break that ends the message before it.
+            let lead = layout.entries.isEmpty ? 0 : 1
+            if lead == 1, let last = layout.ranges.indices.last {
+                layout.ranges[last].length += 1
+                layout.bodyRanges[last].length += 1
+            }
+            layout.entries += added
+            layout.ranges += b.ranges.map { NSRange(location: $0.location + base, length: $0.length) }
+            layout.bodyRanges += b.bodyRanges.map { NSRange(location: $0.location + base, length: $0.length) }
+        }
+        return true
     }
 
     /// The message whose range holds character `index` (the last one past the end).
@@ -190,9 +266,10 @@ struct ChatTranscriptView: NSViewRepresentable {
         let atBottom = first || c.isAtBottom(scroll)
         let ownLast = entries.last.map { ChatTranscript.isMine($0, me: me) } ?? false
         c.signature = signature
-        let built = ChatTranscript.build(entries, me: me, accent: NSColor(accent))
-        c.built = built
-        text.textStorage?.setAttributedString(built.text)
+        if c.me != me { c.layout = .init(); c.me = me }      // a different person: rebuild whole
+        if let storage = text.textStorage {
+            ChatTranscript.update(storage, &c.layout, to: entries, me: me, accent: NSColor(accent))
+        }
         if atBottom || ownLast {
             DispatchQueue.main.async { Self.scrollToEnd(scroll) }
         }
@@ -204,7 +281,9 @@ struct ChatTranscriptView: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         weak var text: NSTextView?
-        var built: ChatTranscript.Built?
+        var layout = ChatTranscript.Layout()
+        var me: String?
+        var built: ChatTranscript.Built? { text?.textStorage.map { layout.built($0) } }
         var signature = ""
         var onScroll: ((Date) -> Void)?
 
@@ -218,8 +297,9 @@ struct ChatTranscriptView: NSViewRepresentable {
             let top = CGPoint(x: 8, y: text.visibleRect.minY + 4 - text.textContainerInset.height)
             let glyph = lm.glyphIndex(for: top, in: tc)
             let char = lm.characterIndexForGlyph(at: glyph)
-            guard let built else { return }
-            if let i = ChatTranscript.message(at: char, in: built.ranges), i < built.dates.count { onScroll?(built.dates[i]) }
+            if let i = ChatTranscript.message(at: char, in: layout.ranges), i < layout.entries.count {
+                onScroll?(layout.entries[i].at)
+            }
         }
     }
 }

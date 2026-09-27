@@ -227,6 +227,10 @@ struct EchoImportedBriefTests {
             #expect(!prompt.contains("{{IMPORTED}}"))
             #expect(prompt.contains("#kynee release") == !imported.isEmpty)
             #expect(prompt.contains("it's their machine and their agent."))
+            // After the first shader, echo introduces the two keys (GM, 2026-09-27), and leaves ⌘I to
+            // the person.
+            #expect(prompt.contains("press ⌘I and imagine it") && prompt.contains("⌘K finds everything else"))
+            #expect(prompt.contains("do not start an imagine yourself"))
         }
     }
 }
