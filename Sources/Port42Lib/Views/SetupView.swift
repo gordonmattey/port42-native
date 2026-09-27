@@ -143,6 +143,8 @@ public struct SetupView: View {
                 terminalVisible = true
             }
             findSessions()      // at once: done by the time the boot lines reach it
+            // Resuming a setup quit halfway: the name typed then is already there.
+            if displayName.isEmpty, let known = appState.currentUser?.displayName { displayName = known }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 startBootSequence()
             }
@@ -766,9 +768,11 @@ public struct SetupView: View {
         showNameInput = false
         Analytics.shared.setupStep("name_entered")
 
-        // Generate identity key pair and store in Keychain now,
-        // so the create sequence can show the real fingerprint
-        let user = AppUser.createLocal(displayName: name)
+        // Generate identity key pair and store in Keychain now, so the create sequence can show the
+        // real fingerprint. A setup quit halfway already made the person: keep them, renamed, rather
+        // than make a second.
+        var user = appState.currentUser ?? AppUser.createLocal(displayName: name)
+        user.displayName = name
         do {
             try appState.db.saveUser(user)
             appState.currentUser = user
