@@ -4,7 +4,7 @@ Asked by GM on 2026-09-27: `port42 pair` lets any process or app on this Mac ask
 the person accepts in the app, and that process is paired. Every credential gets a scope: the galaxy,
 one space, or one port. Today a credential can do anything its permission cards allow, anywhere. In v1,
 built after the Phase 4 merge (GM, 2026-09-27), because both change the client registry, which Phase
-4 has changed. Status: design; decisions 1 to 3 made by GM (2026-09-27), 4 open.
+4 has changed. Status: design; all four decisions made by GM (2026-09-27). Built after the Phase 4 merge.
 
 ## What exists
 
@@ -66,9 +66,9 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
 3. **DECIDED (GM): approval checks a code.** Six digits shown as three pairs with no hyphen, `48 29 13`,
    like Phase 4's invite code. The person matches the code in their terminal to the card, so a process
    cannot get a card approved by showing up at the right moment.
-4. **How a paired process uses its token (recommended: an environment variable).** `port42 pair`
-   prints `export PORT42_TOKEN_FILE=…`, the variable every Port42 caller already reads, so the same
-   program keeps using it. The alternative is `port42 --as <name>` on each call.
+4. **DECIDED (GM): both.** `port42 pair` ends by printing `export PORT42_TOKEN_FILE=…`, the variable every
+   Port42 caller already reads, so a program set up with it just works. And `port42 --as <name>` picks a
+   paired login by name on any single call, for the CLI.
 
 ## Steps (after the Phase 4 merge)
 
@@ -78,7 +78,8 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
 2. **`pair.request` and the approval card.** Tests: loopback only, the rate limit, expiry, a wrong
    code refused, the token reaching only the requester.
 3. **`port42 pair`** in the CLI: request, print the code, wait, write the token file, print the
-   export line. Tests in Go against a fake door.
+   export line; and `port42 --as <name>` to call with a paired login by name. Tests in Go against a
+   fake door.
 4. **Settings, Access:** each client's kind and scope, narrow and revoke; manual tokens get a scope at
    creation.
 5. **Docs:** the ports and devices skills, `port42 help`, and the page on connecting a tool.
