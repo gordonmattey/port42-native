@@ -508,6 +508,12 @@ five on Dev2. The harness now works in a space of its own and switches the perso
 Still in 4.6b: the Share button and dialog in the port chrome (rights, code, copy link), fork and
 move, and accepting by clicked link or ⌘K paste.
 
+**Found before the Share button, fixed 2026-09-26: only a web port can be shared.** Invites did not
+refuse a terminal or a browser port. `use` on a shared terminal would type into this machine's shell
+and `see` would read everything it prints; a browser port is signed in as this person. Nothing had
+shared one, but a Share button would have made it one click. `createInvite` and the redeem both refuse
+anything but a web port (`AppState.shareable`); gate in `InviteTests`, calibrated.
+
 **Share, move, fork (Gordon, 2026-09-26).** One port, three verbs,
 the same for another space on this instance and for another instance:
 

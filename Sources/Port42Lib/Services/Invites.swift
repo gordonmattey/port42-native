@@ -116,6 +116,10 @@ extension AppState {
               let panel = portWindows.panels.first(where: { $0.udid == key }) else {
             throw BridgeError.notFound("port '\(port)'")
         }
+        guard Self.shareable(panel) else {
+            throw BridgeError.badArg("only a web port can be shared: a terminal would let them type into your shell, "
+                                     + "and a browser would let them act as you on the sites it is signed in to")
+        }
         guard let host = localPeerID else {
             throw BridgeError(code: .wrongState, message: "this instance has no peer id yet; its gateway has not started")
         }
@@ -169,6 +173,9 @@ extension AppState {
         }
         guard let panel = portWindows.panels.first(where: { $0.udid == row.portKey }) else {
             throw inviteError("gone", "The port this invite was for is no longer there.")
+        }
+        guard Self.shareable(panel) else {
+            throw inviteError("gone", "That port cannot be shared.")
         }
 
         // Enrol, or re-enrol, this peer. A new invite is new consent, so a removed peer comes back.
@@ -316,6 +323,11 @@ extension AppState {
 
     /// Redeem an invite made by another instance, as this instance, and remember the port. Returns
     /// the port's address: `port42://<host>/<port>`.
+    /// Whether a port can be shared with another machine: a web port only. A terminal is this machine's
+    /// shell (`use` would type into it, `see` would read everything it prints) and a browser is signed in
+    /// as this person, so neither is ever handed to someone elsewhere.
+    static func shareable(_ panel: PortPanel) -> Bool { panel.portType == "web" }
+
     /// The name a newly enrolled instance is shown by here (4.6c, Gordon): the name it gave, unless this
     /// person or another instance already goes by it, when it gains the first four characters of its
     /// peer id. Fixed at enrolment, so a label people have seen never changes, and the first to take a

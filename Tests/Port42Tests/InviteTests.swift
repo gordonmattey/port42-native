@@ -114,6 +114,21 @@ struct InviteTests {
         await #expect(throws: BridgeError.self) { _ = try await create(lonely) }
     }
 
+    @Test("a terminal or a browser port is never shared, and an invite made for one before is refused at redeem")
+    func onlyWebPortsShared() async throws {
+        let w = try world()
+        let i = try #require(w.state.portWindows.panels.firstIndex { $0.id == "inv-q" })
+        let made = try await create(w, port: w.q)                  // a web port: fine
+        w.state.portWindows.panels[i].portType = "terminal"
+        do { _ = try await create(w, port: w.q); Issue.record("a terminal was shared") }
+        catch let e as BridgeError { #expect(e.message.contains("only a web port"), "refused for the wrong reason: \(e.message)") }
+        w.state.portWindows.panels[i].portType = "browser"
+        await #expect(throws: BridgeError.self) { _ = try await create(w, port: w.q) }
+        let v = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(made).nonce, "name": "Ada"])
+        #expect(reason(v) == "gone", "an invite for a port that is now a browser was redeemed")
+        #expect(w.state.remoteRights(of: Self.ada, onPort: w.q).isEmpty)
+    }
+
     @Test("an agent asks before sharing; the person is never asked on their own behalf")
     func sharingIsAsked() async throws {
         let w = try world()
