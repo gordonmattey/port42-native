@@ -506,8 +506,10 @@ Things that would be cool once the five scenarios hold.
   "progress: 3 of 5", "fps: 60"). Port42 adds what it already knows, marked as its own: error and
   warning counts, unread chat, presence (working, waiting), a terminal's git branch. Who decides: the
   port (or its agent) what its state is and its order; Port42 where it shows and how much fits; the
-  person the size. Other agents can read it (a lead sees its engineers without asking) and ⌘K can
-  search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
+  person the size. Hidden ports need it most, since they are never seen (a pipeline stage, a poller, a
+  headless agent): the "N hidden" list and ⌘K show each one's line ("fetching every 5 min · last run
+  2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
+  read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
   on `research`). v1 or after: GM to say (recommended: straight after v1).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
