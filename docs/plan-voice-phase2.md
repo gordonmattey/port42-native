@@ -14,17 +14,20 @@ responder work: if transcription is wrong, nothing has been typed into a documen
 
 | Fact | Value | Source |
 |---|---|---|
-| Package | `FluidInference/FluidAudio`, from `0.12.4` | repo README, read 2026-09-26 |
+| Package | `FluidInference/FluidAudio`, declared from `0.12.4`, resolved at `0.17.4` | Package.resolved, 2026-09-26 |
 | Toolchain | Swift 6.0+, macOS and iOS | repo README |
 | Default model | Parakeet TDT v3, 25 European languages plus Japanese | repo README |
 | TDT v3 on disk | ~480 MB | Documentation/ASR/GettingStarted.md |
 | Weights | downloaded from HuggingFace on first use; `ModelRegistry.baseURL` allows a custom or offline source | repo README |
 | Audio in | 16 kHz mono; `[Float]`, `AVAudioPCMBuffer` or a file URL | repo README |
-| Batch API | `transcribe(_ samples: [Float], source:) async throws -> TranscriptionResult` with `text` and `confidence`, no timings | GettingStarted.md |
+| Batch API | `AsrManager` is an actor. `transcribe(_ buffer: AVAudioPCMBuffer, decoderState: inout TdtDecoderState, language: Language?) async throws -> ASRResult`, and the same for `[Float]` and for a file URL. `ASRResult` carries the text and token timings. The README's `transcribe(_:source:)` is stale; the source is authoritative | AsrManager.swift, read 2026-09-26 |
+| Load | `AsrModels.downloadAndLoad(to:configuration:version:encoderPrecision:encoderComputeUnits:progressHandler:)`, then `AsrManager(config:models:).loadModels(_:)`, with `isAvailable` and `cleanup()` | AsrModels.swift, AsrManager.swift |
+| Download progress | `progressHandler` on `downloadAndLoad`, so the download state can show real progress | AsrModels.swift |
+| Cache location | `AsrModels.defaultCacheDirectory(for:)` | AsrModels.swift |
 | Streaming | `SlidingWindowAsrManager` exists; signatures not documented | GettingStarted.md |
 | Throughput | ~190x realtime on an M4 Pro for batch | repo README |
 | Parakeet Redux | ~220 MB, requires macOS 15 | GettingStarted.md |
-| TDT v3 minimum macOS | **not documented** | open risk, below |
+| TDT v3 minimum macOS | macOS 14, matching the app's floor | FluidAudio Package.swift declares `.macOS(.v14)`, and `AsrModels` / `AsrManager` carry no `@available` gates |
 
 What the app already has:
 
@@ -76,6 +79,12 @@ What the app already has:
   the one that matters, an engine left running is a live microphone.
 - A port's `audio.capture` still works while voice is idle (the two engines must coexist).
 
+## Status
+
+Code complete and the suite is green (1280 tests). Not yet verified by hand: that needs the 480 MB
+download, which is off by default behind `voiceModelDownloadAllowed`, so the by-hand pass below runs
+once that flag is set in the dev instance under test.
+
 ## Verify by hand
 
 Hold, speak, release. The text lands in the log and in the indicator. A 40 second utterance comes
@@ -84,6 +93,11 @@ model shows the download state and types nothing.
 
 ## Open risk
 
-The minimum macOS for TDT v3 is not documented, and the app's floor is macOS 14. Redux is documented
-as macOS 15. If v3 also needs 15, the choice is a lower model, a raised floor, or voice input gated
-to macOS 15. This is measured at the start of the build, before anything is wired to it.
+**Resolved before the build.** The macOS floor question is answered: FluidAudio's package declares
+`.macOS(.v14)`, the same floor as the app, and neither `AsrModels` nor `AsrManager` carries an
+availability gate. Only Parakeet Redux needs macOS 15, and Redux is not the model in use.
+
+What remains is the first-use download. 480 MB starts on the first hold, so the download needs a
+consent surface rather than beginning silently. Phase 2 puts it behind the model state on
+`ShellState` and the indicator; whether it asks before starting is a product call, not a technical
+one.

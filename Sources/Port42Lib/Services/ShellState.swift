@@ -40,6 +40,11 @@ public final class ShellState: ObservableObject {
     /// able to suppress an indicator it does not draw, which is the security requirement behind
     /// putting voice in the shell rather than in a port.
     @Published public var voiceCapturing: Bool = false
+    /// Where the speech model is. A hold with no model must say so rather than do nothing.
+    @Published public var voiceModel: VoiceModelState = .absent
+    /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
+    /// is what puts the text into the focused surface.
+    @Published public var voiceNotice: String?
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.

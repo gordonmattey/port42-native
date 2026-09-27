@@ -28,6 +28,8 @@ public struct ShellView: View {
     /// Hold space to talk. The machine is pure (`VoiceTrigger`); this owns the clock and the timer.
     @State private var voice = VoiceTrigger()
     @State private var voiceTimer: Timer?
+    @State private var voiceSession: VoiceSession?
+    @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
@@ -237,8 +239,10 @@ public struct ShellView: View {
 
             // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
             // listening without saying so.
-            if shell.voiceCapturing {
-                VoiceIndicator(accent: shell.accent)
+            if shell.voiceCapturing || shell.voiceNotice != nil {
+                VoiceIndicator(accent: shell.accent,
+                               label: shell.voiceNotice ?? voiceLabel,
+                               live: shell.voiceCapturing)
                     .zIndex(220)
                     .allowsHitTesting(false)
                     .transition(.opacity)
@@ -345,6 +349,16 @@ public struct ShellView: View {
         }
     }
 
+    /// What the capsule says when there is no notice to show.
+    private var voiceLabel: String {
+        switch shell.voiceModel {
+        case .ready:                  return "listening"
+        case .downloading(let done):  return "speech model \(Int(done * 100))%"
+        case .absent:                 return "speech model not installed"
+        case .failed(let why):        return "voice: \(why)"
+        }
+    }
+
     /// Arm the hold threshold. Cancelled on key-up, and harmless if it fires late: the machine
     /// refuses to start capturing unless a hold is still pending.
     private func armVoiceThreshold() {
@@ -354,12 +368,43 @@ public struct ShellView: View {
                 guard voice.thresholdElapsed() == .beginCapture else { return }
                 retractOneCharacter()
                 shell.voiceCapturing = true
+                shell.voiceNotice = nil
+                voiceSession?.begin()
             }
         }
     }
 
     private func endVoice() {
         shell.voiceCapturing = false
+        voiceSession?.end()
+        // The label lingers for a moment after release so a hold that produced nothing still says why.
+        showVoiceNotice(voiceLabel, seconds: shell.voiceModel == .ready ? 0.8 : 3)
+    }
+
+    private func showVoiceNotice(_ text: String, seconds: TimeInterval) {
+        shell.voiceNotice = text
+        voiceNoticeTimer?.invalidate()
+        voiceNoticeTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
+            Task { @MainActor in shell.voiceNotice = nil }
+        }
+    }
+
+    /// Build the voice session on first install of the monitors. Phase 2 reports the text; Phase 3 is
+    /// what puts it into the focused surface.
+    private func installVoiceSession() {
+        guard voiceSession == nil else { return }
+        let session = VoiceSession.live()
+        session.onText = { text in
+            p42log("[Port42] voice heard: %@", text)
+            showVoiceNotice(text, seconds: 4)
+        }
+        session.onModelState = { state in
+            shell.voiceModel = state
+            if case .downloading = state { shell.voiceNotice = nil }
+        }
+        voiceSession = session
+        session.prepareModel()          // loads if the weights are on disk; never downloads unsolicited
+        session.refreshModelState()
     }
 
     /// Take back the space that was typed on the way into a hold. The responder that received it is
@@ -376,6 +421,7 @@ public struct ShellView: View {
 
     private func installInputMonitors() {
         guard monitors.isEmpty else { return }
+        installVoiceSession()
 
         // Trackpad pinch — one rung per gesture (the latch lives in ShellState).
         let magnify = NSEvent.addLocalMonitorForEvents(matching: .magnify) { e in
