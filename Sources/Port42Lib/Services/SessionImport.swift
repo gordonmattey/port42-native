@@ -121,12 +121,23 @@ public enum SessionImport {
     /// Session logs changed in the last `days`, newest first. Claude: `~/.claude/projects/*/*.jsonl`,
     /// the cwd read from the log itself (not the folder name, as teleport does). Codex:
     /// `~/.codex/sessions/**.jsonl`, the id and cwd from its first record.
-    static func logs(home: String, now: Date, days: Double = 7) -> [LogFile] {
+    /// `cwds`, when given, limits Claude's folders to the ones named after those directories (Claude
+    /// names a project folder after its path), so a Mac with years of sessions is not read in full:
+    /// on GM's Mac, reading them all took 15 s.
+    static func logs(home: String, now: Date, days: Double = 7, cwds: Set<String>? = nil) -> [LogFile] {
         let fm = FileManager.default
         let cutoff = now.addingTimeInterval(-days * 86400)
         var out: [LogFile] = []
         let claudeRoot = "\(home)/.claude/projects"
-        for dir in (try? fm.contentsOfDirectory(atPath: claudeRoot)) ?? [] {
+        let allDirs = (try? fm.contentsOfDirectory(atPath: claudeRoot)) ?? []
+        let dirs: [String] = {
+            guard let cwds else { return allDirs }
+            let slugs = Set(cwds.flatMap { [projectSlug($0), projectSlug(realpath($0))] })
+            let named = allDirs.filter { slugs.contains($0) }
+            // A folder named some other way (a future naming rule) is found by reading them all.
+            return named.count >= Set(cwds.map(projectSlug)).count ? named : allDirs
+        }()
+        for dir in dirs {
             let d = "\(claudeRoot)/\(dir)"
             for f in (try? fm.contentsOfDirectory(atPath: d)) ?? [] where f.hasSuffix(".jsonl") {
                 let path = "\(d)/\(f)"
@@ -148,6 +159,11 @@ public enum SessionImport {
             }
         }
         return out.sorted { $0.modified > $1.modified }
+    }
+
+    /// Claude's folder name for a directory: every character but a letter or digit as a dash.
+    static func projectSlug(_ cwd: String) -> String {
+        String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
     }
 
     static func modified(_ path: String) -> Date? {
@@ -177,7 +193,9 @@ public enum SessionImport {
 
     /// What the session is about: Claude's own title for it, else the person's first request.
     static func title(of log: LogFile) -> String {
-        guard let text = try? String(contentsOfFile: log.path, encoding: .utf8) else { return "" }
+        // The head for the first request, the tail for Claude's latest title: never the whole file,
+        // which for a long session is many megabytes.
+        guard let text = headAndTail(log.path, head: 256 * 1024, tail: 512 * 1024) else { return "" }
         var first: String?
         var aiTitle: String?
         for line in text.split(separator: "\n") {
@@ -200,6 +218,23 @@ public enum SessionImport {
         }
         let t = (aiTitle ?? first ?? "").split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         return t.count > 60 ? String(t.prefix(59)) + "…" : t
+    }
+
+    static func headAndTail(_ path: String, head: Int, tail: Int) -> String? {
+        guard let h = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        try? h.seek(toOffset: 0)
+        if size <= UInt64(head + tail) { return String(decoding: h.readDataToEndOfFile(), as: UTF8.self) }
+        let first = h.readData(ofLength: head)
+        try? h.seek(toOffset: size - UInt64(tail))
+        let last = h.readDataToEndOfFile()
+        // Cut to whole lines on both sides of the gap.
+        let a = String(decoding: first, as: UTF8.self)
+        let b = String(decoding: last, as: UTF8.self)
+        let aLines = a.split(separator: "\n").dropLast().joined(separator: "\n")
+        let bLines = b.split(separator: "\n").dropFirst().joined(separator: "\n")
+        return aLines + "\n" + bLines
     }
 
     // MARK: - Where it runs
@@ -251,7 +286,9 @@ public enum SessionImport {
     /// it gets the newest log for its directory that no other process claimed.
     public static func find(procs: [Proc], home: String, now: Date = Date()) -> [Candidate] {
         let byPid = Dictionary(procs.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
-        let logs = logs(home: home, now: now)
+        let cwds = Set(procs.compactMap { p in cli(of: p, byPid: byPid) != nil ? p.cwd : nil })
+        // No age limit: a session idle for weeks is still running, and its folders are few.
+        let logs = logs(home: home, now: now, days: 3650, cwds: cwds)
         var claimed = Set<String>()
         var out: [Candidate] = []
         let running = procs.compactMap { p -> (Proc, CLI)? in

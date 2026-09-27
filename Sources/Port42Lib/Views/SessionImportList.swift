@@ -6,7 +6,6 @@ import SwiftUI
 struct SessionImportList: View {
     let candidates: [SessionImport.Candidate]
     @Binding var selection: SessionImport.Selection
-    @State private var showOlder = false
     @State private var renaming: String?
     @State private var draftName = ""
     @State private var dropTarget: String?
@@ -19,7 +18,7 @@ struct SessionImportList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(selection.groups) { g in
-                let rows = g.sessions.filter { showOlder || !selection.older.contains($0) }
+                let rows = g.sessions
                 if !rows.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         heading(g)
@@ -48,12 +47,6 @@ struct SessionImportList: View {
                     for id in items { selection.moveToNewGroup(id, named: byId[id].map { "\($0.project) \($0.branch ?? "")".trimmingCharacters(in: .whitespaces) } ?? "new space") }
                     return true
                 } isTargeted: { dropTarget = $0 ? "new" : (dropTarget == "new" ? nil : dropTarget) }
-            if !selection.older.isEmpty {
-                Button(showOlder ? "▾ hide older" : "▸ older (\(selection.older.count))") { showOlder.toggle() }
-                    .buttonStyle(.plain)
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-            }
         }
     }
 
