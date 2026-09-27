@@ -907,6 +907,13 @@ missing: an unreadable identity leaves the launch without sharing (Settings says
 unreadable root secret uses a temporary one for that launch, never saved. Gate: `KeptSecretTests`,
 calibrated. Dev2's old key was overwritten and cannot be recovered; its shares to Dev6 need new invites.
 
+**After the final integration (Gordon, 2026-09-27).** Test the invite deep link on the daily-driver
+app (`port42://invite#…` and the page's Open in Port42 reach the join box); dev instances all claim
+`port42://`, so it cannot be tested on them. Proposed then: Universal Links (the associated-domains
+entitlement on the release build and an `apple-app-site-association` file on tele.port42.ai), so
+`https://tele.port42.ai/#…` opens Port42 when installed; Safari, Mail and Messages honour it, Chrome
+does not. Passed to nautilus for the integration list.
+
 ### 4.8 Scenario 4 in the harness
 
 The harness's scenario 4 becomes the master plan's test: a browser on another machine renders the
