@@ -510,7 +510,7 @@ Things that would be cool once the five scenarios hold.
   headless agent): the "N hidden" list and ⌘K show each one's line ("fetching every 5 min · last run
   2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
   read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
-  on `research`). v1 or after: GM to say (recommended: straight after v1).
+  on `research`). **Straight after v1 (GM, 2026-09-27): the first thing built once v1 ships.**
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
