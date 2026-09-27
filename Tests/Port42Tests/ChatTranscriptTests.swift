@@ -85,4 +85,18 @@ struct ChatTranscriptTests {
         #expect(partial?.hasPrefix("[\(ChatTranscript.tooltip(t0))] gordon: warmer\n") == true)
         #expect(ChatTranscript.copyText(b, selection: s.range(of: "v3 is")) == nil)
     }
+
+    @Test("opening a chat scrolls to its end without raising (the crash on opening a port's chat, Dev5 2026-09-27)")
+    @MainActor
+    func scrollBeforeLayout() throws {
+        let scroll = ChatTranscriptView.makeScroll()
+        let text = try #require(scroll.documentView as? NSTextView)
+        #expect(text.textLayoutManager == nil, "TextKit 2 raised when scrolled before its first layout")
+        let b = ChatTranscript.build((1...40).map { e($0, "a", "alpha", "line \($0)", at: Double($0)) }, me: nil, accent: .green)
+        text.textStorage?.setAttributedString(b.text)
+        ChatTranscriptView.scrollToEnd(scroll)          // no window, no layout yet: must not throw
+        scroll.frame = NSRect(x: 0, y: 0, width: 300, height: 120)
+        ChatTranscriptView.scrollToEnd(scroll)
+        #expect(scroll.contentView.bounds.maxY >= text.bounds.maxY - 1, "not at the newest message")
+    }
 }

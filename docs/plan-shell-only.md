@@ -389,6 +389,8 @@ them; an item leaves only when it is done and verified.
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 | 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`): up to 8 lines, then it scrolls; Return sends |
 | 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Built (`053f38b`), awaiting GM's look on Dev5: no bubbles (GM chose to see it without first); one AppKit text, so a drag still copies across messages; runs from one sender grouped; hover a message for its time. Bubbles can be drawn on the same view later |
+| 10 | Opening a port's chat crashed the app (Dev5, 2026-09-27) | Done: the new transcript's TextKit 2 text view raised "attempt to create NSTextRange from nil location" when scrolled to the end before its first layout. TextKit 1, and the scroll moves the clip view; a test reproduces the crash on the old code |
+| 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
 
 ## Future roadmap
 
@@ -406,7 +408,18 @@ Things that would be cool once the five scenarios hold.
 - **Multi-display.** Spaces placed across monitors.
 - **More agents as equal first-run paths**, such as Gemini and Antigravity.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
-- **One guided permission flow** in place of a series of dialogs.
+- **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
+  (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
+  and most come from agents running in Port42's terminals, which macOS attributes to Port42. Idea: a
+  first-run step for the ones nearly everyone hits (the Desktop, Documents and Downloads folders, or
+  Full Disk Access through System Settings, which macOS allows only by the person's own toggle), with
+  camera, microphone and screen left to first use. Product idea; not designed.
+- **Mac apps in spaces** (GM, 2026-09-27). Bring other macOS apps into Port42 and organize them in
+  spaces. macOS gives no way to put another app's window inside ours. Two routes: manage the real
+  windows through the Accessibility API (each space remembers its apps' windows and shows, places and
+  hides them as you move between spaces; fully usable, but they sit over Port42 rather than in a
+  tile), or a live mirror of a window as a tile through ScreenCaptureKit with input forwarded
+  (in the tile, but input and fidelity are approximations). Research; demand unvalidated.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
 - **Antigravity as a companion** (GM deferred, 2026-09-26). `agy` has hooks (PreToolUse, PostToolUse,
   Pre/PostInvocation, Stop) from a workspace `.agents/hooks.json` or a plugin; open questions are an

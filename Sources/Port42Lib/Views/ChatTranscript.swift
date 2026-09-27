@@ -135,12 +135,28 @@ struct ChatTranscriptView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
+        let scroll = Self.makeScroll()
+        let text = scroll.documentView as! TranscriptTextView
+        let coordinator = context.coordinator
+        text.copyText = { [weak coordinator] range in coordinator?.built.flatMap { ChatTranscript.copyText($0, selection: range) } }
+        context.coordinator.text = text
+        context.coordinator.onScroll = onScroll
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        return scroll
+    }
+
+    /// The scroll view and its text view. TextKit 1, explicitly: a TextKit 2 text view asked to scroll
+    /// before its first layout raises "attempt to create NSTextRange from nil location", which ended
+    /// the app when a chat opened (Dev5, 2026-09-27), and the scroll-time lookup uses the layout manager.
+    static func makeScroll() -> NSScrollView {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
-        let text = TranscriptTextView(frame: .zero)
+        let text = TranscriptTextView(usingTextLayoutManager: false)
         text.minSize = .zero
         text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         text.isVerticallyResizable = true
@@ -148,20 +164,21 @@ struct ChatTranscriptView: NSViewRepresentable {
         text.autoresizingMask = [.width]
         text.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         scroll.documentView = text
-        let coordinator = context.coordinator
-        text.copyText = { [weak coordinator] range in coordinator?.built.flatMap { ChatTranscript.copyText($0, selection: range) } }
         text.isEditable = false
         text.isSelectable = true
         text.drawsBackground = false
         text.textContainerInset = NSSize(width: 6, height: 8)
         text.textContainer?.widthTracksTextView = true
         text.isAutomaticLinkDetectionEnabled = false
-        context.coordinator.text = text
-        context.coordinator.onScroll = onScroll
-        scroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled),
-                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         return scroll
+    }
+
+    /// To the newest message, by moving the clip view: no text-range lookup, so it is safe before the
+    /// first layout and outside a window.
+    static func scrollToEnd(_ scroll: NSScrollView) {
+        guard let doc = scroll.documentView else { return }
+        (doc as? NSTextView)?.layoutManager?.ensureLayout(for: (doc as! NSTextView).textContainer!)
+        doc.scroll(NSPoint(x: 0, y: max(0, doc.bounds.maxY - scroll.contentView.bounds.height)))
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -177,7 +194,7 @@ struct ChatTranscriptView: NSViewRepresentable {
         c.built = built
         text.textStorage?.setAttributedString(built.text)
         if atBottom || ownLast {
-            DispatchQueue.main.async { text.scrollToEndOfDocument(nil) }
+            DispatchQueue.main.async { Self.scrollToEnd(scroll) }
         }
     }
 
