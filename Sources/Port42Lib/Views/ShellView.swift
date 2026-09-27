@@ -175,6 +175,15 @@ public struct ShellView: View {
                 }.zIndex(217)
             }
 
+            // Share one port with someone on another machine (nautilus Phase 4, 4.6b).
+            if shell.shareTarget != nil {
+                ZStack {
+                    CommandBackdrop { shell.shareTarget = nil }
+                    ShareBox(portKey: $shell.shareTarget, appState: appState)
+                        .offset(y: -30)
+                }.zIndex(218)
+            }
+
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
             // The space's chat, dropped down from the top bar under the space name.
@@ -331,6 +340,7 @@ public struct ShellView: View {
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
         if shell.showImagine { shell.showImagine = false; return true }
         if shell.showImportSessions { shell.showImportSessions = false; return true }
+        if shell.shareTarget != nil { shell.shareTarget = nil; return true }
         return false
     }
 

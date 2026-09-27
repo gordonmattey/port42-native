@@ -134,6 +134,9 @@ public final class AppState: ObservableObject {
 
     /// Whether this instance is registered on each relay, as its gateway reports.
     @Published public internal(set) var relayStates: [String: Bool] = [:]
+    /// Who each port on this instance is shared with, and its open invites, as the chrome's sharing
+    /// pill reads it (4.6b). Refreshed whenever a right or an invite changes (`refreshSharing`).
+    @Published public internal(set) var sharing: [String: PortSharing] = [:]
 
     /// Replace the relays this instance registers on, and restart the gateway onto them.
     public func setRelays(_ relays: [String]) {
@@ -389,7 +392,7 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             self.localPeerID = peer
             // The gateway is up, so a remote tile restored from the last run can mirror again.
-            if !self.mirrorsRestored { self.mirrorsRestored = true; self.restoreMirrors() }
+            if !self.mirrorsRestored { self.mirrorsRestored = true; self.restoreMirrors(); self.refreshSharing() }
         }
         door.onRelayState = { [weak self] relay, up in self?.relayStates[relay] = up }
         // A caller on another machine (4.3): verified here, then run as a remote principal.

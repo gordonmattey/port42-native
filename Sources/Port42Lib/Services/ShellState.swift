@@ -38,6 +38,8 @@ public final class ShellState: ObservableObject {
     @Published public var showImagine: Bool = false
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
+    /// The port the Share box is open for (4.6b), by port key; nil when it is closed.
+    @Published public var shareTarget: String? = nil
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.
     @Published public var showQuickSwitcher: Bool = false
 

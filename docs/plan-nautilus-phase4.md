@@ -514,6 +514,19 @@ and `see` would read everything it prints; a browser port is signed in as this p
 shared one, but a Share button would have made it one click. `createInvite` and the redeem both refuse
 anything but a web port (`AppState.shareable`); gate in `InviteTests`, calibrated.
 
+**The sharing pill and the Share box, built 2026-09-27 (Gordon chose the pill over a share icon or
+the overflow).** One pill in a tile's chrome, left of presence: "shared · 2" (or "invite sent") on a
+port of this instance, "Ada's" or "Ada's · offline" on a tile of someone else's, and nothing on a port
+nobody shares. It opens one panel. On your port: each machine it is shared with, its use, edit and
+wake as chips that toggle (see stays, since it is what sharing is), stop sharing, the invites not used
+yet with withdraw, and "+ invite someone". On theirs: whose it is, what you can do, remote wake, and
+leave (closes the tile and forgets the port here). "Share…" under "…" on a web port of this instance
+opens the Share box: use, edit, remote wake (on by default) and a code, then the link with copy, the
+code, and what the port can do on this Mac. The pill reads a cached `sharing` state rebuilt on every
+rights or invite change, so a render never reads the database. Gates: `SharePillTests` (labels; the
+pill follows an invite, a join, a right, stop sharing and a withdrawal; a tile says whose and leaving
+forgets it), calibrated by five breaks. Suite 1339 green.
+
 **Share, move, fork (Gordon, 2026-09-26).** One port, three verbs,
 the same for another space on this instance and for another instance:
 

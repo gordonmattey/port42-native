@@ -1128,6 +1128,12 @@ public final class DatabaseService {
         public var wakes: Bool = false
     }
 
+    public func deleteRemotePort(peerKey: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM remote_ports WHERE peerKey = ? AND portKey = ?", arguments: [peerKey, portKey])
+        }
+    }
+
     public func setRemotePortWakes(peerKey: String, portKey: String, wakes: Bool) throws {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET wakes = ? WHERE peerKey = ? AND portKey = ?",

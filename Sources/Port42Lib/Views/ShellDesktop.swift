@@ -422,6 +422,12 @@ struct ShellTile: View {
         return p.portType == "web"
     }
 
+    /// A web port of this instance, not a tile of someone else's: the only kind that can be shared.
+    private var shareablePort: Bool {
+        guard let p = tile.panel else { return false }
+        return AppState.shareable(p) && appState.mirroredRemote(p.id) == nil
+    }
+
     /// The version history, as a picker. Every version is already kept forever in `port_versions`;
     /// this is the first thing that lets a human reach one. Split into its own View: inlined here
     /// it made SwiftUI's type-checker sit for >7 minutes without finishing. The popover fetches on
@@ -634,28 +640,11 @@ struct ShellTile: View {
             HStack(spacing: 8) {
                 Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
                 Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                // A port on another instance, mirrored here (nautilus Phase 4): say whose it is, and
-                // when its host cannot be reached, say that instead of showing a stale surface as live.
-                if let id = tile.panel?.id, let mirror = appState.mirrorStatus[id] {
-                    Text(mirror.online ? "shared" : "offline")
-                        .font(Port42Theme.mono(9))
-                        .foregroundStyle(mirror.online ? Port42Theme.textSecondary : Port42Theme.textPrimary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Port42Theme.bgHover, in: Capsule())
-                        .help(mirror.online ? "\(mirror.hostName)'s port, live from their machine."
-                                            : "\(mirror.hostName)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own.")
-                    // Remote wake (4.6c): may a mention in their chat wake your companions. Chosen when
-                    // accepting, on by default; changed here.
-                    Button { appState.setMirrorWakes(tile: id, !mirror.wakes) } label: {
-                        Text(mirror.wakes ? "remote wake: on" : "remote wake: off")
-                            .font(Port42Theme.mono(9))
-                            .foregroundStyle(mirror.wakes ? Port42Theme.accent : Port42Theme.textSecondary)
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Port42Theme.bgHover, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help(mirror.wakes ? "A mention of one of your companions in \(mirror.hostName)'s chat for this port wakes it here, on your model. Click to stop."
-                                       : "Mentions of your companions in \(mirror.hostName)'s chat for this port do not wake them. Click to allow it.")
+                // The sharing pill (nautilus Phase 4, 4.6b): whose this port is and who else is in it,
+                // with everything about sharing one click behind it. Silent on a port nobody shares.
+                if let id = tile.panel?.id, let pill = appState.sharePill(tile: id, key: tile.panel?.udid) {
+                    SharePillButton(appState: appState, pill: pill, tileId: id, portKey: tile.panel?.udid,
+                                    accent: tileAccent) { shell.shareTarget = tile.panel?.udid }
                 }
                 // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
                 // recently. Silent when it is you — the chrome speaks only when there is contention.
@@ -743,6 +732,7 @@ struct ShellTile: View {
                             shell.hideTile(tile.panel?.id ?? tile.id)
                             showMore = false
                         },
+                        onShare: shareablePort ? { showMore = false; shell.shareTarget = tile.panel?.udid } : nil,
                         onSetBackground: {
                             // MOVE the port to the background — a position change, not a clone. Its
                             // presentation flips to "background", so it drops out of the tile grid and
@@ -1434,6 +1424,8 @@ struct PortMorePopover: View {
     let onRefresh: () -> Void
     let onHistory: () -> Void
     let onHide: () -> Void
+    /// A web port of this instance can be shared (4.6b); nil hides the row.
+    var onShare: (() -> Void)? = nil
     let onSetBackground: () -> Void
 
     var body: some View {
@@ -1445,6 +1437,10 @@ struct PortMorePopover: View {
             }
             // Set-only: clearing is a shell-level action (the "reset background" control in the top
             // chrome), not something that belongs on a random port.
+            if let onShare {
+                row("Share…", icon: "person.2", action: onShare)
+                Divider().opacity(0.4)
+            }
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
         }

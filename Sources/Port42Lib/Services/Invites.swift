@@ -136,6 +136,7 @@ extension AppState {
         let expires = Date().addingTimeInterval(min(max(life, 60), Self.inviteMaxLife))
         try db.insertInvite(id: id, portKey: key, rights: rights, nonceHash: Self.inviteHash(nonce),
                             codeHash: code.map(Self.inviteHash), createdBy: p.id, expiresAt: expires)
+        refreshSharing()
         let coupon = InviteCoupon(host: host, relays: relays, port: key, rights: rights.map(\.rawValue),
                                   nonce: nonce, exp: Int(expires.timeIntervalSince1970),
                                   hostName: currentUser?.displayName ?? "Port42", portTitle: panel.title,
@@ -189,6 +190,7 @@ extension AppState {
         grantRemoteRights(rights, to: peer, onPort: row.portKey)
         if row.redeemedBy == nil {
             try db.markInviteRedeemed(id: row.id, by: peer)
+            refreshSharing()
             let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
             postSystemChatLine(key: row.portKey,
                                text: "\(label) joined from another machine (\(shown)). "
@@ -314,6 +316,32 @@ extension AppState {
 
     public func withdrawInvite(id: String) {
         try? db.revokeInvite(id: id)
+        refreshSharing()
+    }
+
+    /// Rebuild `sharing` from the rights and invites tables.
+    func refreshSharing() {
+        var out: [String: PortSharing] = [:]
+        for s in sharedPorts() where !s.rights.isEmpty { out[s.portKey, default: PortSharing()].people.append(s) }
+        for i in openInvites() { out[i.portKey, default: PortSharing()].openInvites += 1 }
+        sharing = out
+    }
+
+    /// What the sharing pill in a tile's chrome says, if anything: a port of this instance that is
+    /// shared or has an invite out, or a tile mirroring someone else's port.
+    public func sharePill(tile id: String, key: String?) -> SharePill? {
+        if let m = mirrorStatus[id] { return .theirs(host: m.hostName, online: m.online) }
+        guard let key, let s = sharing[key], !s.people.isEmpty || s.openInvites > 0 else { return nil }
+        return .shared(people: s.people.count, invites: s.openInvites)
+    }
+
+    /// Give or take one right from one machine on one port. `see` is what sharing is, so it stays;
+    /// taking everything is `stopSharing`.
+    public func setRemoteRight(_ right: RemoteRight, _ on: Bool, peer: String, port: String) {
+        guard right != .see else { return }
+        var rights = remoteRights(of: peer, onPort: port)
+        if on { rights.insert(right) } else { rights.remove(right) }
+        grantRemoteRights(rights, to: peer, onPort: port)
     }
 }
 

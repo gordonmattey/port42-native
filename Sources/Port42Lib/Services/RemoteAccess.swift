@@ -179,6 +179,7 @@ extension AppState {
     /// Set a remote caller's rights on one port. An empty set revokes them.
     public func grantRemoteRights(_ rights: Set<RemoteRight>, to grantee: String, onPort key: String) {
         try? db.saveRemoteRights(rights, grantee: grantee, portKey: key)
+        refreshSharing()
     }
 
     /// The port a remote caller names, by its exact id. No title matches and no aliases: a guest names

@@ -9,6 +9,27 @@ import Foundation
 // the tile's page exactly as it reaches the host's, so both copies see the same input. When the
 // connection drops the tile says the host is offline and tries again.
 
+/// A port's sharing, as the chrome shows it (4.6b).
+public struct PortSharing: Equatable {
+    public var people: [AppState.SharedPort] = []
+    public var openInvites: Int = 0
+}
+
+/// The sharing pill in a tile's chrome: one word for whose the port is and who else is in it.
+public enum SharePill: Equatable {
+    /// A port on this instance: how many machines have it, and invites not yet used.
+    case shared(people: Int, invites: Int)
+    /// A tile mirroring someone else's port.
+    case theirs(host: String, online: Bool)
+
+    public var label: String {
+        switch self {
+        case .shared(let n, let i): return n > 0 ? "shared · \(n)" : (i == 1 ? "invite sent" : "\(i) invites sent")
+        case .theirs(let h, let on): return on ? "\(h)'s" : "\(h)'s · offline"
+        }
+    }
+}
+
 public struct MirrorStatus: Equatable {
     public let hostName: String
     public var online: Bool
@@ -132,6 +153,15 @@ extension AppState {
         default:
             break
         }
+    }
+
+    /// Leave a port someone shared: its tile closes here and this instance forgets it. The sharer's
+    /// grant stays theirs to remove; a new invite brings it back.
+    public func leaveRemotePort(tile: String) {
+        guard let row = mirroredRemote(tile) else { return }
+        stopMirror(tile: tile)
+        try? db.deleteRemotePort(peerKey: row.peerKey, portKey: row.portKey)
+        portWindows.close(tile)
     }
 
     /// The person's switch on a tile: may the host's chat wake this instance's companions.
