@@ -60,12 +60,16 @@ func TestAnAppCallsAPortOnAnotherInstanceThroughItsGateway(t *testing.T) {
 
 	// B's app asks its gateway to call a port on A.
 	sendEnvelope(t, ctx, b.app, Envelope{Type: "remote_call", CallID: "out-1", Method: "port.subscribe",
-		Args: json.RawMessage(`{"id":"P"}`), ToPeer: a.id, Relays: []string{relayURL}})
+		Args: json.RawMessage(`{"id":"P"}`), ToPeer: a.id, Relays: []string{relayURL},
+		Actor: &Actor{ID: "c-1", Name: "wise-tern", Kind: "companion"}})
 
-	// A's app sees an ordinary remote caller: B's key, attested.
+	// A's app sees an ordinary remote caller: B's key, attested, and who on B made the call.
 	call := readEnvelope(t, ctx, a.app)
 	if call.Method != "port.subscribe" || call.RemotePeer != b.id || call.RemoteAttest != Attest(testAttestKey, b.id) {
 		t.Fatalf("A's app got %+v", call)
+	}
+	if call.Actor == nil || *call.Actor != (Actor{ID: "c-1", Name: "wise-tern", Kind: "companion"}) {
+		t.Fatalf("the actor did not cross: %+v", call.Actor)
 	}
 	sendEnvelope(t, ctx, a.app, Envelope{Type: "stream", TargetID: call.SenderID, CallID: call.CallID, Payload: json.RawMessage(`{"n":1}`)})
 	sendEnvelope(t, ctx, a.app, Envelope{Type: "response", TargetID: call.SenderID, CallID: call.CallID, Payload: json.RawMessage(`{"done":true}`)})

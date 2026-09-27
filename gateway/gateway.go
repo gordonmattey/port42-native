@@ -33,6 +33,13 @@ const (
 )
 
 // Envelope is the wire format between a peer and the gateway.
+// Actor is who on an instance made a call that instance sends to another.
+type Actor struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
 type Envelope struct {
 	Type       string          `json:"type"`
 	SenderID   string          `json:"sender_id,omitempty"`
@@ -86,6 +93,10 @@ type Envelope struct {
 	// reached (4.6). A field of its own: `remote_peer` is stripped from everything on `/ws`.
 	ToPeer string   `json:"to_peer,omitempty"`
 	Relays []string `json:"relays,omitempty"`
+	// Actor, on a `remote_call` and on the call it becomes, says who on the calling instance made it:
+	// the person, a named companion, a client or a port (4.6c). The receiving app believes it only as
+	// that instance's claim, and only on a call the remote door attested.
+	Actor *Actor `json:"actor,omitempty"`
 }
 
 // Peer is one WebSocket connection: the app's host connection, or a caller.

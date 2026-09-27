@@ -63,6 +63,15 @@ enum JSONValue: Codable {
 public struct RemoteClaim: Equatable {
     public let peer: String
     public let attestation: String
+    /// Who on that instance made the call, as it says (4.6c).
+    public var actor: RemoteActor? = nil
+}
+
+/// An actor as the wire carries it.
+struct DoorActor: Codable {
+    var id: String?
+    var name: String?
+    var kind: String?
 }
 
 /// The door's wire format: the envelope fields the call path uses and nothing else. The gateway's
@@ -89,6 +98,8 @@ struct DoorEnvelope: Codable {
     /// On `relay_state`: the relay it is about.
     var relays: [String]?
     var remoteAttest: String?
+    /// On a remote caller's call: who on its instance made it (4.6c).
+    var actor: DoorActor?
 
     var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
 
@@ -113,6 +124,7 @@ struct DoorEnvelope: Codable {
         case remotePeer = "remote_peer"
         case relays
         case remoteAttest = "remote_attest"
+        case actor
     }
 }
 
@@ -276,7 +288,9 @@ public final class GatewayDoor: NSObject, ObservableObject {
             }
             let result: Any
             if let peer = envelope.remotePeer, !peer.isEmpty {
-                let claim = RemoteClaim(peer: peer, attestation: envelope.remoteAttest ?? "")
+                let claim = RemoteClaim(peer: peer, attestation: envelope.remoteAttest ?? "",
+                                        actor: RemoteActor(wireId: envelope.actor?.id, name: envelope.actor?.name,
+                                                           kind: envelope.actor?.kind))
                 if let handler = onRemoteCallReceived {
                     result = await handler(claim, method, envelope.argsAsAny, emit)
                 } else {
@@ -305,10 +319,12 @@ public final class GatewayDoor: NSObject, ObservableObject {
     /// method's events go to `onStream`; the call returns with the final response, or throws the
     /// other instance's refusal. Cancelling the task stops waiting.
     public func remoteCall(to peer: String, relays: [String], method: String, args: [String: Any],
+                           actor: RemoteActor? = nil,
                            onStream: (@MainActor (Any) -> Void)? = nil) async throws -> Any {
         let id = "out-" + UUID().uuidString
-        let frame: [String: Any] = ["type": "remote_call", "call_id": id, "method": method, "args": args,
+        var frame: [String: Any] = ["type": "remote_call", "call_id": id, "method": method, "args": args,
                                     "to_peer": peer, "relays": relays]
+        if let actor { frame["actor"] = actor.wire }
         guard let text = SafeJSON.string(frame) else {
             throw BridgeError.badArg("these arguments cannot be sent to another instance")
         }

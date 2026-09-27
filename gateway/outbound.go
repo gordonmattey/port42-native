@@ -77,7 +77,7 @@ func (g *Gateway) handleRemoteCall(ctx context.Context, host *Peer, env Envelope
 		fail(CodeTransportFailed, "could not reach that instance: "+err.Error())
 		return
 	}
-	call := Envelope{Type: "call", Method: env.Method, Args: env.Args, CallID: env.CallID}
+	call := Envelope{Type: "call", Method: env.Method, Args: env.Args, CallID: env.CallID, Actor: env.Actor}
 	b, _ := json.Marshal(call)
 	o.mu.Lock()
 	o.pending[env.CallID] = env.ToPeer

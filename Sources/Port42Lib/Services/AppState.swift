@@ -400,11 +400,12 @@ public final class AppState: ObservableObject {
                 if method == "invite.redeem" {
                     return try self.redeemInvite(peer: peer, args: input).toJSONObject()
                 }
-                principal = try self.remotePrincipal(peer: peer)
+                principal = try self.remotePrincipal(peer: peer).acting(as: claim.actor)
             } catch let e as BridgeError {
                 return e.toJSONObject()
             } catch { return ["error": error.localizedDescription] }
-            let key = "remote:" + principal.id
+            let actorKey: String = principal.actor.map { "\($0.kind.rawValue):\($0.id)" } ?? ""
+            let key = "remote:\(principal.id)/\(actorKey)"
             let executor = self.remoteExecutors[key] ?? RemoteToolExecutor(appState: self, principal: principal)
             self.remoteExecutors[key] = executor
             return await executor.execute(method: method, input: input, emit: emit)
@@ -599,7 +600,7 @@ public final class AppState: ObservableObject {
     /// redeeming an invite) and not revoked. What comes back is a `.remote` principal keyed on the
     /// peer id, which the dispatcher confines to the ports that peer holds rights on.
     func resolveRemoteCaller(_ claim: RemoteClaim) throws -> Principal {
-        try remotePrincipal(peer: try verifyRemoteAttestation(claim))
+        try remotePrincipal(peer: try verifyRemoteAttestation(claim)).acting(as: claim.actor)
     }
 
     /// The peer id, if the gateway's HMAC over it verifies with this spawn's key.

@@ -580,6 +580,15 @@ Gordon watches both desktops. Everything below is what that needs, and nothing e
    post to it and routes by its kind. Gate: a guest companion's plain post wakes nobody on the host;
    a guest person's plain post wakes the chat's companions (with `wake_agents`); a claim of kind
    `human` from an instance never makes it the host's own person.
+   **Built 2026-09-26.** `remote_call` and the call it becomes carry `actor` (id, name, kind); the
+   host believes it only on an attested call and only as one of `human`, `companion`, `peer`,
+   `port` (`RemoteActor`), and records a post as `<peer>/<actor>`, labelled `name (person there)`
+   unless it is the person, with the actor's kind, so the loop rule holds across machines. A
+   companion in a terminal calls through the CLI as a client and is sent as a companion, as
+   `routeChat` knows it by name. The driver chip names the same actor (`ActorRef` `<peer>/<actor>`).
+   Gates: `outbound_test.go` (the actor crosses), `RemoteActorTests` (4), calibrated by five breaks.
+   Suite 1309 green. Live: a Dev6 client's post via the tile reads "nautilus-harness (gordon)" on
+   Dev2, where it had read "gordon".
 3. *Names and mentions.* Labels and the clash suffix; `whoami` and `companions.list` add the other
    instance's participants in the shared chats this companion is in, as mentionable names. Gate: a
    mention of a guest companion from the host reaches that companion and no other, including when two

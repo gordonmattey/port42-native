@@ -40,7 +40,9 @@ extension AppState {
         for (k, v) in named where (v as? String) == tile { named[k] = row.portKey }
         return Task { @MainActor in
             do {
-                return try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: method, args: named)
+                let page = self.portWindows.panels.first { $0.id == tile }
+                return try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: method, args: named,
+                                                      actor: RemoteActor(id: tile, name: page?.title ?? "a port", kind: .port))
             } catch let e as BridgeError {
                 var payload: [String: Any] = ["error": e.message, "code": e.code]
                 for (k, v) in e.details where k != "error" && k != "code" { payload[k] = v }

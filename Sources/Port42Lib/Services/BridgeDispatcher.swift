@@ -37,7 +37,7 @@ extension AppState {
         }
         // A port on ANOTHER instance: the call goes there, as this instance (nautilus Phase 4, 4.6).
         if let target = remoteTarget(canonical, principal: principal, args: args) {
-            return try await forwardRemote(canonical, to: target, args: args)
+            return try await forwardRemote(canonical, to: target, args: args, as: principal)
         }
         // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
         try authorizeRemote(canonical, principal: principal, args: args)
@@ -259,7 +259,9 @@ extension AppState {
             // separately, which is the point.
             let outcome = portInput.received(PortInput(
                 port: key, kind: .programmatic,
-                actor: ActorRef(principal: principal.id), actorName: principal.displayName,
+                // A caller on another instance drives as the actor there it names (4.6c): `<peer>/<actor>`.
+                actor: principal.actor.map { ActorRef(peer: principal.id, principal: $0.id) } ?? ActorRef(principal: principal.id),
+                actorName: Self.chatAuthor(principal).name,
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
             return key
@@ -530,7 +532,7 @@ extension AppState {
             throw refusal
         }
         if let target = remoteTarget(canonical, principal: principal, args: args) {
-            return try await forwardRemote(canonical, to: target, args: args, onStream: { event in
+            return try await forwardRemote(canonical, to: target, args: args, as: principal, onStream: { event in
                 if let text = SafeJSON.string(event, options: [.fragmentsAllowed]) { yield(text) }
             })
         }

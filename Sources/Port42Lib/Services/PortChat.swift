@@ -100,8 +100,9 @@ extension AppState {
     /// Append to a port's chat as `from`, and publish it on the port's topic.
     @discardableResult
     func postToChat(key: String, text: String, from p: Principal) throws -> PortChatEntry {
+        let who = Self.chatAuthor(p)
         let entry = try db.appendChatEntry(chat: key, text: text, at: Date(),
-                                           fromId: p.id, fromName: p.displayName, fromKind: p.kind.rawValue)
+                                           fromId: who.id, fromName: who.name, fromKind: who.kind)
         chats.received(key, entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
@@ -111,6 +112,16 @@ extension AppState {
             routeChat(key: key, entry: entry)
         }
         return entry
+    }
+
+    /// Who a post is from. A caller on another instance is recorded as the actor its instance names
+    /// (4.6c): `<peer>/<actor>`, labelled with that instance's person unless it is the person, and of
+    /// the actor's kind, so routing treats a companion there as a companion here. A claim of `human`
+    /// is never this instance's person: its id is the instance's, not `AppUser.id`.
+    static func chatAuthor(_ p: Principal) -> (id: String, name: String, kind: String) {
+        guard p.kind == .remote, let a = p.actor else { return (p.id, p.displayName, p.kind.rawValue) }
+        let kind: Principal.Kind = a.kind == .port ? .peer : a.kind
+        return (p.id + "/" + a.id, a.kind == .human ? a.name : "\(a.name) (\(p.displayName))", kind.rawValue)
     }
 
     /// A line from Port42 itself in a port's chat: a notice, not a message, so it wakes nobody.

@@ -49,6 +49,9 @@ public struct Principal: Equatable {
     /// whose createdBy differs from its own id. NOT part of identity: coalescing and grants key on
     /// `id` (see `==`), so this never splits a grant bucket.
     public let portId: String?
+    /// On a `.remote` caller: who on that instance made the call, as that instance claims (4.6c). The
+    /// instance is proven; the actor is its word. Never part of identity: rights are the instance's.
+    public let actor: RemoteActor?
 
     /// PRIVATE, and the point of I1.2 (`plan-port42-protocol-local-bus.md` §B).
     ///
@@ -60,12 +63,14 @@ public struct Principal: Equatable {
     /// can change it in one place.
     ///
     /// Enforced by `PrincipalConstructionTests` scanning the whole package, tests included.
-    private init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil) {
+    private init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil,
+                 actor: RemoteActor? = nil) {
         self.id = id
         self.displayName = displayName
         self.spaceId = spaceId
         self.kind = kind
         self.portId = portId
+        self.actor = actor
     }
 
     // MARK: - Surfaces
@@ -95,6 +100,13 @@ public struct Principal: Equatable {
     /// name it was enrolled under. Its grants are rights on ports, never machine capabilities.
     public static func remote(peer: String, displayName: String) -> Principal {
         Principal(id: peer, displayName: displayName, spaceId: nil, kind: .remote)
+    }
+
+    /// This remote caller, acting as `actor` on its instance. Any other caller is returned unchanged:
+    /// only a call from another instance says who there made it.
+    public func acting(as actor: RemoteActor?) -> Principal {
+        guard kind == .remote else { return self }
+        return Principal(id: id, displayName: displayName, spaceId: spaceId, kind: kind, actor: actor)
     }
 
     /// THE LOCAL HUMAN. `id` is `AppUser.id`.
@@ -211,4 +223,29 @@ public struct Principal: Equatable {
             : "in Port42, everywhere"
         return "Allow for \(displayName) \(where_). Take it back any time in Settings → Access."
     }
+}
+
+/// Who on another instance made a call it sent here (nautilus Phase 4, 4.6c): the person there, one of
+/// its companions, a client or a port. Built only from a usable claim; long fields are cut.
+public struct RemoteActor: Equatable {
+    /// What another instance may say its actor is. Never `.remote`: an actor is someone ON that instance.
+    public static let kinds: Set<Principal.Kind> = [.human, .companion, .peer, .port]
+    public let id: String
+    public let name: String
+    public let kind: Principal.Kind
+
+    public init?(id: String, name: String, kind: Principal.Kind) {
+        guard !id.isEmpty, !name.isEmpty, Self.kinds.contains(kind) else { return nil }
+        self.id = String(id.prefix(128))
+        self.name = String(name.prefix(64))
+        self.kind = kind
+    }
+
+    /// A claim as the wire carries it: nil unless every field is usable.
+    public init?(wireId id: String?, name: String?, kind: String?) {
+        guard let id, let name, let k = kind.flatMap(Principal.Kind.init(rawValue:)) else { return nil }
+        self.init(id: id, name: name, kind: k)
+    }
+
+    var wire: [String: String] { ["id": id, "name": name, "kind": kind.rawValue] }
 }

@@ -363,7 +363,24 @@ extension AppState {
     }
 
     /// Forward a call to the instance that holds the port, through its relays.
+    /// Who a local caller is, as another instance is told (4.6c). A companion in a terminal calls
+    /// through the CLI as a client, and is known as a companion here by its name, as `routeChat`
+    /// knows it; so the other instance applies the same rule: a companion's post wakes only whom it names.
+    func remoteActor(for p: Principal) -> RemoteActor? {
+        switch p.kind {
+        case .human, .companion: return RemoteActor(id: p.id, name: p.displayName, kind: p.kind)
+        case .peer:
+            if let c = companions.first(where: { $0.displayName.lowercased() == p.displayName.lowercased() }) {
+                return RemoteActor(id: c.id, name: c.displayName, kind: .companion)
+            }
+            return RemoteActor(id: p.id, name: p.displayName, kind: .peer)
+        case .port: return RemoteActor(id: p.portId ?? p.id, name: p.displayName, kind: .port)
+        default: return nil
+        }
+    }
+
     func forwardRemote(_ method: String, to target: (peer: String, port: String, param: String), args: BridgeArgs,
+                       as caller: Principal? = nil,
                        onStream: (@MainActor (Any) -> Void)? = nil) async throws -> BridgeValue {
         guard let row = ((try? db.remotePorts()) ?? []).first(where: { $0.peerKey == target.peer }) else {
             throw BridgeError.notFound("no invite from that instance: accept one first")
@@ -371,7 +388,7 @@ extension AppState {
         var forwarded = args.dictionary
         forwarded[target.param] = target.port
         let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
-                                            onStream: onStream)
+                                            actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
         return BridgeValue.fromJSONObject(out)
     }
 }
