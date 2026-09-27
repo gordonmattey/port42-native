@@ -402,6 +402,11 @@ Things that would be cool once the five scenarios hold.
   every port it made (the card's "Remove from this space", as an API). Today the only removal is by
   hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
   up ten stale companions in prod's port42-app space.
+- **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
+  what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
+  people exchange data, not only prose.
+- **Resizable chats** (GM, 2026-09-26). Drag a port's chat panel to any width, all the way across the
+  port; drag the space's chat to set its size.
 - **A benchmark suite** (GM, 2026-09-26). Two layers: a free one that measures the size (bytes and
   estimated tokens) of every read method on real ports, with a size budget pinned per default; and the
   golden eval set (`eval-golden.md`) for tokens per task, run rarely since it spends the subscription.
