@@ -26,14 +26,19 @@ struct InstanceIdentityTests {
                 "the gateway reads the credential from line one and the key from line two")
     }
 
-    @Test("relays reach the gateway as arguments only when the instance names some")
+    @Test("a fresh install uses relay1; the person's own list wins; removing them all leaves none")
     func relayArguments() throws {
         let d = try #require(UserDefaults(suiteName: "port42-relay-args-test"))
+        defer { d.removePersistentDomain(forName: "port42-relay-args-test") }
         d.removeObject(forKey: "PORT42_RELAYS")
-        #expect(GatewayProcess.relayArguments(d).isEmpty, "no relay unless one is configured")
-        d.set("wss://relay1.port42.ai/v1", forKey: "PORT42_RELAYS")
+        #expect(GatewayProcess.relays(d) == ["wss://relay1.port42.ai/v1"],
+                "a fresh install had no relay, so nothing it shared could be reached (GM, 2026-09-27)")
         #expect(GatewayProcess.relayArguments(d) == ["-relay", "wss://relay1.port42.ai/v1"])
-        d.removePersistentDomain(forName: "port42-relay-args-test")
+        d.set("wss://mine.example/v1, wss://relay1.port42.ai/v1", forKey: "PORT42_RELAYS")
+        #expect(GatewayProcess.relays(d) == ["wss://mine.example/v1", "wss://relay1.port42.ai/v1"])
+        d.set("", forKey: "PORT42_RELAYS")
+        #expect(GatewayProcess.relays(d).isEmpty && GatewayProcess.relayArguments(d).isEmpty,
+                "the person removed every relay; that is honoured")
     }
 
     @Test("the key reaches the gateway only through the stdin handover")
