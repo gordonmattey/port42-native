@@ -356,6 +356,38 @@ public final class AppState: ObservableObject {
     public let voice = VoiceSession.live()
     /// Mirrored for views that only need to show what the model is doing.
     @Published public var voiceModelState: VoiceModelState = .absent
+    /// Hold space in another app. Off unless `voiceInOtherApps` is set AND Accessibility is granted; voice
+    /// inside Port42 needs neither.
+    public private(set) var voiceInOtherApps: VoiceGlobalTrigger?
+    /// The hot mic while another app has the keyboard, since our own window may not be on screen.
+    public let voiceHUD = VoiceHUD()
+
+    /// Start or stop listening for the space bar outside Port42. Safe to call repeatedly: it reflects the
+    /// setting and the Accessibility grant as they are now.
+    public func installVoiceInOtherApps() {
+        if VoiceGlobalTrigger.allowed {
+            guard voiceInOtherApps == nil else { return }
+            let trigger = VoiceGlobalTrigger(
+                onBegin: { [weak self] in
+                    guard let self else { return }
+                    self.voice.destination = .otherApp
+                    self.voice.begin()
+                    if self.voice.isCapturing {
+                        self.voiceHUD.show(accent: Port42Theme.accent,
+                                           label: VoiceTyper.frontmostAppName)
+                    }
+                },
+                onEnd: { [weak self] in
+                    self?.voice.end()
+                    self?.voiceHUD.hide()
+                })
+            trigger.install()
+            voiceInOtherApps = trigger
+        } else {
+            voiceInOtherApps?.uninstall()
+            voiceInOtherApps = nil
+        }
+    }
 
     public init(db: DatabaseService) {
         self.db = db
@@ -384,6 +416,7 @@ public final class AppState: ObservableObject {
         voice.onModelState = { [weak self] state in self?.voiceModelState = state }
         voice.prepareModel()
         voice.refreshModelState()
+        installVoiceInOtherApps()
         // Restore persisted port panels after a brief delay so the window is ready,
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

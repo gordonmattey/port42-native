@@ -30,6 +30,11 @@ public final class VoiceSession {
     /// say which. Nil means nothing is outstanding.
     public var onPermissionNeeded: ((VoicePermission?) -> Void)?
 
+    /// Where this hold's words are going. Set by whoever starts the hold: the shell for its own surfaces, the
+    /// event tap for another app, which cannot be composed into and has to be typed.
+    public enum Destination: Equatable, Sendable { case inApp, otherApp }
+    public var destination: Destination = .inApp
+
     public private(set) var model: VoiceModelState = .absent
     public private(set) var isCapturing = false
     /// The transcription started by the last release. Exposed so a test can await delivery instead of

@@ -37,6 +37,8 @@ public struct ShellView: View {
     /// already put in the surface, so the next partial only sends the difference.
     @State private var voiceStreamsAsEdits = false
     @State private var voiceStreamed = ""
+    /// What has been typed into ANOTHER app during this hold, for the same smallest-edit streaming.
+    @State private var voiceTyped = ""
     @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
@@ -372,6 +374,8 @@ public struct ShellView: View {
                 shell.voiceCapturing = true
                 shell.voiceNotice = nil
                 shell.voicePartial = nil
+                voiceSession?.destination = .inApp
+                voiceTyped = ""
                 shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
                 voiceResponder = NSApp.keyWindow?.firstResponder
                 voiceStreamed = ""
@@ -436,6 +440,12 @@ public struct ShellView: View {
         // attaches what it draws.
         let session = appState.voice
         session.onPartial = { partial in
+            // Another app cannot be composed into, so the words are typed as the smallest edit. The shell's
+            // own indicator is not involved: the floating panel is what shows there.
+            if session.destination == .otherApp {
+                voiceTyped = VoiceTyper.stream(partial, previous: voiceTyped)
+                return
+            }
             guard shell.voiceCapturing else { return }
             shell.voicePartial = partial
             // Stream it into the surface as uncommitted text, so the words appear where they will land.
@@ -449,6 +459,12 @@ public struct ShellView: View {
             }
         }
         session.onText = { text in
+            if session.destination == .otherApp {
+                voiceTyped = VoiceTyper.stream(VoiceInserter.payload(for: text), previous: voiceTyped)
+                p42log("[Port42] voice typed into %@: %@", VoiceTyper.frontmostAppName ?? "another app", text)
+                voiceTyped = ""
+                return
+            }
             let target = voiceResponder ?? NSApp.keyWindow?.firstResponder
             // A terminal already holds the words as real characters: land the final read as the difference
             // from what is there, so nothing is typed twice and nothing is left half-said.

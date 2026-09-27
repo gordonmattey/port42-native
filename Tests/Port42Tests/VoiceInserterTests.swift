@@ -119,27 +119,51 @@ struct VoiceInserterTests {
         #expect(client.inserted.isEmpty)
     }
 
-    /// The reason this type exists. A synthesized key event would need Accessibility, would land in
-    /// whatever is frontmost rather than the focused port, and would let a hidden port type into another
-    /// app. Phase 5 is where Accessibility is asked for explicitly, for other apps.
-    @Test("no code on the voice path synthesizes key events")
-    func noSyntheticEvents() throws {
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources")
+    /// Synthesized input exists in exactly two files, and both are the path into OTHER apps: the tap that
+    /// sees the key and the typer that sends the words. Inside Port42 nothing is synthesized, because a
+    /// synthetic event would land in whatever is frontmost rather than the focused port, and would let a
+    /// hidden port type into another app.
+    @Test("only the two files that dictate into other apps synthesize input")
+    func syntheticInputIsConfined() throws {
+        let allowed: Set<String> = ["VoiceTyper.swift", "VoiceGlobalTrigger.swift"]
         var offenders: [String] = []
-        for case let url as URL in FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)!
-        where url.pathExtension == "swift" && url.lastPathComponent.hasPrefix("Voice") {
+        var found: Set<String> = []
+        for case let url as URL in FileManager.default.enumerator(at: Self.sources, includingPropertiesForKeys: nil)!
+        where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
             for (i, line) in text.components(separatedBy: "\n").enumerated() {
                 let code = line.components(separatedBy: "//").first ?? ""
-                if code.contains("CGEvent") || code.contains("postToPid") || code.contains("keyboardEventSource") {
+                guard code.contains("CGEvent(") || code.contains("CGEvent.tapCreate")
+                        || code.contains("postToPid") else { continue }
+                found.insert(url.lastPathComponent)
+                if !allowed.contains(url.lastPathComponent) {
                     offenders.append("\(url.lastPathComponent):\(i + 1)")
                 }
             }
         }
-        #expect(offenders.isEmpty, "the voice path synthesizes key events at \(offenders)")
+        #expect(offenders.isEmpty, "input is synthesized outside the two files that dictate into other apps: \(offenders)")
+        #expect(found == allowed, "expected both files to synthesize input, found \(found)")
     }
+
+    /// The tap sees every keystroke on the machine. Nothing a port can call may reach it, or the security
+    /// position of this feature is a comment rather than a fact.
+    @Test("no bridge method and no tool reaches the tap or the typer")
+    func notReachableFromAPort() throws {
+        // Every file that declares what a caller can reach: the registry, the tool schemas, the JS surface.
+        let files = try FileManager.default.contentsOfDirectory(atPath: Self.sources.appendingPathComponent("Services").path)
+            .filter { $0.contains("Bridge") || $0.contains("Tool") }
+        #expect(files.count >= 4, "the bridge files moved; this gate is checking nothing")
+        for file in files {
+            let text = try String(contentsOf: Self.sources.appendingPathComponent("Services/" + file), encoding: .utf8)
+            #expect(!text.contains("VoiceGlobalTrigger"), "\(file) can reach the keyboard tap")
+            #expect(!text.contains("VoiceTyper"), "\(file) can type into other apps")
+            #expect(!text.contains("VoiceCapture"), "\(file) can open the voice microphone")
+        }
+    }
+
+    private static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/Port42Lib")
 }
 
 @Suite("Streaming into a terminal: real characters, smallest edit")
