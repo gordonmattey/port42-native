@@ -36,6 +36,8 @@ public final class ShellState: ObservableObject {
     @Published public var showNewCompanion: Bool = false
     /// The quick imagine box (⌘I): one line starts an imagine team (docs/plan-imagine.md).
     @Published public var showImagine: Bool = false
+    /// What an imagine link filled the box with, taken by the box when it opens.
+    @Published public var imagineLink: ImagineLinkRequest?
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The port the Share box is open for (4.6b), by port key; nil when it is closed.
@@ -490,6 +492,21 @@ public final class ShellState: ObservableObject {
         else { return nil }
         return badge
     }
+
+    // MARK: First-run breakout (the aquarium video on the first zoom-out; GM brought it back 2026-09-27)
+
+    /// Non-nil while the first-run breakout plays: the rect the video STARTS at, the frame of the port
+    /// the person was focused on. It grows from there to full screen, plays out, and fades to leave
+    /// them in the space. Set by `ShellView` on the first `.focus → .space` of a first run.
+    @Published public var breakoutFrom: CGRect? = nil
+
+    /// Begin the breakout from the focused unit's frame. No-op if one is already running.
+    public func startBreakout(area: CGSize) {
+        guard breakoutFrom == nil else { return }
+        breakoutFrom = ShellPlacement.focusRect(in: area)
+    }
+
+    public func endBreakout() { breakoutFrom = nil }
 
     /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
     /// this desktop": the current space's tiled panels, plus adopted

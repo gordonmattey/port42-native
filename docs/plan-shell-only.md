@@ -356,8 +356,10 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Seen in the imagine runs | Settled: the startup-stuck check removed; messages typed as a turn ended were lost (#6), fixed and verified live |
 | Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
 | Voice input (GM, 2026-09-27: on the v1 list) | Feature-complete on `voice-input` (the "handoff: arrange" session, 2026-09-27): all five phases, confirmed by hand on Dev7, suite green (1351) merged against nautilus `e497a17`. Hold space past 0.2 s and speak; words stream into whatever has the keyboard (chat field, web port, terminal) and commit on release; other apps behind a setting and Accessibility. Parakeet TDT v3 on the Neural Engine via FluidAudio (new package, Apache 2.0). No migration, nothing in the bridge registry (a test pins that no port reaches the microphone or the typer). The 461 MB model is fetched on first use, not shipped; its CC BY 4.0 attribution goes in `THIRD-PARTY-LICENSES.txt` before release. Adds a Voice tab to Settings (`SignOutSheet`, which Phase 4 also changes). Voice starts from the app at launch, not `AppState.init`: starting it there doubled the suite and made a watch test flake |
-| Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; four decisions await GM |
+| Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; all four decisions made (GM) |
 | Daily-driver install | After the release scope is done (GM) |
+| The app's videos are not in git (found 2026-09-27) | `*.mp4` is gitignored, so `DolphinProtocolLoading`, `dream-architect`, `dreamscape` and `TheAquariumsDoorIsOpen` exist only on this Mac; a fresh clone builds without them. `.gitattributes` already sends `*.mp4` to Git LFS, so un-ignoring them is the fix. GM to decide |
+| Clean up after the release (GM, 2026-09-27) | The merged local branches and the 16 `worktree-agent-*` worktrees and branches, each worktree checked for uncommitted work first; GitHub untouched. The 390 leftover test keychain items were deleted 2026-09-27 (GM) |
 | Final hit list | Below; every item done before the release build |
 | Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Publishing waits for the Phase 4 merge (GM, 2026-09-27): the repo is public and the relay's source is only on the unpushed Phase 4 branch. After the release reaches `main`: push `relay-v1.0.0` (the workflow publishes the image and binaries; GM grants `write:packages` once), make the image public, switch relay1 on Railway to `ghcr.io/gordonmattey/port42-relay:latest` (after Phase 4's sharing tests, which run through relay1), make the Railway template, and the port42.ai page (growth) |
 
@@ -379,7 +381,11 @@ last is green:
 At every merge: the branch has merged `nautilus` in and resolved its own conflicts; `swift test` is
 green on the result; the generated files are regenerated, not hand-merged (the tool schema golden,
 `llms.txt`, skill references); migrations keep distinct numbers (Phase 4 v57 to v61, nautilus v62,
-pairing v63); the five scenarios pass on a dev instance. Overlapping files to watch: `AppState`,
+pairing v63); the five scenarios pass on a dev instance; and a companion posts to its space with
+the call its own instructions give, the post appears in that space's chat, and an @mention in it
+wakes the companion it names (the voice session's check, 2026-09-27: prod's stored instructions
+named `messages.send`, which no longer exists, so such posts vanished; nautilus now bakes a
+companion's instructions at every launch). Overlapping files to watch: `AppState`,
 `ShellState`, `ShellDesktop`, `ShellView`, `PortWindowManager`, `BridgeMethods`.
 
 ### Final hit list (GM, 2026-09-26)
@@ -394,7 +400,7 @@ them; an item leaves only when it is done and verified.
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
-| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
+| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "What will you imagine?" (GM, 2026-09-27; was "say it, see it") |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 | 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`), confirmed by GM |
 | 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Done (`053f38b`), confirmed by GM: no bubbles; one AppKit text, so a drag copies across messages, with each message's time and sender; runs from one sender grouped; hover for a message's time; the time of the top message shown while scrolling |
@@ -402,6 +408,8 @@ them; an item leaves only when it is done and verified.
 | 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
 | 12 | Checking a port put up to ~400 KB of log into an agent's context (`port.console` returned the last 100 lines of up to 4,000 characters) | Done: `level=count` gives only the error and warning counts; the default (`problems`) the errors and warnings themselves (last 20, each cut to 1,000 characters); `level=all` the whole log, for debugging. A terminal defaults to its last 50 lines. The ports skill and the /imagine roles check the count first and read errors only if there are any |
 | 13 | Opening port chats lagged and slowed the machine (prod, #port42-app: the biggest chat 257 messages, ~280 KB) | Done on nautilus, not yet on prod: the old transcript was one SwiftUI Text of the whole chat, laid out again on every change. The AppKit transcript (item 9) opens 300 messages of ~1,000 characters in about 0.1 to 0.25 s, and a new message is appended in place (0.5 ms in a full 200-message chat) instead of a rebuild; both timed in tests. Reaches prod with the daily-driver install |
+| 14 | The first-run breakout is back (GM, 2026-09-27): the aquarium video on the first zoom-out of echo's terminal grows from the port to full screen, plays and fades into the space; any zoom while it plays skips it | Done: restored on a bare player layer (the old AVPlayerView deadlocked the main thread). Its video had been deleted from the working tree with no trace, since every `.mp4` is gitignored; restored from the installed app, and a test fails when the source file is missing. It grows with the zoom-out under it, same spring, at once (GM: quicker). Confirmed by GM on Dev5. Open: none of the app's videos are in git (see below) |
+| 15 | `port42://imagine?line=…&from=…` (growth, for port42.ai's "Imagine this" and its getting-started page, 2026-09-27) | Done (`360a7a8` and after): opens the imagine box filled in and never starts a team (any web page can fire it); the idea is cut to 300 characters and cleaned. Arriving before or during a first run, it is held on disk through quits and opens after the person lands on their desktop, and echo's welcome leads with it instead of the shader. Open for GM: an analytics event for an imagine started from a site line; the Elements generator in the app (growth's two routes); "What will you imagine?" in the ⌘I box |
 
 ## Future roadmap
 
@@ -417,7 +425,14 @@ Things that would be cool once the five scenarios hold.
   ports.
 - **Computer use.** An agent that sees the screen and acts on it in one loop.
 - **Multi-display.** Spaces placed across monitors.
-- **More agents as equal first-run paths**, such as Gemini and Antigravity.
+- **Support all the CLIs** (GM, 2026-09-27; was "more agents as equal first-run paths"). Every coding
+  agent CLI as a first-class companion, not only Claude Code and Codex: Gemini CLI, Antigravity,
+  Cursor's agent, OpenCode, Aider, Goose, Amp, Copilot CLI and whatever comes next. "Supported" means
+  what Claude and Codex have today: a briefing it reads, the reply read at the end of a turn, a submit
+  confirmation, a needs-you and a turn-failed signal (presence), its sessions found and forked for
+  import, the port42 skills where it loads skills, and a place in first run. Per CLI, the hook system
+  decides how much of that is possible; a CLI with no hooks gets a thinner tier (reply from its
+  output, no presence), said plainly. One adapter per CLI behind the existing hook vocabulary.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
   (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
@@ -481,6 +496,41 @@ Things that would be cool once the five scenarios hold.
 - **Review the port's "…" menu: agreed order (GM, 2026-09-27), held until after the release.**
   Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
   Share… · Fork, then Refresh · History… for web ports. No "Copy port id" (GM: no need found).
+- **A port shares its state, for the shapes where it is not drawn** (GM, 2026-09-27). Below a size a
+  port should show what it is doing, not a shrunken window; a peek the same; hidden is size zero. Two
+  layers. Where the port is drawn, it decides by drawing itself differently: a web port already gets its
+  size from the `presentation` event and can switch to a compact view like a responsive site (skill
+  guidance; Port42 draws the compact view for terminals). Where it is not drawn (a peek, the rail,
+  hidden, the galaxy, ⌘K), it declares: a new call, `port42.state.set([{label, value}, …])` from a page
+  or `port42 port.state` from an agent, an ordered list of anything ("doing: building the join card",
+  "progress: 3 of 5", "fps: 60"). Port42 adds what it already knows, marked as its own: error and
+  warning counts, unread chat, presence (working, waiting), a terminal's git branch. Who decides: the
+  port (or its agent) what its state is and its order; Port42 where it shows and how much fits; the
+  person the size. Hidden ports need it most, since they are never seen (a pipeline stage, a poller, a
+  headless agent): the "N hidden" list and ⌘K show each one's line ("fetching every 5 min · last run
+  2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
+  read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
+  on `research`). **Straight after v1 (GM, 2026-09-27): the first thing built once v1 ships.**
+- **Token usage charts, back** (GM, 2026-09-27). Settings had a Usage view with token charts; it went
+  with the in-app model (`0369388`). The CLIs record what they spend, so it can return for the agents
+  as they are now: every Claude Code transcript entry carries its `usage` (input, cache written, cache
+  read, output), and Codex's session log has `token_count` events (totals and its rate limits). Per
+  companion, per space, per imagine team, over time.
+- **Verify the Elements recipes** (growth's plan, `port42-growth/nautilus-recipe-verification-plan.md`;
+  GM, 2026-09-27: later). An imagine run per recipe on a dev instance, passing on a real web port, a
+  zero error count, a non-empty page and DONE within budget, with evidence the site shows as
+  "verified". Each recipe is a full three-agent run, so a sample first (about ten across the five
+  groups) to measure what a run costs before the 129.
+- **Record your workflow, then build it better in Port42** (GM via growth, 2026-09-27). Record: for
+  about ten minutes Port42 logs the front app and window title each second, and counts window and app
+  switches and clipboard changes (a hash, never the content), all on this Mac; frames and spoken
+  narration only by explicit opt-in, which says in plain words that they go to the companion's model
+  provider. Read: a companion maps the jumps, the repeated paste loops and the interruptions. Rebuild:
+  it writes imagine lines for the workflow into the ⌘I box (the person presses Enter), and a space
+  appears with the person's surfaces as ports and pipes where they were copying. Measure again: the
+  same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
+  Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
+  (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

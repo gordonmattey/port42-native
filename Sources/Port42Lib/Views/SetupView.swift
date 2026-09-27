@@ -92,7 +92,7 @@ public struct SetupView: View {
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome to Port42.", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
-            .init(text: "say it, see it", style: .accent, delay: 0.6),
+            .init(text: "What will you imagine?", style: .accent, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
         ]
     }

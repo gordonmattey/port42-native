@@ -30,6 +30,9 @@ public struct ShellView: View {
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
     /// hook would yank a user back to the chat every time the panel set changes.
     @State private var onboardingFocusApplied = false
+    /// The breakout's two animated values: false = still on the port's frame; 1 = fully opaque.
+    @State private var breakoutExpanded = false
+    @State private var breakoutOpacity: Double = 1
 
     /// First run: Echo's terminal port, which setup spawned (nautilus Phase 1 step 3). nil until the
     /// panel has landed.
@@ -247,6 +250,11 @@ public struct ShellView: View {
                 .zIndex(150)
             }
 
+            // First-run breakout: above everything (it is a moment, not a surface).
+            if let from = shell.breakoutFrom {
+                breakoutOverlay(from: from).zIndex(240)
+            }
+
             if shell.showSettings {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
@@ -292,11 +300,18 @@ public struct ShellView: View {
         }
         .animation(.spring(response: 0.4), value: shell.zoom)
         .onChange(of: shell.zoom) { old, z in
+            // Moving the ladder while the breakout plays SKIPS it: the video is never a wall, and it
+            // must not play on over a rung already left. Read before the first-run branch below, so
+            // the zoom that STARTS it is exempt.
+            let breakoutWasPlaying = shell.breakoutFrom != nil
             // FIRST RUN ends here, the first time you leave Echo's terminal for your desktop (the
-            // arrow, ⌘↑, a pinch). No video plays: the desktop with your new port is the arrival
-            // (GM, 2026-09-25, the dolphin breakout is gone).
+            // arrow, ⌘↑, a pinch), and the aquarium breakout plays (GM, 2026-09-27: brought back).
             if case .focus = old, z == .space, appState.isOnboarding {
                 appState.endOnboarding()
+                shell.startBreakout(area: shell.lastDesktopArea)
+                if AquariumBreakoutView.videoURL == nil { appState.openHeldImagineLink() }
+            } else if breakoutWasPlaying {
+                finishBreakout(fade: 0.3)                 // a quick clear, not the full outro
             }
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
             if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
@@ -336,6 +351,47 @@ public struct ShellView: View {
     /// and scrim-click). Returns false when nothing was open, so Esc falls through to the
     /// exposé/ladder handling. (A focused text field never reaches here — the yield check
     /// hands Esc to the field, whose own onExitCommand closes its card.)
+
+    // MARK: - First-run breakout
+
+    /// End the breakout: fade it off, then clear the state. `fade` is the full outro when the video
+    /// played out, and a short clear when the person moved the ladder and skipped it.
+    private func finishBreakout(fade: Double) {
+        guard shell.breakoutFrom != nil else { return }
+        withAnimation(.easeOut(duration: fade)) { breakoutOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + fade) {
+            shell.endBreakout()
+            breakoutExpanded = false
+            breakoutOpacity = 1
+            appState.openHeldImagineLink()        // a link held through the first run opens now
+        }
+    }
+
+    /// The video starts ON the port the person was focused on, grows to full screen while it plays,
+    /// then fades off to leave them in their space. The desktop is already behind it at `.space`, so
+    /// the fade is the arrival.
+    @ViewBuilder
+    private func breakoutOverlay(from: CGRect) -> some View {
+        GeometryReader { geo in
+            let full = CGRect(origin: .zero, size: geo.size)
+            let r = breakoutExpanded ? full : from
+            AquariumBreakoutView(onFinished: { finishBreakout(fade: 0.9) })
+                .frame(width: r.width, height: r.height)
+                .clipShape(RoundedRectangle(cornerRadius: breakoutExpanded ? 0 : ShellPlacement.focusCorner))
+                .position(x: r.midX, y: r.midY)
+                .opacity(breakoutOpacity)
+                .allowsHitTesting(false)                  // a moment you watch, not a surface you use
+                .onAppear {
+                    // It grows with the zoom-out under it, the same spring, at once (GM, 2026-09-27:
+                    // the slow grow lagged behind the port shrinking beneath it).
+                    DispatchQueue.main.async {
+                        withAnimation(.spring(response: 0.4)) { breakoutExpanded = true }
+                    }
+                }
+        }
+        .ignoresSafeArea()
+    }
+
     private func closeTopmostModal() -> Bool {
         // Permission is topmost and BLOCKING — Esc is an explicit deny (a caller is suspended on
         // the answer; there is no "close without answering").

@@ -91,6 +91,25 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
+    /// An imagine link that arrived before or during the first run, held until the person lands
+    /// (ImagineLink). On disk, not in memory: an install often opens, quits and reopens the app, and
+    /// the idea the person picked on the site must survive that (growth, 2026-09-27).
+    var heldImagineLink: ImagineLinkRequest? {
+        get {
+            guard let d = UserDefaults.standard.dictionary(forKey: "heldImagineLink"),
+                  let line = d["line"] as? String, !line.isEmpty else { return nil }
+            return ImagineLinkRequest(line: line, from: d["from"] as? String)
+        }
+        set {
+            if let newValue {
+                var d: [String: String] = ["line": newValue.line]
+                if let from = newValue.from { d["from"] = from }
+                UserDefaults.standard.set(d, forKey: "heldImagineLink")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "heldImagineLink")
+            }
+        }
+    }
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
@@ -1213,6 +1232,7 @@ public final class AppState: ObservableObject {
                    let text = try? String(contentsOf: url, encoding: .utf8) {
                     return text.replacingOccurrences(of: "{{USER}}", with: displayName)
                         .replacingOccurrences(of: "{{IMPORTED}}", with: AppState.echoImportedNote(imported))
+                        .replacingOccurrences(of: "{{CAME_FOR}}", with: AppState.echoCameForNote(heldImagineLink?.line))
                 }
                 return "You are echo, \(displayName)'s first companion in Port42. Welcome them, then suggest they ask you for a shader port."
             }()
@@ -1237,6 +1257,19 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
+    }
+
+    /// When the person arrived from the site with an idea (a held imagine link): echo leads with it
+    /// instead of the shader (growth, 2026-09-27). Empty when they did not.
+    nonisolated static func echoCameForNote(_ line: String?) -> String {
+        guard let line, !line.isEmpty else { return "" }
+        return """
+
+        they came to port42 to make this, picked on port42.ai before installing: "\(line)". after the \
+        welcome, do not suggest the shader. tell them their idea is waiting in the imagine box: zoom out \
+        (pinch out, or the zoom-out button at the top right) and the box opens with it; they press enter \
+        and a lead and two engineers build it in a space of its own. never start it yourself.
+        """
     }
 
     /// What echo tells the person about the sessions they brought in at setup, as part of its welcome
@@ -1570,7 +1603,18 @@ public final class AppState: ObservableObject {
     /// and `PortWindowManager.restart` calling this on its own is the defect C0 fixed.
     @discardableResult
     func makeTerminalController(for panel: PortPanel) -> GhosttyTerminalController? {
-        guard let config = panel.terminalConfig else { return nil }
+        guard var config = panel.terminalConfig else { return nil }
+        // A COMPANION'S INSTRUCTIONS ARE BAKED AT EVERY LAUNCH, from today's text and the companion's
+        // own brief (2026-09-27). They used to be baked once at spawn and stored with the terminal,
+        // so a terminal relaunched after an upgrade kept the old ones: prod's still told companions to
+        // post with `messages.send`, a method long gone, and their posts vanished (found by the voice
+        // session). The stored copy is only a sign that this terminal is a companion.
+        if !config.companionName.isEmpty, !config.companionPrompt.isEmpty {
+            let companion = companions.first { c in config.companionId.map { $0 == c.id } ?? false }
+                ?? companions.first { $0.displayName == config.companionName }
+            config.companionPrompt = bakeCompanionPrompt(name: currentName(of: config), spaceId: config.spaceId,
+                                                         systemPrompt: companion?.systemPrompt)
+        }
         teardownTerminalController(panelId: panel.id)
 
         // ENROL THE CHILD (slice-02 half two, step 6). This is where the pooled `local-http` bucket

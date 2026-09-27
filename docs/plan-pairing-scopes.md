@@ -4,7 +4,7 @@ Asked by GM on 2026-09-27: `port42 pair` lets any process or app on this Mac ask
 the person accepts in the app, and that process is paired. Every credential gets a scope: the galaxy,
 one space, or one port. Today a credential can do anything its permission cards allow, anywhere. In v1,
 built after the Phase 4 merge (GM, 2026-09-27), because both change the client registry, which Phase
-4 has changed. Status: design; decisions 1 to 3 made by GM (2026-09-27), 4 open.
+4 has changed. Status: design; all four decisions made by GM (2026-09-27). Built after the Phase 4 merge.
 
 ## What exists
 
@@ -66,9 +66,74 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
 3. **DECIDED (GM): approval checks a code.** Six digits shown as three pairs with no hyphen, `48 29 13`,
    like Phase 4's invite code. The person matches the code in their terminal to the card, so a process
    cannot get a card approved by showing up at the right moment.
-4. **How a paired process uses its token (recommended: an environment variable).** `port42 pair`
-   prints `export PORT42_TOKEN_FILE=…`, the variable every Port42 caller already reads, so the same
-   program keeps using it. The alternative is `port42 --as <name>` on each call.
+4. **DECIDED (GM): both.** `port42 pair` ends by printing `export PORT42_TOKEN_FILE=…`, the variable every
+   Port42 caller already reads, so a program set up with it just works. And `port42 --as <name>` picks a
+   paired login by name on any single call, for the CLI.
+
+## Tests
+
+Every test below is calibrated as this project's tests are: break the code it guards, watch it fail,
+restore. A security test that has never failed proves nothing. Headless unless marked live.
+
+**Scope enforcement (the gate)**
+
+- **Every method is classified.** A new registry method without a class for scoped callers fails the
+  suite, as `RemoteAccessTests` does for remote ones, so nothing becomes reachable to a scoped caller
+  by being added.
+- **Each scope against each class.** For galaxy, space and port scopes: a port method on a port inside
+  the scope passes; on a port outside it is refused `not_granted`; a space method on the scope's space
+  passes, on another space is refused; a machine method (terminal, files, screen, clipboard,
+  AppleScript, REST) is refused for space and port scopes and asks its permission card for galaxy.
+- **No escape by naming.** A scoped caller names a port outside its scope by id, udid, title, a title
+  that matches a port inside, and a panel id: all refused. A port adopted into the scoped space is
+  inside it; a port pinned in every space is not, unless its home is the space.
+- **Listings are filtered.** `ports.list`, `space.list`, `companions.list`, `space.current` and whoami
+  show a scoped caller only what its scope holds; the counts match.
+- **Refused before the card.** A scoped caller never raises a permission card for anything outside its
+  scope (the gate runs first), checked by a card spy.
+- **Chat.** A port-scoped caller posts and reads its port's chat, and cannot post to the space's chat
+  or another port's; its @mentions still wake only what they name.
+- **The same message whether or not the target exists,** so a scoped caller cannot probe for ports.
+
+**Scopes on the client row**
+
+- **The upgrade is not a narrowing and not a widening.** Every existing client (installed CLI,
+  children, manual tokens) reads galaxy after migration v63; a new manual token asks its scope.
+- **Narrowing and revoking apply on the next call,** with no restart: a call after the change is
+  judged by the new scope; a revoked token is refused.
+- **A deleted space or port leaves its scoped tokens reaching nothing,** not reaching everything.
+
+**Pairing**
+
+- **From this Mac only.** Programs on this Mac reach Port42 through its local door; since Phase 4,
+  callers on other machines reach it through the relay, and they get access only by invite. A
+  `pair.request` that arrives through the relay, or from any caller that is not on this Mac, is refused.
+- **Rate limits.** A second pending request from the same process is refused; the fourth request in a
+  minute is refused; the limits reset.
+- **Expiry.** An unanswered request is gone after 2 minutes; approving it after that does nothing.
+- **The code.** Approval with a wrong code is refused; after 3 wrong codes the request is closed (GM,
+  2026-09-27), so six digits cannot be guessed through the card.
+- **The token reaches only the requester.** Only the connection that asked receives it; another client
+  polling the request id gets nothing.
+- **Deny is quiet.** A denied request learns only "not approved".
+- **What the card shows is verified,** not claimed: the program path and app come from the
+  connection's process, and a name that claims to be another app is shown as the claim it is.
+- **The approved scope wins.** The person narrows a galaxy request to one space; the token is scoped
+  to that space.
+
+**The CLI (Go, against a fake door)**
+
+- `port42 pair` prints the code as three pairs, waits, writes the token file with mode 600, and prints
+  the export line; on deny or expiry it exits non-zero with the reason.
+- `port42 --as <name>` calls with that paired login; an unknown name fails before any call.
+
+**Live, on a dev instance**
+
+- Pair a real script from Terminal with `--space`, approve on the card, and drive a port in that space
+  with it; the same script is refused on a port in another space and on `terminal.exec`.
+- Revoke it in Settings, Access, and its next call is refused.
+- The five scenarios still pass: companions, the CLI and scripts made before the change keep working
+  (galaxy).
 
 ## Steps (after the Phase 4 merge)
 
@@ -78,7 +143,8 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
 2. **`pair.request` and the approval card.** Tests: loopback only, the rate limit, expiry, a wrong
    code refused, the token reaching only the requester.
 3. **`port42 pair`** in the CLI: request, print the code, wait, write the token file, print the
-   export line. Tests in Go against a fake door.
+   export line; and `port42 --as <name>` to call with a paired login by name. Tests in Go against a
+   fake door.
 4. **Settings, Access:** each client's kind and scope, narrow and revoke; manual tokens get a scope at
    creation.
 5. **Docs:** the ports and devices skills, `port42 help`, and the page on connecting a tool.

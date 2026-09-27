@@ -13,6 +13,8 @@ struct ImagineBox: View {
     @State private var error: String?
     @State private var starting = false
     @State private var pulse = false
+    /// The site a link came from, shown under the box.
+    @State private var linkFrom: String?
     @FocusState private var focused: Bool
 
     static let examples = ["a shader that reacts to music", "a starfield you can steer", "a live chart of my CPU"]
@@ -65,6 +67,11 @@ struct ImagineBox: View {
             .shadow(color: accent.opacity(focused ? 0.25 : 0), radius: 12)
             .animation(.easeOut(duration: 0.25), value: focused)
 
+            if let linkFrom, !starting {
+                Text("from \(linkFrom): press ↵ to start, or change it first")
+                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+            }
+
             if line.isEmpty && !starting {
                 HStack(spacing: 8) {
                     ForEach(Self.examples, id: \.self) { idea in
@@ -96,6 +103,12 @@ struct ImagineBox: View {
         .padding(30)
         .commandCard(width: 760)
         .onAppear {
+            // Filled in by a link (ImagineLink); the person still presses Enter.
+            if let req = appState.shell?.imagineLink {
+                line = req.line
+                linkFrom = req.from
+                appState.shell?.imagineLink = nil
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focused = true }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulse = true }
         }

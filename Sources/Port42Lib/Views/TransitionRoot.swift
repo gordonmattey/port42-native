@@ -287,6 +287,7 @@ public struct TransitionRoot: View {
             appState.shell?.pendingInvite = link
             return
         }
+        if let req = ImagineLinkRequest.parse(url) { appState.openImagineLink(req); return }
         p42log("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }
