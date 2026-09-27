@@ -519,6 +519,16 @@ Things that would be cool once the five scenarios hold.
   2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
   read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
   on `research`). **Straight after v1 (GM, 2026-09-27): the first thing built once v1 ships.**
+- **Token usage charts, back** (GM, 2026-09-27). Settings had a Usage view with token charts; it went
+  with the in-app model (`0369388`). The CLIs record what they spend, so it can return for the agents
+  as they are now: every Claude Code transcript entry carries its `usage` (input, cache written, cache
+  read, output), and Codex's session log has `token_count` events (totals and its rate limits). Per
+  companion, per space, per imagine team, over time.
+- **Verify the Elements recipes** (growth's plan, `port42-growth/nautilus-recipe-verification-plan.md`;
+  GM, 2026-09-27: later). An imagine run per recipe on a dev instance, passing on a real web port, a
+  zero error count, a non-empty page and DONE within budget, with evidence the site shows as
+  "verified". Each recipe is a full three-agent run, so a sample first (about ten across the five
+  groups) to measure what a run costs before the 129.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
