@@ -377,8 +377,19 @@ public struct ShellView: View {
     private func endVoice() {
         shell.voiceCapturing = false
         voiceSession?.end()
-        // The label lingers for a moment after release so a hold that produced nothing still says why.
-        showVoiceNotice(voiceLabel, seconds: shell.voiceModel == .ready ? 0.8 : 3)
+        // After release the capsule says only what the surface cannot: that the words are still being
+        // worked on, or that there is no model to work on them. On success `onText` clears it.
+        if shell.voiceModel == .ready {
+            showVoiceNotice("transcribing", seconds: 8)
+        } else {
+            showVoiceNotice(voiceLabel, seconds: 3)
+        }
+    }
+
+    private func clearVoiceNotice() {
+        voiceNoticeTimer?.invalidate()
+        voiceNoticeTimer = nil
+        shell.voiceNotice = nil
     }
 
     private func showVoiceNotice(_ text: String, seconds: TimeInterval) {
@@ -397,9 +408,13 @@ public struct ShellView: View {
         session.onText = { text in
             let landed = VoiceInserter.insert(text, into: NSApp.keyWindow?.firstResponder)
             p42log("[Port42] voice heard (inserted=%d): %@", landed ? 1 : 0, text)
-            // On success the text is visible where it was typed, so the capsule only says what it heard
-            // when there was nowhere to put it.
-            showVoiceNotice(landed ? text : "nowhere to type: \(text)", seconds: landed ? 1.5 : 6)
+            // The text is now where it was typed, so the capsule goes away rather than repeating it.
+            // It only speaks when the words could not land anywhere.
+            if landed {
+                clearVoiceNotice()
+            } else {
+                showVoiceNotice("nowhere to type: \(text)", seconds: 6)
+            }
         }
         session.onModelState = { state in
             shell.voiceModel = state

@@ -85,6 +85,32 @@ draw. Streaming partials, if the re-decode cost measured in the research holds. 
 Accessibility, clipboard-plus-paste with CGEvent as fallback. Separate because it needs a permission
 the earlier phases do not.
 
+## Shipping the model
+
+Licenses, measured 2026-09-26:
+
+| Thing | License | Note |
+|---|---|---|
+| FluidAudio (the Swift package) | Apache 2.0 | `LICENSE` in the repo, and GitHub's own license field |
+| The weights, `FluidInference/parakeet-tdt-0.6b-v3-coreml` | CC BY 4.0, not gated | HuggingFace model API; converted from `nvidia/parakeet-tdt-0.6b-v3` |
+
+CC BY 4.0 allows commercial redistribution with attribution, so bundling the weights is legally open.
+Attribution belongs in `Sources/Port42Lib/Resources/THIRD-PARTY-LICENSES.txt`, naming NVIDIA for the
+model and FluidInference for the Core ML conversion.
+
+Three ways to ship 461 MB of weights:
+
+1. **Download at setup, opt-in.** The DMG does not change size, one copy serves every instance on the
+   machine (FluidAudio's cache is per user, not per app), and the download is a step the person agrees
+   to rather than something a hold triggers. Costs a progress surface and a retry path.
+2. **Bundle in the DMG.** Voice works with no network and no setup step, at the cost of 461 MB on every
+   download and on every Sparkle update that is not a delta.
+3. **Download on the first hold.** No setup friction, but the first dictation is the one that waits, and
+   that is the hold a person is most likely to judge the feature by.
+
+Position: 1, with the flag that already gates it (`voiceModelDownloadAllowed`) becoming the setup
+step's answer. 3 is what is wired today for testing.
+
 ## Not in this plan
 
 Voice as a port. The mic and transcriber could be one later; the trigger and the routing cannot be,
