@@ -11,7 +11,7 @@ struct CommandCard: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         content
-            .background(shape.fill(Port42Theme.shellCard.opacity(0.97)))
+            .background(shape.fill(Port42Theme.shellCard.opacity(0.86)))
             .overlay(shape.strokeBorder(
                 LinearGradient(colors: [accent.opacity(0.95), accent.opacity(0.2), accent.opacity(0.75)],
                                startPoint: .topLeading, endPoint: .bottomTrailing),
@@ -26,14 +26,12 @@ struct CommandCard: ViewModifier {
     }
 }
 
-/// What sits behind a command box: the desktop blurred and dimmed, so the box is the only thing lit.
+/// What sits behind a command box: the space, lightly dimmed and still visible (GM: more
+/// transparency to the space behind it), so the box is the brightest thing without hiding where you are.
 struct CommandBackdrop: View {
     var dismiss: () -> Void
     var body: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            Color.black.opacity(0.55)
-        }
+        Color.black.opacity(0.25)
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture(perform: dismiss)
