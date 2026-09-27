@@ -102,6 +102,8 @@ public final class AppState: ObservableObject {
     public let notifyBus = NotifyBus()
     /// What the shell shows of each port's chat (PortChat.swift).
     public let chats = PortChatStore()
+    /// Who is on each chat's message right now (received, working, waiting), shown under the chat.
+    public let presence = ChatPresenceStore()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
     /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
     /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
@@ -1047,6 +1049,7 @@ public final class AppState: ObservableObject {
         let name = companion.displayName
         let key = name.lowercased()
         ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        presence.received(name, in: replyChat ?? spaceId)
         companionWatches.turnStarted(companionName: name)
         if let controller = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) }),
            controller.isSurfaceBound {
@@ -1182,7 +1185,7 @@ public final class AppState: ObservableObject {
     /// brief (`echo-prompt.txt`) tells it to welcome the person and suggest asking for something alive.
     /// Claude reads the brief as an appended system prompt and finds the person's first line waiting
     /// in its input; Codex takes the brief as its first turn and greets on its own.
-    public func completeSetup(displayName: String, cli: String = "claude") {
+    public func completeSetup(displayName: String, cli: String = "claude", imported: [SessionImport.Request] = []) {
         showDreamscape = false
 
         guard let user = currentUser else {
@@ -1201,6 +1204,7 @@ public final class AppState: ObservableObject {
                 if let url = Bundle.port42.url(forResource: "echo-prompt", withExtension: "txt"),
                    let text = try? String(contentsOf: url, encoding: .utf8) {
                     return text.replacingOccurrences(of: "{{USER}}", with: displayName)
+                        .replacingOccurrences(of: "{{IMPORTED}}", with: AppState.echoImportedNote(imported))
                 }
                 return "You are echo, \(displayName)'s first companion in Port42. Welcome them, then suggest they ask you for a shader port."
             }()
@@ -1225,6 +1229,28 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
+    }
+
+    /// What echo tells the person about the sessions they brought in at setup, as part of its welcome
+    /// (GM, 2026-09-26): the spaces made for them and who is waiting in each. Empty when none were.
+    nonisolated static func echoImportedNote(_ imported: [SessionImport.Request]) -> String {
+        guard !imported.isEmpty else { return "" }
+        var order: [String] = []
+        var bySpace: [String: [SessionImport.Request]] = [:]
+        for r in imported {
+            if bySpace[r.space] == nil { order.append(r.space) }
+            bySpace[r.space, default: []].append(r)
+        }
+        let lines = order.map { space in
+            "  #\(space): " + bySpace[space]!.map { "\(CompanionName.mention($0.name)) (\($0.cli.rawValue))" }.joined(separator: ", ")
+        }
+        return "\n" + """
+        - they brought running sessions in while setting up. port42 made a space for them and each session is \
+        waiting there as a companion, with its whole conversation so far:
+        \(lines.joined(separator: "\n"))
+          tell them which spaces were made and who is in each, and that zooming out shows every space. their \
+        original sessions are still open where they were and will fall behind, so they can close them.
+        """
     }
 
     /// Setup has FINISHED, not merely started: a person, and the space and companion setup ends by
@@ -1640,6 +1666,11 @@ public final class AppState: ObservableObject {
                                                            title: config.companionName,
                                                            reason: reason)
                                                    })
+        controller.onPresence = { [weak self] state in
+            guard let self else { return }
+            let name = self.currentName(of: config)
+            if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
+        }
         controller.onSessionId = { [weak self] sid in
             self?.noteSessionId(sid, config: config, panelId: panel.id)
         }

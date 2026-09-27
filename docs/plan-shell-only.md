@@ -356,6 +356,20 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Seen in the /imagine runs | The startup-stuck check is removed; still to watch: messages typed into a starting Claude not submitted (seen once) |
 | Test gate | `swift test` green before the release build (1271 tests in 173 suites at `314858c`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
+| Final hit list | Below; every item done before the release build |
+
+### Final hit list (GM, 2026-09-26)
+
+Must-fix before launch, found testing first run and daily use on the dev instances. Added as GM finds
+them; an item leaves only when it is done and verified.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Boot cinematic: pressing a key runs through every scene instead of moving one on | Open |
+| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Open |
+| 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
+| 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
+| 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
 
 ## Future roadmap
 
@@ -390,12 +404,15 @@ Things that would be cool once the five scenarios hold.
 - **Presence in chat** (GM, 2026-09-26). When a message in a port's or the space's chat wakes an
   agent, the chat shows it: received, working, done (and waiting on the person, when its CLI says so).
   The signals exist (the terminal's "typing" state from a typed message to its turn's end, Claude's
-  submit confirmation, the needs-attention hook); the chat panel does not show them.
+  submit confirmation, the needs-attention hook). **Done (2026-09-26):** `ChatPresenceStore`, shown
+  under the transcript of the chat that asked ("@alpha is working (42s)"), fed by the terminal's
+  events, no timeout. Codex reports no submit, so it shows "has your message" until its turn ends; a
+  Claude that was waiting on a permission shows waiting until the turn ends (no hook reports the
+  approval).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
-- **Resizable chats** (GM, 2026-09-26). Drag a port's chat panel to any width, all the way across the
-  port; drag the space's chat to set its size.
+- **Resizable chats** (GM, 2026-09-26). Moved to the release's final hit list (item 2).
 - **A benchmark suite** (GM, 2026-09-26). Two layers: a free one that measures the size (bytes and
   estimated tokens) of every read method on real ports, with a size budget pinned per default; and the
   golden eval set (`eval-golden.md`) for tokens per task, run rarely since it spends the subscription.

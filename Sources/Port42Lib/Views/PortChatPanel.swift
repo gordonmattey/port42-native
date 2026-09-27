@@ -89,6 +89,7 @@ struct PortChatPanel: View {
                     chats.markRead(key)
                 }
             }
+            ChatPresenceStrip(presence: appState.presence, key: key, accent: accent)
             if !suggestions.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(suggestions, id: \.id) { c in
@@ -233,5 +234,40 @@ struct PortConsolePanel: View {
         case "warn": return .orange
         default: return Port42Theme.textSecondary
         }
+    }
+}
+
+/// Under a chat's transcript: each agent on a message from this chat, and for how long (ChatPresence).
+struct ChatPresenceStrip: View {
+    @ObservedObject var presence: ChatPresenceStore
+    let key: String
+    let accent: Color
+
+    var body: some View {
+        let list = presence.entries(key)
+        if !list.isEmpty {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(list, id: \.name) { p in
+                        HStack(spacing: 6) {
+                            Circle().fill(Self.waiting(p) ? Color.orange : accent)
+                                .frame(width: 5, height: 5)
+                                .opacity(Self.waiting(p) ? 1 : 0.5 + 0.5 * abs(sin(ctx.date.timeIntervalSinceReferenceDate * 2)))
+                            Text("@\(p.name) \(ChatPresenceStore.line(p, now: ctx.date))")
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(Self.waiting(p) ? Color.orange : Port42Theme.textSecondary)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private static func waiting(_ p: ChatPresence) -> Bool {
+        if case .waiting = p.state { return true }
+        return false
     }
 }

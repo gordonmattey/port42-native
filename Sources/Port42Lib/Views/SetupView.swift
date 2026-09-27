@@ -16,6 +16,9 @@ public struct SetupView: View {
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var submittedName: String?
     @State private var showAnalyticsConsent = false
+    /// Echo's CLI is picked: the chooser gives way to the analytics question, which ends setup (GM,
+    /// 2026-09-26: picking echo is the high point, so the question comes after it, not before).
+    @State private var agentChosen = false
     // Bring running sessions in (docs/plan-session-import.md): found while the agent is being chosen.
     @State private var importCandidates: [SessionImport.Candidate] = []
     @State private var importSelection = SessionImport.Selection(groups: [], ticked: [], older: [])
@@ -260,16 +263,22 @@ public struct SetupView: View {
                             }
                         }
 
-                        // Analytics consent (after "Welcome, name.", before auth)
+                        // The agent chooser (after "Welcome, name." and the sessions)
+                        if showAuthOptions && !agentChosen && (importStage == .none || importStage == .chosen) {
+                            agentChooserContent
+                                .id("auth")
+                        }
+                        if agentChosen {
+                            HStack(spacing: 6) {
+                                Text(">").font(Port42Theme.monoBold(14)).foregroundStyle(Port42Theme.accent)
+                                Text("echo runs on \(chosenCLI).").font(Port42Theme.mono(14))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                            }
+                        }
+                        // Analytics consent, the last question: its answer finishes setup.
                         if showAnalyticsConsent {
                             analyticsConsentContent
                                 .id("analytics")
-                        }
-
-                        // The agent chooser (appears after analytics consent)
-                        if showAuthOptions && (importStage == .none || importStage == .chosen) {
-                            agentChooserContent
-                                .id("auth")
                         }
                         if showAuthOptions && [.finding, .choosing, .done].contains(importStage) {
                             importStepContent
@@ -351,7 +360,7 @@ public struct SetupView: View {
                 Spacer().frame(height: 4)
                 Text("Install one:").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else if found.count == 1 {
-                Text("Found \(agentLabel(found[0])). Your first companion runs on it.")
+                Text("Found \(agentLabel(found[0])). Your first companion, echo, runs on it.")
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else {
                 Text(agentSuggestionLine)
@@ -414,7 +423,10 @@ public struct SetupView: View {
         }
         Analytics.shared.setupStep("agent_\(option)")
         chosenCLI = option
-        finishSetup(importing: pendingImports)
+        withAnimation(.easeIn(duration: 0.2)) { agentChosen = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeIn(duration: 0.2)) { showAnalyticsConsent = true }
+        }
     }
 
     /// Which CLI the sessions being brought in use, to suggest for the first companion.
@@ -423,13 +435,10 @@ public struct SetupView: View {
         return clis.count == 1 ? clis.first : nil
     }
 
+    /// The question is always the same; the sessions brought in only decide which answer is
+    /// preselected (GM, 2026-09-26).
     private var agentSuggestionLine: String {
-        switch suggestedCLI {
-        case "claude": return "Your sessions are Claude Code, so your first companion runs on it too:"
-        case "codex": return "Your sessions are Codex, so your first companion runs on it too:"
-        default: return pendingImports.isEmpty ? "Found Claude Code and Codex. Pick the one your first companion runs on:"
-                                               : "You use both. Pick the one your first companion runs on:"
-        }
+        "Your first companion is called echo. Pick what it runs on:"
     }
 
     /// The person's choice of sessions: held until the agent is chosen, then brought in.
@@ -442,7 +451,7 @@ public struct SetupView: View {
     /// Complete setup, bring the chosen sessions in, and either hand over or show what came in.
     private func finishSetup(importing requests: [SessionImport.Request]) {
         let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        appState.completeSetup(displayName: name, cli: chosenCLI)
+        appState.completeSetup(displayName: name, cli: chosenCLI, imported: requests)
         guard !requests.isEmpty, let person = appState.currentUser else { phase = .transition; return }
         do {
             importResults = try appState.importSessions(requests, person: person)
@@ -497,8 +506,8 @@ public struct SetupView: View {
                 }
             } else {
                 SessionImportDone(results: importResults, candidates: importCandidates)
+                // First run always lands on echo in genesis (GM); the imported sessions wait in their spaces.
                 Button {
-                    appState.landOnImported(importResults)
                     phase = .transition
                 } label: {
                     Text("[ continue ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
@@ -559,16 +568,7 @@ public struct SetupView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showAnalyticsConsent = false
         }
-
-        // Show auth options after analytics consent
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            withAnimation(.easeIn(duration: 0.2)) {
-                showAuthOptions = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                isAuthPickerFocused = true
-            }
-        }
+        finishSetup(importing: pendingImports)
     }
 
     // MARK: - Transition (fade to black, circle, reveal)
@@ -719,10 +719,13 @@ public struct SetupView: View {
         revealLines(lines, current: 0) { count in
             visibleCreateLines = count
         } completion: {
-            // Show analytics consent after "Welcome, name." before auth options
+            // The sessions and the agent chooser after "Welcome, name."; analytics comes last.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 withAnimation(.easeIn(duration: 0.2)) {
-                    showAnalyticsConsent = true
+                    showAuthOptions = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    isAuthPickerFocused = true
                 }
             }
         }
@@ -781,7 +784,7 @@ public struct SetupView: View {
         }
 
         Task {
-            // Start create sequence (which shows analytics then auth options)
+            // Start create sequence (which shows the sessions, the agent chooser, then analytics)
             try? await Task.sleep(nanoseconds: 400_000_000)
             withAnimation(.easeIn(duration: 0.2)) {
                 startCreateSequence()
