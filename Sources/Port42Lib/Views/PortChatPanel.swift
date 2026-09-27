@@ -110,8 +110,10 @@ struct PortChatPanel: View {
                 Text(error).font(Port42Theme.mono(9)).foregroundStyle(.red.opacity(0.8))
                     .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 6) {
-                TextField("say something", text: $draft)
+            HStack(alignment: .bottom, spacing: 6) {
+                // Wraps onto more lines as the message grows (GM, 2026-09-27); Return still sends.
+                TextField("say something", text: $draft, axis: .vertical)
+                    .lineLimit(1...8)
                     .textFieldStyle(.plain)
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .focused($inputFocused)
