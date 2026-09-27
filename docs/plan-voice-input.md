@@ -100,10 +100,21 @@ Done:
   launch is the one a person judges the feature by. A refusal is reported on the indicator rather than
   re-asked on every hold, since only System Settings can change it.
 
-### Phase 5: other apps
+### Phase 5: other apps (DONE 2026-09-27)
 
-Accessibility, clipboard-plus-paste with CGEvent as fallback. Separate because it needs a permission
-the earlier phases do not.
+An event tap sees the space bar while another app has the keyboard, and the words are typed in as the
+smallest edit. Off unless `voiceInOtherApps` is set and Accessibility is granted; voice inside Port42
+needs neither. Detail and the security position: [plan-voice-phase5.md](plan-voice-phase5.md).
+
+Two failures found by hand and fixed. A hold that never saw its release left the trigger capturing, and
+while capturing it swallows every key, which took the keyboard away from the whole machine and looked
+like a hang: the global tap now swallows only the space bar, a release is processed even if Port42 came
+to the front mid-hold, and a hold past 45 seconds lets go on both paths. And showing and hiding the
+floating mic bounced activation, which read as focus jumping back to the previous window: the panel now
+refuses to become key or main.
+
+Settings has a Voice tab, so someone who never discovers hold-to-talk finds the model, a Download
+button, and this switch.
 
 ## Shipping the model
 
