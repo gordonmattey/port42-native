@@ -68,6 +68,62 @@ struct CLIHookProducerTests {
         return (home, codex)
     }
 
+    /// GM, 2026-09-26: "if claude is namespaced to Port42 only we lose any skills and knowledge they
+    /// have set up." Claude is not namespaced at all (it runs with ~/.claude). Codex gets its own home
+    /// only because it reads hooks from config.toml alone and Port42 never edits the person's. So the
+    /// promise is that nothing of theirs is lost, and nothing of theirs is written.
+    @Test("the person's own Codex setup comes along: their skills, AGENTS.md and MCP servers; ~/.codex is never written")
+    func codexKeepsThePersonsSetup() throws {
+        let fm = FileManager.default
+        let dir = NSTemporaryDirectory() + "p42-prod-\(UUID().uuidString)"
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(atPath: dir) }
+        let (home, real) = try fakeCodexHome()
+        defer { try? fm.removeItem(atPath: home) }
+        // Their setup: a skill of their own, instructions, an MCP server and a model choice.
+        try fm.createDirectory(atPath: "\(real)/skills/my-deploys", withIntermediateDirectories: true)
+        try "---\nname: my-deploys\n---\nhow I ship".write(toFile: "\(real)/skills/my-deploys/SKILL.md", atomically: true, encoding: .utf8)
+        try "Always run the linter first.".write(toFile: "\(real)/AGENTS.md", atomically: true, encoding: .utf8)
+        let userConfig = "model = \"gpt-5\"\n\n[mcp_servers.linear]\ncommand = \"linear-mcp\"\n"
+        try userConfig.write(toFile: "\(real)/config.toml", atomically: true, encoding: .utf8)
+        // Port42's own skills, as the app ships them.
+        let ours = "\(dir)/port42-skills"
+        try fm.createDirectory(atPath: "\(ours)/port42-team", withIntermediateDirectories: true)
+        try "---\nname: port42-team\n---\n".write(toFile: "\(ours)/port42-team/SKILL.md", atomically: true, encoding: .utf8)
+        let before = try snapshot(real)
+
+        _ = CLIHookProducer.codex.prepare(.init(
+            tempDir: dir, socketPath: "\(dir)/h.sock", sessionId: "panel-1", spaceId: "space-1",
+            companionId: nil, cwd: "/tmp/work", shimPath: "/x/port42-claude-shim",
+            homeOverride: home, skillsDir: ours))
+        let codexHome = "\(dir)/codex-home"
+
+        // Their skill, readable through Port42's home, beside Port42's own.
+        #expect(try String(contentsOfFile: "\(codexHome)/skills/my-deploys/SKILL.md", encoding: .utf8).contains("how I ship"))
+        #expect(fm.fileExists(atPath: "\(codexHome)/skills/port42-team/SKILL.md"))
+        // Their instructions, kept, with Port42's section added.
+        let agents = try String(contentsOfFile: "\(codexHome)/AGENTS.md", encoding: .utf8)
+        #expect(agents.contains("Always run the linter first."))
+        // Their MCP server and model, kept in the config Port42 writes.
+        let config = try String(contentsOfFile: "\(codexHome)/config.toml", encoding: .utf8)
+        #expect(config.contains("[mcp_servers.linear]") && config.contains("linear-mcp") && config.contains("model = \"gpt-5\""))
+        // And nothing in ~/.codex changed.
+        #expect(try snapshot(real) == before, "Port42 wrote into the person's ~/.codex")
+    }
+
+    /// Every file under a directory, with its contents, following nothing.
+    func snapshot(_ root: String) throws -> [String: String] {
+        var out: [String: String] = [:]
+        let e = FileManager.default.enumerator(atPath: root)
+        while let rel = e?.nextObject() as? String {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: "\(root)/\(rel)", isDirectory: &isDir), !isDir.boolValue {
+                out[rel] = (try? String(contentsOfFile: "\(root)/\(rel)", encoding: .utf8)) ?? "<binary>"
+            }
+        }
+        return out
+    }
+
     @Test("codex is NOT intercepted: a config home instead of a PATH prefix")
     func codexPrepares() throws {
         let dir = NSTemporaryDirectory() + "p42-prod-\(UUID().uuidString)"
