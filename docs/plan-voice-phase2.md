@@ -51,7 +51,8 @@ What the app already has:
    entry: the shell is not a caller asking on someone's behalf, and a Port42 grant would imply a port
    could hold it. The macOS microphone prompt is the only consent surface, plus the system's own
    orange indicator, plus the shell's own "listening" capsule from Phase 1.
-4. **Model downloaded on first use, not bundled.** 480 MB cannot ride in the DMG.
+4. **Model downloaded on first use, not bundled** (confirmed by GM 2026-09-27 after trying both). 461 MB
+   would take the DMG from 42 MB to about 500 MB, and every non-delta update with it.
    `ModelRegistry.baseURL` keeps self-hosting available later without changing call sites.
 5. **A hold with no model still works.** It captures nothing and the indicator says the model is not
    ready. The trigger must never depend on the model, or a failed download breaks the space bar.

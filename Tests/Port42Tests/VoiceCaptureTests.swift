@@ -223,10 +223,15 @@ struct VoiceSessionTests {
         #expect(partials.isEmpty)
     }
 
-    @Test("the 480 MB download is off by default, so a hold cannot start one")
-    func downloadIsOptIn() {
-        #expect(UserDefaults.standard.bool(forKey: VoiceSession.downloadAllowedKey) == false,
-                "the model download defaults to allowed")
+    /// The app does not ship the weights, so holding space is the consent to fetch them and the indicator
+    /// shows the download as it runs. A machine that must not fetch anything sets the key to false.
+    @Test("the weights are fetched by default, and refusing is a setting")
+    func downloadDefaultsOn() {
+        let allowed = UserDefaults(suiteName: "voice.test.allowed")!
+        allowed.removePersistentDomain(forName: "voice.test.allowed")
+        #expect(VoiceSession.downloadAllowed(allowed), "a shipped app could never fetch the model")
+        allowed.set(false, forKey: VoiceSession.downloadAllowedKey)
+        #expect(!VoiceSession.downloadAllowed(allowed), "the refusal is ignored")
     }
 }
 

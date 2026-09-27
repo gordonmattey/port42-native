@@ -53,9 +53,17 @@ public final class VoiceSession {
     public var partialInterval: TimeInterval = 1.0
     private var partials: Task<Void, Never>?
 
-    /// Whether a 480 MB download may start. Off by default: a hold must not silently pull half a
-    /// gigabyte. Phase 4 owns the surface that turns it on.
+    /// Whether the weights may be fetched. ON by default, because the app does not ship them: holding space
+    /// IS the consent, and the indicator shows the download as it runs rather than stalling in silence.
+    /// Setting `voiceModelDownloadAllowed` to false turns voice off on a machine that must not fetch it.
     public static let downloadAllowedKey = "voiceModelDownloadAllowed"
+
+    /// The default when nothing has been set, so a shipped app can dictate and a locked-down one can refuse.
+    public static var downloadAllowedByDefault: Bool { true }
+
+    static func downloadAllowed(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: downloadAllowedKey) as? Bool ?? downloadAllowedByDefault
+    }
 
     public init(source: VoiceAudioSource,
                 transcriber: VoiceTranscriber,
@@ -171,7 +179,7 @@ public final class VoiceSession {
         if case .loading = model { return }
         if model == .ready { return }
         guard let fluid = transcriber as? FluidVoiceTranscriber else { return }
-        let allowed = UserDefaults.standard.bool(forKey: Self.downloadAllowedKey)
+        let allowed = Self.downloadAllowed()
         guard allowed || FluidVoiceTranscriber.weightsOnDisk else { setModel(.absent); return }
 
         setModel(FluidVoiceTranscriber.weightsOnDisk ? .loading(0) : .downloading(0))

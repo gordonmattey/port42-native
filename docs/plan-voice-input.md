@@ -89,7 +89,8 @@ Done:
   document until the release commits over it. A terminal gets real characters as the smallest edit
   (backspaces plus a suffix), because a terminal draws marked text on one line at the cursor and a spoken
   sentence is longer than that, so it would not wrap.
-- The weights are bundled, so a shipped app dictates with no network and no setup step.
+- The weights are fetched on first use rather than shipped, so the DMG is unchanged; the download shows on
+  the indicator as it runs, and the bundled path stays available behind `BUNDLE_MODEL=1`.
 
 - The permission flow. The model starts loading with the app, not on the first hold, so it is warm by the
   time anyone holds space. Nothing touches the microphone until a hold, so nothing prompts until then, and
@@ -127,8 +128,15 @@ Three ways to ship 461 MB of weights:
 3. **Download on the first hold.** No setup friction, but the first dictation is the one that waits, and
    that is the hold a person is most likely to judge the feature by.
 
-Position: 1, with the flag that already gates it (`voiceModelDownloadAllowed`) becoming the setup
-step's answer. 3 is what is wired today for testing.
+**Decided (GM, 2026-09-27): the app does not ship the weights.** The DMG stays 42 MB and the weights are
+fetched on first use into FluidAudio's cache, which is per user, so every instance on the machine shares the
+one copy. A 500 MB download for a feature not everyone uses is the worse trade.
+
+Holding space is therefore the consent: someone who holds space has asked for dictation, and the indicator
+shows "downloading speech model N%" while it runs instead of stalling in silence. A machine that must not
+fetch anything sets `voiceModelDownloadAllowed` to false, and voice then says the model is not installed.
+`BUNDLE_MODEL=1 ./build.sh` still bundles the weights, for testing that path or for a build that must work
+with no network.
 
 ## Not in this plan
 

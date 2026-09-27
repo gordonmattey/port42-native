@@ -383,12 +383,14 @@ cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
-# Speech model for voice input (hold space). The Core ML weights are ~461 MB, CC BY 4.0, and are NOT in
-# git: they are copied from this machine's FluidAudio cache, so a shipped app can dictate with no network
-# and no setup step. Release always bundles them; a dev build only with BUNDLE_MODEL=1, because 461 MB per
-# rebuild is a slow loop and a dev instance reads the same cache at runtime anyway.
+# Speech model for voice input (hold space). The Core ML weights are ~461 MB, CC BY 4.0, and are NOT in git
+# and NOT in the shipped app: the DMG stays 42 MB and the weights are fetched on first use into a cache that
+# is shared by every instance on the machine (GM's call, 2026-09-27: a better distribution model than a
+# 500 MB download for a feature not everyone uses).
+#
+# BUNDLE_MODEL=1 copies them in anyway, for testing the bundled path or for a build that must work offline.
 MODEL_SRC="$HOME/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3"
-if [ "$CONFIG" = "release" ] || [ "${BUNDLE_MODEL:-0}" = "1" ]; then
+if [ "${BUNDLE_MODEL:-0}" != "0" ]; then
     MODEL_DST="$RESOURCES/Models/parakeet-tdt-0.6b-v3"
     if [ -d "$MODEL_DST/Encoder.mlmodelc" ] && [ "${BUNDLE_MODEL:-0}" != "force" ]; then
         # Already in this bundle. Copying again is refused anyway once the app has been launched from
