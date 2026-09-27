@@ -626,6 +626,32 @@ post in the one chat, hand off by mention across machines, both edit the port (t
 the token history name each), the chat is the same on both desktops, and the result renders (lit
 pixels, not only a clean console).
 
+**Passed live, 2026-09-26 (Dev2 and Dev6 through relay1, new "shader-duo" spaces, Gordon watching):**
+a Claude companion on each instance, `ember` on Dev2 where the port lives and `tide` on Dev6 through
+its tile, built the WebGL shader together from one brief in the port's chat, in under three minutes.
+ember wrote the canvas, shader and loop and handed the controls to `@tide (gordon)`; tide, woken on
+Dev6, patched its sliders and the `port42:data` sync into its own marked slot on Dev2's port and
+handed back to `@ember`; ember checked Dev2 (every pixel lit, the sliders change the frame's mean
+colour with time frozen, tide's push arrived) and asked tide to check Dev6; tide confirmed Dev2's push
+reached Dev6 with every pixel lit; ember said DONE. Seven posts, four hand-offs by mention across the
+machines, the chat the same on both desktops, both companions' writes on the one port, and each post
+attributed to its companion (`tide (gordon)` on Dev2).
+
+Found in the run:
+- `port.exec` naming the tile runs on the tile's own page here, not the host's: exec is never
+  reachable from another instance, so it is not forwarded, and it acts on the local copy with that
+  copy's own token. That is what let tide count Dev6's pixels, and it is the right split (exec
+  inspects a rendering; every other verb acts on the port). It is now documented here as intended.
+- The brief's switch ("wakes mine") had to be found and flipped before anything worked. Replaced by
+  the remote wake decision below.
+
+**Remote wake (Gordon, 2026-09-26), replacing the tile switch as the way in.** Each side decides for
+its own companions when it agrees to share: the sharer on the Share dialog ("remote wake", on by
+default: may their companions wake mine), the accepter on the accept screen (the same, on by
+default), and `invite.accept` takes `remoteWake`, default on, for an agent-driven accept. The tile's
+chrome keeps the switch, renamed "remote wake", to change it later. `wake_agents` on the invite is
+the sharer's side of the same setting.
+
 Decided (Gordon, 2026-09-26): "their companions can wake mine" is a switch on each tile, off by default.
 
 ### 4.7 The browser lane
