@@ -131,13 +131,18 @@ struct SessionImportDone: View {
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.accent)
             }
             Spacer().frame(height: 8)
-            Text("> close the originals now. they'll fall behind:")
-                .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
-            ForEach(results, id: \.request.sessionId) { r in
-                let c = byId[r.request.sessionId]
-                Text("    \(c?.app ?? "terminal") · \(Self.short(r.request.cwd))\(c?.branch.map { " (\($0))" } ?? "")\(c?.tty.map { "  \($0)" } ?? "")")
-                    .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textSecondary)
+            // Information, not controls (GM): a sentence and dim bullets, nothing that looks tickable.
+            Text("Your original sessions are still open and will fall behind. Close them in:")
+                .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(results, id: \.request.sessionId) { r in
+                    let c = byId[r.request.sessionId]
+                    Text("• \(c?.app ?? "a terminal"), \(Self.short(r.request.cwd))\(c?.branch.map { " (\($0))" } ?? "")")
+                        .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                }
             }
+            .padding(.leading, 4)
+            .allowsHitTesting(false)
         }
     }
 
