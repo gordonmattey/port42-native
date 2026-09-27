@@ -402,6 +402,10 @@ Things that would be cool once the five scenarios hold.
   every port it made (the card's "Remove from this space", as an API). Today the only removal is by
   hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
   up ten stale companions in prod's port42-app space.
+- **A benchmark suite** (GM, 2026-09-26). Two layers: a free one that measures the size (bytes and
+  estimated tokens) of every read method on real ports, with a size budget pinned per default; and the
+  golden eval set (`eval-golden.md`) for tokens per task, run rarely since it spends the subscription.
+  Prompted by `port.console` returning up to ~400 KB into an agent's context per check.
 - **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
   focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
 - **`/imagine`** (GM, 2026-09-25; moved into the release's scope 2026-09-26, plan in `plan-imagine.md`). Type one line ("a shader that reacts to music") and Port42 writes
