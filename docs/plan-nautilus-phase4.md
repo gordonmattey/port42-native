@@ -512,7 +512,12 @@ move, and accepting by clicked link or ⌘K paste.
 refuse a terminal or a browser port. `use` on a shared terminal would type into this machine's shell
 and `see` would read everything it prints; a browser port is signed in as this person. Nothing had
 shared one, but a Share button would have made it one click. `createInvite` and the redeem both refuse
-anything but a web port (`AppState.shareable`); gate in `InviteTests`, calibrated.
+anything but a web port (`AppState.shareable`); gate in `InviteTests`, calibrated. Decided (Gordon, 2026-09-27): terminals
+and browser ports are never shared in Phase 4. A shared web port sends a page the other side runs;
+a terminal or browser port is a live session on this Mac, so sharing one means streaming it and
+taking input into it, which is remote access. Companions on terminals collaborate across machines
+through a shared port's chat instead (4.6c). A watch-only terminal (output streamed, no input) is a
+possible later feature, with its own design.
 
 **The sharing pill and the Share box, built 2026-09-27 (Gordon chose the pill over a share icon or
 the overflow).** One pill in a tile's chrome, left of presence: "shared · 2" (or "invite sent") on a
