@@ -29,7 +29,10 @@ public struct InviteCoupon: Codable, Equatable {
 
     /// base64url of the JSON, for a URL fragment.
     public var encoded: String {
-        let data = (try? JSONEncoder().encode(self)) ?? Data()
+        // Sorted keys: one invite is one link, whenever it is spelled out (it is kept to copy again).
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(self)) ?? Data()
         return data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
@@ -149,6 +152,7 @@ extension AppState {
                                   nonce: nonce, exp: Int(expires.timeIntervalSince1970),
                                   hostName: currentUser?.displayName ?? "Port42", portTitle: panel.title,
                                   code: requireCode)
+        keepInviteLink(id: id, link: coupon.link, code: code)
         return CreatedInvite(id: id, coupon: coupon, code: code, discloses: portMachineGrants(key))
     }
 
@@ -338,8 +342,33 @@ extension AppState {
         refreshSharing()
     }
 
+    /// What copying an unused invite again gives the person: its link, with its code under it when it
+    /// has one. Only the person reaches this, from the app: `invite.list` never returns a link, so an
+    /// agent cannot get one without the per-port card.
+    public func inviteMessage(id: String) -> String? {
+        guard openInvites().contains(where: { $0.id == id }) else { return nil }
+        return Self.isTestProcessStore ? Self.testInviteLinks[id] : Port42AuthStore.shared.inviteLink(id: id)
+    }
+
+    func keepInviteLink(id: String, link: String, code: String?) {
+        let message = code.map { "\(link)\ncode: \($0)" } ?? link
+        if Self.isTestProcessStore { Self.testInviteLinks[id] = message } else { Port42AuthStore.shared.saveInviteLink(message, id: id) }
+    }
+
+    /// Links of invites no longer open (used, withdrawn, expired) are forgotten.
+    func forgetClosedInviteLinks() {
+        let open = Set(openInvites().map(\.id))
+        for row in (try? db.allInvites()) ?? [] where !open.contains(row.id) {
+            if Self.isTestProcessStore { Self.testInviteLinks[row.id] = nil } else { Port42AuthStore.shared.deleteInviteLink(id: row.id) }
+        }
+    }
+
+    static var isTestProcessStore: Bool { ClientRegistry.isTestProcess }
+    static var testInviteLinks: [String: String] = [:]
+
     /// Rebuild `sharing` from the rights and invites tables.
     func refreshSharing() {
+        forgetClosedInviteLinks()
         var out: [String: PortSharing] = [:]
         for s in sharedPorts() where !s.rights.isEmpty { out[s.portKey, default: PortSharing()].people.append(s) }
         for i in openInvites() { out[i.portKey, default: PortSharing()].openInvites += 1 }

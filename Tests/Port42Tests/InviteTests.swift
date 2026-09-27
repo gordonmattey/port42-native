@@ -195,6 +195,29 @@ struct InviteTests {
         #expect(try await join(Self.ada, as: "Someone else") == "Ada", "a label people had seen changed")
     }
 
+    @Test("an unused link can be copied again, with its code; used or withdrawn it is forgotten; invite.list never shows it")
+    func linkCopiedAgain() async throws {
+        let w = try world()
+        let made = try await create(w, code: true)
+        let id = try #require(made["id"] as? String)
+        let link = try #require(made["link"] as? String)
+        let code = try #require(made["code"] as? String)
+        #expect(try coupon(made).link == link, "one invite spelled out twice gave two links")
+        let message = w.state.inviteMessage(id: id)
+        #expect(message == "\(link)\ncode: \(code)", "an unused link could not be copied again: \(message ?? "nil")")
+        let listed = try await w.state.runBridgeMethod("invite.list", principal: person, args: BridgeArgs([:]))
+        #expect(!(String(describing: listed.toJSONObject() ?? "")).contains(link), "invite.list handed out a link")
+
+        w.state.withdrawInvite(id: id)
+        #expect(w.state.inviteMessage(id: id) == nil, "a withdrawn link can still be copied")
+        #expect(AppState.testInviteLinks[id] == nil, "a withdrawn link was kept")
+
+        let used = try await create(w)
+        let usedId = try #require(used["id"] as? String)
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(used).nonce, "name": "Ada"])
+        #expect(w.state.inviteMessage(id: usedId) == nil && AppState.testInviteLinks[usedId] == nil, "a used link was kept")
+    }
+
     @Test("the invite discloses what the port can do on this machine")
     func disclosure() async throws {
         let w = try world()

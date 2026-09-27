@@ -169,6 +169,12 @@ public final class Port42AuthStore {
 
     private func peerSeedAccount(_ instance: String) -> String { "peer-key-\(instance)" }
 
+    /// An unused invite's link (and code), kept so the person can copy it again (4.6b). The invites
+    /// table holds only the nonce's hash; the link lives here, and goes when the invite does.
+    public func inviteLink(id: String) -> String? { loadKeychainValue(account: "invite-link-\(id)") }
+    public func saveInviteLink(_ value: String, id: String) { saveKeychainValue(value, account: "invite-link-\(id)") }
+    public func deleteInviteLink(id: String) { deleteKeychainValue(account: "invite-link-\(id)") }
+
     /// The instance's Ed25519 seed, base64 (nautilus Phase 4, 4.2). Per instance, never per person.
     public func peerSeed(instance: String) -> String? {
         loadKeychainValue(account: peerSeedAccount(instance))

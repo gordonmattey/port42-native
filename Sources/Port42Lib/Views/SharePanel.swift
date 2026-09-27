@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - The sharing pill (nautilus Phase 4, 4.6b; Gordon chose the pill, 2026-09-26)
 //
@@ -87,12 +88,25 @@ struct ShareHostPanel: View {
             }
             let invites = appState.openInvites().filter { $0.portKey == portKey }
             if !invites.isEmpty {
-                HStack {
-                    Text(invites.count == 1 ? "1 invite not used yet" : "\(invites.count) invites not used yet")
-                        .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                    Spacer()
-                    Button("withdraw") { invites.forEach { appState.withdrawInvite(id: $0.id) } }
-                        .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
+                SharePanelHeading("links not used yet")
+                ForEach(invites, id: \.id) { inv in
+                    HStack(spacing: 8) {
+                        Text("until " + inv.expiresAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                        if inv.codeHash != nil {
+                            Text("code").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                        }
+                        Spacer()
+                        if let message = appState.inviteMessage(id: inv.id) {
+                            Button("copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(message, forType: .string)
+                            }
+                            .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.accent)
+                        }
+                        Button("withdraw") { appState.withdrawInvite(id: inv.id) }
+                            .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
+                    }
                 }
             }
             Divider().opacity(0.4)
