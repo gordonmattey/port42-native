@@ -90,6 +90,8 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
+    /// An imagine link that arrived during the first run, held until the person lands (ImagineLink).
+    var heldImagineLink: ImagineLinkRequest?
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Native (Ghostty) terminal companion controllers: panelId → controller.

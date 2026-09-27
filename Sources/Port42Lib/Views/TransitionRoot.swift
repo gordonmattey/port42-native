@@ -282,6 +282,7 @@ public struct TransitionRoot: View {
     /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "port42" else { return }
+        if let req = ImagineLinkRequest.parse(url) { appState.openImagineLink(req); return }
         p42log("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }

@@ -36,6 +36,8 @@ public final class ShellState: ObservableObject {
     @Published public var showNewCompanion: Bool = false
     /// The quick imagine box (⌘I): one line starts an imagine team (docs/plan-imagine.md).
     @Published public var showImagine: Bool = false
+    /// What an imagine link filled the box with, taken by the box when it opens.
+    @Published public var imagineLink: ImagineLinkRequest?
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.

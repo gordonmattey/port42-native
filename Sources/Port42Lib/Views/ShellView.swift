@@ -291,6 +291,7 @@ public struct ShellView: View {
             if case .focus = old, z == .space, appState.isOnboarding {
                 appState.endOnboarding()
                 shell.startBreakout(area: shell.lastDesktopArea)
+                if AquariumBreakoutView.videoURL == nil { appState.openHeldImagineLink() }
             } else if breakoutWasPlaying {
                 finishBreakout(fade: 0.3)                 // a quick clear, not the full outro
             }
@@ -344,6 +345,7 @@ public struct ShellView: View {
             shell.endBreakout()
             breakoutExpanded = false
             breakoutOpacity = 1
+            appState.openHeldImagineLink()        // a link held through the first run opens now
         }
     }
 
