@@ -51,9 +51,13 @@ public final class VoiceHUD {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
+        let panel = NonActivatingPanel(contentRect: .zero,
+                                       styleMask: [.borderless, .nonactivatingPanel],
+                                       backing: .buffered, defer: false)
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.animationBehavior = .none
+        panel.worksWhenModal = true
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -63,4 +67,15 @@ public final class VoiceHUD {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         return panel
     }
+}
+
+/// A panel that can never take the keyboard or become the app's main window.
+///
+/// Showing and hiding an ordinary panel from an app that is not active bounces activation: the app comes
+/// forward when the panel is ordered in and the previous app comes back when it is ordered out, which looked
+/// like focus jumping away a few seconds after clicking on Port42 (GM, Dev7, 2026-09-27). The indicator must be
+/// visible without ever being a participant in focus, or it changes where the words land.
+final class NonActivatingPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }

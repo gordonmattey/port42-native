@@ -39,6 +39,8 @@ public struct ShellView: View {
     @State private var voiceStreamed = ""
     /// What has been typed into ANOTHER app during this hold, for the same smallest-edit streaming.
     @State private var voiceTyped = ""
+    @State private var voiceObservers: [NSObjectProtocol] = []
+    @State private var voiceWatchdog: Timer?
     @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
@@ -376,6 +378,7 @@ public struct ShellView: View {
                 shell.voiceCapturing = true
                 shell.voiceNotice = nil
                 shell.voicePartial = nil
+                armVoiceWatchdog()
                 voiceSession?.destination = .inApp
                 voiceTyped = ""
                 shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
@@ -392,7 +395,27 @@ public struct ShellView: View {
     /// that renders marked text badly can be taken back to pill-only without a build.
     static let streamIntoPortKey = "voiceStreamIntoPort"
 
+    /// Let go of a hold without treating it as a finished sentence: no transcription, no insertion, and any
+    /// uncommitted text taken back. The watchdog and the focus changes both land here.
+    @MainActor
+    private func abandonVoiceHold() {
+        voiceTimer?.invalidate(); voiceTimer = nil
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
+        _ = voice.cancel()
+        guard shell.voiceCapturing else { return }
+        shell.voiceCapturing = false
+        voiceSession?.abandon()
+        if voiceStreamsAsEdits {
+            voiceStreamed = VoiceInserter.stream("", previous: voiceStreamed, into: voiceResponder)
+        } else {
+            VoiceInserter.unmark(voiceResponder)
+        }
+        if !voiceTyped.isEmpty { voiceTyped = VoiceTyper.stream("", previous: voiceTyped) }
+        clearVoiceNotice()
+    }
+
     private func endVoice() {
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
         shell.voiceCapturing = false
         voiceSession?.end()
         // A hold that produced nothing must leave no uncommitted text behind. The final text, when it
@@ -412,6 +435,17 @@ public struct ShellView: View {
             clearVoiceNotice()
         } else {
             showVoiceNotice(voiceLabel, seconds: 3)
+        }
+    }
+
+    /// A hold that runs past the maximum is a stuck state, not a sentence.
+    private func armVoiceWatchdog() {
+        voiceWatchdog?.invalidate()
+        voiceWatchdog = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.maximumHold, repeats: false) { _ in
+            Task { @MainActor in
+                p42log("[Port42] voice: hold ran past %.0fs with no release; letting go", VoiceTrigger.maximumHold)
+                abandonVoiceHold()
+            }
         }
     }
 
@@ -596,6 +630,16 @@ public struct ShellView: View {
             return e
         }
 
+        // A hold ends if the app stops being active or the window stops being key. While capturing, the
+        // trigger swallows every key, so a release that never arrives (the app switched under the hold) used to
+        // leave the keyboard dead until Port42 was quit, and looked like the app had hung (GM, Dev7).
+        for name in [NSApplication.willResignActiveNotification, NSWindow.didResignKeyNotification] {
+            let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in abandonVoiceHold() }
+            }
+            voiceObservers.append(token)
+        }
+
         let keyUps = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { e in
             voiceTimer?.invalidate(); voiceTimer = nil
             if voice.keyUp(keyCode: e.keyCode, now: e.timestamp) == .endCapture { endVoice() }
@@ -606,6 +650,9 @@ public struct ShellView: View {
 
     private func removeInputMonitors() {
         for m in monitors { NSEvent.removeMonitor(m) }
+        for o in voiceObservers { NotificationCenter.default.removeObserver(o) }
+        voiceObservers = []
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
         monitors = []
     }
 

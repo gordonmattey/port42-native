@@ -223,6 +223,16 @@ public final class VoiceSession {
         if state == .ready { readPending() }
     }
 
+    /// Stop capturing and throw the audio away. For a hold that was abandoned rather than released: nothing is
+    /// transcribed and nothing is inserted.
+    public func abandon() {
+        partials?.cancel(); partials = nil
+        guard isCapturing else { return }
+        isCapturing = false
+        _ = source.stop()
+        pending = []
+    }
+
     /// Read the audio a hold left behind while the model was loading.
     private func readPending() {
         guard !pending.isEmpty else { return }

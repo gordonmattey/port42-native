@@ -34,6 +34,11 @@ public struct VoiceTrigger {
     /// (80 to 120 ms) and below a deliberate press feeling sluggish.
     public static let threshold: TimeInterval = 0.2
 
+    /// A hold longer than this is a stuck state, not a sentence. While capturing, the trigger swallows every
+    /// key (the hold owns the keyboard), so a release that is never seen would leave the keyboard dead until the
+    /// app is quit: it happened, and it looked like the app had hung. Both paths cancel on this.
+    public static let maximumHold: TimeInterval = 45
+
     /// The space bar. `kVK_Space`.
     public static let spaceKeyCode: UInt16 = 49
 

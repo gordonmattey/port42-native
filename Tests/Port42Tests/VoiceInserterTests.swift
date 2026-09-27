@@ -214,3 +214,20 @@ struct VoiceStreamEditTests {
         #expect(e.deletes == 0 && e.insert.isEmpty)
     }
 }
+
+@Suite("The floating mic cannot take focus")
+@MainActor
+struct VoiceHUDPanelTests {
+
+    /// The indicator shows while another app has the keyboard, so it must never be part of focus: a panel that
+    /// can become key bounces activation when it is shown and hidden, which reads as focus jumping away from
+    /// whatever you just clicked on.
+    @Test("the panel refuses to become key or main")
+    func panelRefusesFocus() {
+        let panel = NonActivatingPanel(contentRect: .zero,
+                                       styleMask: [.borderless, .nonactivatingPanel],
+                                       backing: .buffered, defer: false)
+        #expect(!panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+    }
+}

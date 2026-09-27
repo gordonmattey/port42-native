@@ -22,6 +22,7 @@ public final class VoiceGlobalTrigger {
     private var runLoopSource: CFRunLoopSource?
     private var trigger = VoiceTrigger()
     private var thresholdTimer: Timer?
+    private var watchdog: Timer?
     /// The tap runs on a thread of its own, NOT on the main run loop. A tap that takes too long to answer is
     /// switched off by the system, and on the main thread that would mean every keystroke on the machine
     /// waiting behind whatever the app is drawing. Everything the tap touches (`trigger`, the timer) lives on
@@ -113,8 +114,12 @@ public final class VoiceGlobalTrigger {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
-        // Port42 frontmost means the in-app path owns the hold, and it can compose instead of typing.
-        guard !VoiceTyper.port42IsFrontmost else { return Unmanaged.passUnretained(event) }
+        // Port42 frontmost means the in-app path owns the hold, and it can compose instead of typing. A hold
+        // already in progress is still finished here: if the app came to the front between the press and the
+        // release, skipping the release would leave this capturing for ever.
+        if VoiceTyper.port42IsFrontmost, !trigger.isCapturing, !trigger.isPending {
+            return Unmanaged.passUnretained(event)
+        }
 
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
@@ -132,7 +137,10 @@ public final class VoiceGlobalTrigger {
 
         switch action {
         case .consume:
-            return nil
+            // System-wide, ONLY the space bar is ever swallowed. In Port42 a hold owns the keyboard and
+            // swallowing the rest is right; outside it, doing that would take the keyboard away from every app
+            // on the machine if a release were ever missed.
+            return keyCode == VoiceTrigger.spaceKeyCode ? nil : Unmanaged.passUnretained(event)
         case .passThrough:
             if trigger.isPending { armThreshold() }
             return Unmanaged.passUnretained(event)
@@ -143,6 +151,15 @@ public final class VoiceGlobalTrigger {
             DispatchQueue.main.async { [onEnd] in onEnd() }
             return nil                                      // the release belongs to the hold
         }
+    }
+
+    /// Let go of everything, whatever state the machine is in. Called by the watchdog and when the frontmost
+    /// app changes under a hold.
+    public func cancelHold() {
+        guard trigger.isCapturing || trigger.isPending else { return }
+        _ = trigger.cancel()
+        cancelThreshold()
+        DispatchQueue.main.async { [onEnd] in onEnd() }
     }
 
     /// On the tap's own thread, where `trigger` lives.
@@ -162,5 +179,18 @@ public final class VoiceGlobalTrigger {
     private func cancelThreshold() {
         thresholdTimer?.invalidate()
         thresholdTimer = nil
+        watchdog?.invalidate()
+        watchdog = nil
+    }
+
+    /// A release that is never seen (an app switch mid-hold, a lost key event) must not leave this capturing.
+    private func armWatchdog() {
+        watchdog?.invalidate()
+        let timer = Timer(timeInterval: VoiceTrigger.maximumHold, repeats: false) { [weak self] _ in
+            p42log("[Port42] voice: hold ran past %.0fs with no release; letting go", VoiceTrigger.maximumHold)
+            self?.cancelHold()
+        }
+        watchdog = timer
+        if let runLoop { CFRunLoopAddTimer(runLoop, timer, .defaultMode) }
     }
 }
