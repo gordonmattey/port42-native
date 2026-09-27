@@ -4,7 +4,7 @@ import CryptoKit
 // MARK: - Invites (nautilus Phase 4, step 4.5; docs/design-phase4-relay.md "The invite")
 //
 // One invite per port (D10). A link names one port and grants that port only; port 0 and spaces are
-// never invitable. The link is `https://port42.ai/invite.html#<coupon>`: the coupon rides in the
+// never invitable. The link is `https://open.port42.ai/#<coupon>`: the coupon rides in the
 // fragment, which a browser never sends to a server. It carries no standing access, only a one-time
 // nonce. Redeeming it enrols the redeemer's key as a `peer` client and grants the port with the
 // invite's rights; the nonce is then spent. An invite can also require a six-digit code, sent to the
@@ -25,7 +25,7 @@ public struct InviteCoupon: Codable, Equatable {
     public let portTitle: String
     public let code: Bool           // a code must be typed to redeem
 
-    public static let pageURL = "https://port42.ai/invite.html"
+    public static let pageURL = "https://open.port42.ai/"
 
     /// base64url of the JSON, for a URL fragment.
     public var encoded: String {
@@ -499,7 +499,7 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
         inputSchema: [
             "type": "object",
             "properties": [
-                "link": ["type": "string", "description": "The invite link (https://port42.ai/invite.html#…)."],
+                "link": ["type": "string", "description": "The invite link (https://open.port42.ai/#…)."],
                 "code": ["type": "string", "description": "The six-digit code, if the invite needs one."],
                 "remoteWake": ["type": "boolean", "description": "Let their chat wake your companions for this port (default true)."],
             ],

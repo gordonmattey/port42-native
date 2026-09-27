@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<script>
+// The shared port's page is written here, in a sandboxed frame with an opaque origin and the same
+// Content-Security-Policy Port42 gives ports in the app. It never sees the guest's key or storage.
+addEventListener('message', function load(ev) {
+  if (ev.source !== parent || !ev.data || ev.data.port42 !== 'load') return;
+  removeEventListener('message', load);
+  document.open(); document.write(ev.data.html); document.close();
+});
+parent.postMessage({ port42: 'ready' }, '*');
+</script>

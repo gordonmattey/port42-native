@@ -65,9 +65,12 @@ test('joining redeems the invite as the name given, then shows the port in a fra
   assert.equal(p.doc.getElementById('port').hidden, false);
   const frame = p.doc.getElementById('frame');
   assert.ok(!frame.getAttribute('sandbox').includes('allow-same-origin'), 'the frame can reach the page\'s storage');
-  assert.match(frame.srcdoc, /<p>the port<\/p>/);
+  assert.match(frame.getAttribute('src'), /^frame\.html/, 'the port is not loaded in its own document');
+  const sent = p.app.frameState.html;
+  assert.match(sent, /<p>the port<\/p>/);
+  assert.match(sent, /port42\.self|self: Object\.freeze/, 'the frame has no window.port42');
   const seed = p.storage.get('port42.guest.seed');
-  assert.ok(seed && !frame.srcdoc.includes(seed), 'the guest\'s key is inside the frame');
+  assert.ok(seed && !sent.includes(seed), 'the guest\'s key is inside the frame');
   assert.match(p.doc.getElementById('chat-list').textContent, /Gordon hi/);
 });
 

@@ -87,7 +87,7 @@ struct InviteTests {
         let w = try world()
         let made = try await create(w)
         let link = try #require(made["link"] as? String)
-        #expect(link.hasPrefix("https://port42.ai/invite.html#"))
+        #expect(link.hasPrefix("https://open.port42.ai/#"))
         let c = try coupon(made)
         #expect(c.host == Self.me && c.port == w.p && c.relays == ["wss://relay.test/v1"])
         #expect(c.rights == ["see", "use", "wake_agents"], "the default rights are view, drive and remote wake")

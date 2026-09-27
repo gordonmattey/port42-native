@@ -811,6 +811,17 @@ above are as recommended.
    `Referrer-Policy: no-referrer` and no third-party script; `open.Dockerfile` for Railway; invite
    links on `open.port42.ai`. Gates: the committed bundle matches a fresh build and the page names its
    hash; the server sends every header.
+   **Built 2026-09-27.** The port runs in `frame.html`, not a `srcdoc`: a srcdoc frame inherits the
+   page's policy, which must forbid inline script to protect the key, and ports are inline script.
+   `frame.html` is served with the policy Port42 gives ports in the app (inline script and style,
+   `data:` images, no network) and is sent the page by message; the frame keeps an opaque origin.
+   `gateway/open` serves the page (script only from itself, connections to any `wss:` relay since an
+   invite may name a self-hosted one, frames from itself, no referrer, no framing), the frame and the
+   bundle, and nothing else; `cmd/port42-open` and `open.Dockerfile` (context: the repo root) run it
+   on Railway. `npm run build` bundles and writes the bundle's sha384 into the page. Invite links are
+   `https://open.port42.ai/#<coupon>`. Gates: `open_test.go` (every header, the page's `script-src`
+   exactly `'self'`, a frame with no network, nothing else served) and `bundle.test.mjs` (the
+   bundle is a fresh build and the page names its hash), calibrated by five breaks.
 4. *The `/port` spike and its query-string token deleted* from the gateway. Gate: `/port` answers 404.
 
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in

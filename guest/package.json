@@ -5,7 +5,7 @@
   "description": "A guest-only Port42 in the browser: the relay client, Noise IK, and the port's page (nautilus Phase 4, 4.7).",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "build": "esbuild src/main.js --bundle --format=esm --minify --outfile=dist/port42-guest.js"
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "^1.2.1",

@@ -32,6 +32,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   show(doc, 'intro');
 
   let guest = null;
+  const frameState = { html: null, loads: 0 };
   $(doc, 'open-here').addEventListener('click', () => show(doc, 'join'));
   $(doc, 'join-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -39,7 +40,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
     const code = $(doc, 'code').value.trim();
     $(doc, 'join-error').textContent = '';
     $(doc, 'join-button').disabled = true;
-    guest = new Guest({ coupon, storage, connect, ui: ui(doc, coupon, () => guest) });
+    guest = new Guest({ coupon, storage, connect, ui: ui(doc, coupon, () => guest, frameState) });
     try {
       await guest.join({ name, code });
       show(doc, 'port');
@@ -61,6 +62,11 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
     const frame = $(doc, 'frame');
     if (!guest || ev.source !== frame.contentWindow) return;
     const m = ev.data;
+    // The frame is ready for the port's page (its own document, with the port's policy, not ours).
+    if (m && m.port42 === 'ready' && frameState.html != null) {
+      frame.contentWindow.postMessage({ port42: 'load', html: frameState.html }, '*');
+      return;
+    }
     if (!m || m.port42 !== 'call') return;
     try {
       const value = await guest.frameCall(m.method, Array.isArray(m.args) ? m.args : []);
@@ -71,12 +77,17 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
       frame.contentWindow.postMessage({ port42: 'result', id: m.id, error }, '*');
     }
   });
-  return { coupon, guest: () => guest };
+  return { coupon, guest: () => guest, frameState };
 }
 
-function ui(doc, coupon, guest) {
+function ui(doc, coupon, guest, frameState) {
   return {
-    onPage(srcdoc) { $(doc, 'frame').srcdoc = srcdoc; },
+    // A fresh frame for each version of the page: it loads frame.html, says it is ready, and is sent
+    // the page (see the message handler above).
+    onPage(html) {
+      frameState.html = html;
+      $(doc, 'frame').src = 'frame.html?v=' + (++frameState.loads);
+    },
     onData(detail) { $(doc, 'frame').contentWindow?.postMessage({ port42: 'data', detail }, '*'); },
     onEvent(kind, payload) { $(doc, 'frame').contentWindow?.postMessage({ port42: 'event', kind, payload }, '*'); },
     onChat(entries) {

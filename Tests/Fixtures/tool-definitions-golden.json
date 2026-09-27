@@ -468,7 +468,7 @@
           "type" : "string"
         },
         "link" : {
-          "description" : "The invite link (https:\/\/port42.ai\/invite.html#…).",
+          "description" : "The invite link (https:\/\/open.port42.ai\/#…).",
           "type" : "string"
         },
         "remoteWake" : {
