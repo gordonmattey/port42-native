@@ -95,3 +95,27 @@ struct CompanionNameTests {
         #expect(w.state.companions.first { $0.id == r.id }?.displayName == "ranger")
     }
 }
+
+// Tests must never start a real CLI: a claude companion made in a test used to launch a real shell and
+// `claude`, which outlived the run.
+@Suite("No real processes under test")
+@MainActor
+struct NoRealProcessesUnderTest {
+    @Test("a companion made in a test gets its terminal's controller and no shell or CLI process")
+    func noProcess() async throws {
+        let w = try makeParityWorld()
+        let before = Set(SessionImport.probe().filter { $0.ppid == getpid() || $0.args.contains("login -flp") }.map(\.pid))
+        _ = try await w.state.runBridgeMethod("companions.create",
+            principal: .human(id: w.state.currentUser!.id, displayName: "Alice", spaceId: w.space.id),
+            args: BridgeArgs(["name": "probe-\(UUID().uuidString.prefix(4))", "agent": "claude", "runs": "hidden", "space_id": w.space.id]),
+            pregrant: [.terminal])
+        #expect(!w.state.terminalControllers.isEmpty, "the terminal's controller was not made")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let children = SessionImport.probe().filter {
+            // Only a shell or an agent CLI: other tests in this process start their own (a gateway, go build).
+            $0.ppid == getpid() && !before.contains($0.pid)
+                && ($0.args.contains("login -flp") || $0.args.hasSuffix("zsh") || $0.args.hasPrefix("claude") || $0.args.contains("/codex"))
+        }
+        #expect(children.isEmpty, "a test started real processes: \(children.map(\.args))")
+    }
+}

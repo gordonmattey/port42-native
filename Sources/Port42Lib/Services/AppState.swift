@@ -857,6 +857,9 @@ public final class AppState: ObservableObject {
     /// manage real infrastructure — no gateway spawn, no stale-port reclaim, no sync connect.
     /// Belt and braces across harness signals: XCTest linked into the process,
     /// the XCTest env vars, or the swift-testing env flag.
+    /// A test that must start a real terminal says so; none does today.
+    nonisolated(unsafe) static var allowTerminalProcessesInTests = false
+
     nonisolated static let isTestProcess: Bool = {
         // SPM runners: `swift test` executes tests inside swiftpm-testing-helper (swift-testing)
         // or xctest (XCTest). Verified empirically: the helper carries NO test-specific env vars,
@@ -1378,6 +1381,10 @@ public final class AppState: ObservableObject {
     @discardableResult
     func buildTerminalSurface(for panel: PortPanel, config: TerminalPortConfig) -> Bool {
         guard let controller = makeTerminalController(for: panel) else { return false }
+        // NEVER A REAL PROCESS UNDER TEST (2026-09-26). A test that made a claude companion started a
+        // real shell and a real `claude` here, and a test runner left behind by an interrupted run kept
+        // four of them alive for hours. Tests get the controller, which is what they check.
+        if Self.isTestProcess && !Self.allowTerminalProcessesInTests { return true }
         let built = GhosttyTerminalView.makeDetached(
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
