@@ -522,6 +522,14 @@ Decided: fork and move ship with the share dialog in 4.6b, and forking a port sh
 instance needs a right of its own (`fork`), granted in the invite like the others, not implied by
 `see`.
 
+**4.6c, names across machines (Gordon, 2026-09-26).** A companion on another machine is shown with
+the name of the person there, the display name they gave in setup: `@wise-tern (Ada)`. When two
+machines would show the same name (one person on two machines, or two people with one name), each
+gains the first four characters of its peer id: `@wise-tern (gordon 56dv)`. Remote in Settings gets
+an optional "this machine's name", defaulting to the person's name, for someone who prefers
+"gordon laptop" to the id. The label is for people; a mention is routed by peer id and companion id,
+so a clash of labels never delivers to the wrong companion.
+
 ### 4.7 The browser lane
 
 - `port42.ai/invite.html` gains the coupon handling, "Open here" and the bundled script (decision 6),
