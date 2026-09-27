@@ -460,7 +460,7 @@
     "name" : "imagine_start"
   },
   {
-    "description" : "Accept an invite someone sent you: this instance joins their port. Returns { address, title, rights }. Then call methods on the port by its address, e.g. port.getHtml id=port42:\/\/<peer>\/<port>.",
+    "description" : "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.",
     "input_schema" : {
       "properties" : {
         "code" : {
@@ -470,6 +470,10 @@
         "link" : {
           "description" : "The invite link (https:\/\/port42.ai\/invite.html#…).",
           "type" : "string"
+        },
+        "remoteWake" : {
+          "description" : "Let their chat wake your companions for this port (default true).",
+          "type" : "boolean"
         }
       },
       "required" : [
@@ -480,7 +484,7 @@
     "name" : "invite_accept"
   },
   {
-    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
     "input_schema" : {
       "properties" : {
         "expiresIn" : {
@@ -496,7 +500,7 @@
           "type" : "boolean"
         },
         "rights" : {
-          "description" : "see, use, edit, wake_agents. Default see and use.",
+          "description" : "see, use, edit, wake_agents. Default see, use and wake_agents.",
           "items" : {
             "type" : "string"
           },

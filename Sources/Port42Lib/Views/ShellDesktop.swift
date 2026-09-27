@@ -636,9 +636,10 @@ struct ShellTile: View {
                         .background(Port42Theme.bgHover, in: Capsule())
                         .help(mirror.online ? "\(mirror.hostName)'s port, live from their machine."
                                             : "\(mirror.hostName)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own.")
-                    // The person's switch (4.6c): may a mention in their chat wake your companions.
+                    // Remote wake (4.6c): may a mention in their chat wake your companions. Chosen when
+                    // accepting, on by default; changed here.
                     Button { appState.setMirrorWakes(tile: id, !mirror.wakes) } label: {
-                        Text(mirror.wakes ? "wakes mine: on" : "wakes mine: off")
+                        Text(mirror.wakes ? "remote wake: on" : "remote wake: off")
                             .font(Port42Theme.mono(9))
                             .foregroundStyle(mirror.wakes ? Port42Theme.accent : Port42Theme.textSecondary)
                             .padding(.horizontal, 5).padding(.vertical, 1)

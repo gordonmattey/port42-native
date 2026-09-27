@@ -156,6 +156,25 @@ struct RemoteTileTests {
         }
     }
 
+    @Test("what the tile shows is read here: its page and console by the tile's id; by the port's address, they go there")
+    func windowStaysHere() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>theirs</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        let me = Principal.peer(id: "cli", displayName: "a companion's CLI")
+        for method in ["port.getDom", "port.console"] {
+            let before = gw.calls.count
+            _ = try? await state.runBridgeMethod(method, principal: me, args: BridgeArgs(["id": tile]))
+            #expect(!gw.calls.dropFirst(before).contains { $0["method"] as? String == method },
+                    "\(method) naming the tile read the host's page, not this window")
+            _ = try? await state.runBridgeMethod(method, principal: me,
+                                                 args: BridgeArgs(["id": "port42://\(RemoteTileTests.host)/P"]))
+            #expect(gw.calls.dropFirst(before).contains { $0["method"] as? String == method },
+                    "\(method) naming the port's address did not go to the port")
+        }
+    }
+
     @Test("the tile's chat is the host's: it shows the host's posts, and a post here goes there, stored only there")
     func tileChatIsTheHosts() async throws {
         let (state, gw) = try world()
@@ -196,6 +215,8 @@ struct RemoteTileTests {
             await settle { state.chats.entries[key]?.contains { $0.text == text } == true }
             state.stopMirror(tile: tile)
         }
+        #expect(state.mirroredRemote(tile)?.wakes == true, "remote wake was not on after accepting by default")
+        state.setMirrorWakes(tile: tile, false)
         let mine = CompanionName.mention("wise-tern (Ada)")
         await hear("\(mine) your turn")
         #expect(state.chatReplyTargets["wise-tern"] == nil, "woke with the tile's switch off")
@@ -212,6 +233,18 @@ struct RemoteTileTests {
         state.setMirrorWakes(tile: tile, false)
         await hear("\(mine) and once more")
         #expect(state.chatReplyTargets["wise-tern"] == nil, "woke after the switch went off")
+    }
+
+    @Test("accepting with remote wake off leaves it off")
+    func acceptWithoutRemoteWake() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let person = Principal.human(id: "u", displayName: "Ada", spaceId: nil)
+        let out = try await state.runBridgeMethod("invite.accept", principal: person,
+                                                  args: BridgeArgs(["link": RemotePortTests().invite(), "remoteWake": false]))
+        let tile = try #require((out.toJSONObject() as? [String: Any])?["tile"] as? String)
+        #expect(state.mirroredRemote(tile)?.wakes == false && state.mirrorStatus[tile]?.wakes == false)
+        state.stopMirror(tile: tile)
     }
 
     @Test("a companion's reply to the tile's chat goes to the host as that companion, stored only there")

@@ -638,10 +638,16 @@ machines, the chat the same on both desktops, both companions' writes on the one
 attributed to its companion (`tide (gordon)` on Dev2).
 
 Found in the run:
-- `port.exec` naming the tile runs on the tile's own page here, not the host's: exec is never
-  reachable from another instance, so it is not forwarded, and it acts on the local copy with that
-  copy's own token. That is what let tide count Dev6's pixels, and it is the right split (exec
-  inspects a rendering; every other verb acts on the port). It is now documented here as intended.
+- `port.exec` naming the tile ran on the tile's own page here, because exec is never sent to another
+  instance (it would run code in the port's real page, with that machine's permissions). `getDom`
+  and `console` naming the tile went to the host. So a check of "the copy on screen" read the
+  host's page, and only exec saw the copy; one of my own live checks read Dev2 twice.
+  Decided (Gordon): your tile is a window onto the port. What the port is (read it, change it, push
+  to it, its chat) goes to the port's machine; what your window shows (its page, its console, code
+  run in it, whether it is on screen) stays here. `AppState.windowMethods`; by the port's address
+  they still go to the port. Code run in the window reaches the port only as the window does, through
+  the host and your rights there. Gate: `RemoteTileTests` (the window stays here; the address goes
+  there), both halves calibrated.
 - The brief's switch ("wakes mine") had to be found and flipped before anything worked. Replaced by
   the remote wake decision below.
 
@@ -650,7 +656,10 @@ its own companions when it agrees to share: the sharer on the Share dialog ("rem
 default: may their companions wake mine), the accepter on the accept screen (the same, on by
 default), and `invite.accept` takes `remoteWake`, default on, for an agent-driven accept. The tile's
 chrome keeps the switch, renamed "remote wake", to change it later. `wake_agents` on the invite is
-the sharer's side of the same setting.
+the sharer's side of the same setting. **Built 2026-09-26:** invites default to see, use and wake_agents;
+`invite.accept` takes `remoteWake` (default true) and its card says so; the switch reads "remote
+wake: on/off". The Share dialog and the accept screen, where a person makes these choices, come with
+the rest of 4.6b. Gates in `InviteTests` and `RemoteTileTests`, calibrated. Suite 1327 green.
 
 Decided (Gordon, 2026-09-26): "their companions can wake mine" is a switch on each tile, off by default.
 

@@ -198,13 +198,13 @@ extension AppState {
 @MainActor
 func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["invite.create"] = BridgeMethod(permission: nil, paramNames: ["port", "rights", "expiresIn", "requireCode"],
-        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see and use). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "port": ["type": "string", "description": "The port to share (id / udid / title)."],
                 "rights": ["type": "array", "items": ["type": "string"],
-                           "description": "see, use, edit, wake_agents. Default see and use."] as [String: Any],
+                           "description": "see, use, edit, wake_agents. Default see, use and wake_agents."] as [String: Any],
                 "expiresIn": ["type": "integer", "description": "Seconds until the link stops working (default 7 days, at most 30)."],
                 "requireCode": ["type": "boolean", "description": "Require a six-digit code, to send another way."],
             ] as [String: Any],
@@ -220,7 +220,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
             }
         }
-        let raw = (args.array("rights") as? [String]) ?? ["see", "use"]
+        let raw = (args.array("rights") as? [String]) ?? ["see", "use", "wake_agents"]
         var rights: [RemoteRight] = []
         for r in raw {
             guard let right = RemoteRight(rawValue: r) else {
@@ -382,8 +382,17 @@ extension AppState {
     func remoteTarget(_ method: String, principal: Principal, args: BridgeArgs) -> (peer: String, port: String, param: String)? {
         guard principal.kind != .remote, case .port(let param, _) = RemoteAccess.reach(method),
               let raw = args.string(param), let target = remotePort(for: raw) else { return nil }
+        // Your tile is a window onto the port (Gordon, 2026-09-26): what the window shows stays here.
+        // Named by the tile, these read this copy; named by the port's address, they go to the port.
+        if Self.windowMethods.contains(method), PortAddress.parse(raw)?.peerID.map({ $0 != localPeerID }) != true {
+            return nil
+        }
         return (target.peer, target.port, param)
     }
+
+    /// What a tile shows, as opposed to the port it shows: its page, its console, its code, whether it
+    /// is on screen. `port.exec` and `presentation` are never sent to another instance anyway.
+    static let windowMethods: Set<String> = ["port.getDom", "port.console", "port.exec", "presentation"]
 
     /// Forward a call to the instance that holds the port, through its relays.
     /// Who a local caller is, as another instance is told (4.6c). A companion in a terminal calls
@@ -418,25 +427,33 @@ extension AppState {
 
 @MainActor
 func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
-    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code"],
-        description: "Accept an invite someone sent you: this instance joins their port. Returns { address, title, rights }. Then call methods on the port by its address, e.g. port.getHtml id=port42://<peer>/<port>.",
+    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code", "remoteWake"],
+        description: "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "link": ["type": "string", "description": "The invite link (https://port42.ai/invite.html#…)."],
                 "code": ["type": "string", "description": "The six-digit code, if the invite needs one."],
+                "remoteWake": ["type": "boolean", "description": "Let their chat wake your companions for this port (default true)."],
             ],
             "required": ["link"],
         ]) { p, args in
         // Joining connects this machine to someone else's, so an agent or client asks first, for each
         // port it would open.
+        // Remote wake (Gordon, 2026-09-26): each side decides for its own companions when it agrees to
+        // share, on by default. Accepting is where this side decides, so it is said on the card.
+        let remoteWake = args.bool("remoteWake") ?? true
         if p.kind != .human, let c = InviteCoupon.fromLink(try args.requireString("link")) {
+            let wake = remoteWake ? ". Their companions can wake yours in its chat (remote wake)" : ""
             guard await appState.ensureShareGrant(AppState.shareObject(port: "\(c.host)/\(c.port)"),
-                                                  detail: "Open '\(c.portTitle)' from \(c.hostName)", for: p) else {
+                                                  detail: "Open '\(c.portTitle)' from \(c.hostName)\(wake)", for: p) else {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
             }
         }
         let joined = try await appState.acceptInvite(try args.requireString("link"), code: args.string("code"))
+        if let peer = joined.address.peerID {
+            try? appState.db.setRemotePortWakes(peerKey: peer, portKey: joined.address.portId, wakes: remoteWake)
+        }
         // The port appears here as a tile that mirrors the host's.
         let tile = try? await appState.openRemoteTile(peer: joined.address.peerID ?? "", port: joined.address.portId)
         var out: [String: BridgeValue] = ["address": .string(joined.address.canonical), "title": .string(joined.title),

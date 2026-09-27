@@ -90,7 +90,7 @@ struct InviteTests {
         #expect(link.hasPrefix("https://port42.ai/invite.html#"))
         let c = try coupon(made)
         #expect(c.host == Self.me && c.port == w.p && c.relays == ["wss://relay.test/v1"])
-        #expect(c.rights == ["see", "use"], "the default rights are view and drive")
+        #expect(c.rights == ["see", "use", "wake_agents"], "the default rights are view, drive and remote wake")
         #expect(c.portTitle == "shared chart" && !c.code && made["code"] == nil)
         #expect(c.exp > Int(Date().timeIntervalSince1970))
         // The table holds a hash, never the nonce itself.
@@ -159,7 +159,7 @@ struct InviteTests {
             try await w.state.runBridgeMethod("invite.accept", principal: agent, args: BridgeArgs(["link": link]))
         }
         for _ in 0..<200 where w.state.permissions.current == nil { await Task.yield() }
-        #expect(w.state.permissions.current?.detail == "Open 'her chart' from Ada",
+        #expect(w.state.permissions.current?.detail == "Open 'her chart' from Ada. Their companions can wake yours in its chat (remote wake)",
                 "an agent opened a port from another machine without asking for that port")
         w.state.permissions.resolveCurrent(granted: false)
         await #expect(throws: BridgeError.self) { _ = try await open.value }
@@ -198,7 +198,7 @@ struct InviteTests {
         #expect(out["port"] as? String == w.p)
         let client = try #require(try w.state.db.client(peerKey: Self.ada))
         #expect(client.kind == .peer && client.name == "Ada")
-        #expect(w.state.remoteRights(of: Self.ada, onPort: w.p) == [.see, .use])
+        #expect(w.state.remoteRights(of: Self.ada, onPort: w.p) == [.see, .use, .wakeAgents])
         #expect(w.state.remoteRights(of: Self.ada, onPort: w.q).isEmpty)
 
         // Now enrolled, the guest's ordinary calls work, confined to the port.
@@ -279,7 +279,7 @@ struct InviteTests {
         let open = try await create(w, port: w.q)
         _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(try await create(w)).nonce, "name": "Ada"])
         let shared = w.state.sharedPorts()
-        #expect(shared.map { "\($0.name) \($0.title) \($0.rights.map(\.rawValue))" } == ["Ada shared chart [\"see\", \"use\"]"])
+        #expect(shared.map { "\($0.name) \($0.title) \($0.rights.map(\.rawValue))" } == ["Ada shared chart [\"see\", \"use\", \"wake_agents\"]"])
         #expect(w.state.openInvites().map(\.id) == [open["id"] as? String], "a used invite is not open")
         w.state.stopSharing(peer: Self.ada, port: w.p)
         #expect(w.state.sharedPorts().isEmpty)
