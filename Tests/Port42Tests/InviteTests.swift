@@ -165,6 +165,21 @@ struct InviteTests {
         await #expect(throws: BridgeError.self) { _ = try await open.value }
     }
 
+    @Test("a machine joining under a name already taken here gains its id; the first keeps it, and each is told its name")
+    func labelsAtEnrolment() async throws {
+        let w = try world()
+        w.state.currentUser = AppUser.createLocal(displayName: "Gordon")
+        func join(_ peer: String, as name: String) async throws -> String? {
+            let c = try coupon(try await create(w))
+            return (try await remote(w, as: peer, "invite.redeem", ["nonce": c.nonce, "name": name]) as? [String: Any])?["knownAs"] as? String
+        }
+        #expect(try await join(Self.ada, as: "Ada") == "Ada", "the first to take a name did not keep it")
+        #expect(try await join(Self.eve, as: "ada") == "ada \(Self.eve.prefix(4))", "a second 'Ada' was not told apart")
+        let third = "thirdthirdthirdthirdthirdthirdthirdthirdthirdthirdq"
+        #expect(try await join(third, as: "Gordon") == "Gordon thir", "a machine took this person's own name")
+        #expect(try await join(Self.ada, as: "Someone else") == "Ada", "a label people had seen changed")
+    }
+
     @Test("the invite discloses what the port can do on this machine")
     func disclosure() async throws {
         let w = try world()

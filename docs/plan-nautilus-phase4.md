@@ -593,6 +593,18 @@ Gordon watches both desktops. Everything below is what that needs, and nothing e
    instance's participants in the shared chats this companion is in, as mentionable names. Gate: a
    mention of a guest companion from the host reaches that companion and no other, including when two
    companions share a label.
+   **Built 2026-09-26.** A machine is labelled when it enrols: the name it gave, or, when this person
+   or another machine already goes by it, that name and the first four characters of its peer id.
+   The first to take a name keeps it plain and a label never changes after it is shown, so two labels
+   never clash (a refinement of the decision above, where each would gain the suffix). The label is
+   returned in the redeem and kept by the guest (`knownAs`, migration v60), for step 4. `whoami`
+   gains `elsewhere`: companions on other machines met in a shared port's chat, each with its
+   mention (`@wise-tern%20%28Ada%29`, the existing escape) and that chat. Remote in Settings has
+   "this machine's name", sent in place of the person's name when joining. Gates: `InviteTests`
+   (labels at enrolment), `RemotePortTests` (knownAs kept), `RemoteActorTests` (whoami elsewhere; a
+   mention of another machine's `wise-tern` never wakes this one's), calibrated by five breaks.
+   Suite 1312 green. Two unrelated parallel-test races showed under a load average near 200 and
+   passed alone: `MainThreadIOTests` (a global log sink) and `CompanionWatchTests` (timing).
 4. *Guest wakes, and replies.* A mention in a mirrored chat wakes this instance's companion when the
    tile's switch is on; its reply goes back to the tile's chat, so to the host. Gate: off by default;
    on, one mention gives one wake and one reply in the host's chat; off again, none.

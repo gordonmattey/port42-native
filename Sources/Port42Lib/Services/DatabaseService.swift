@@ -928,6 +928,12 @@ public final class DatabaseService {
             try db.alter(table: "remote_ports") { t in t.add(column: "localPort", .text) }
         }
 
+        migrator.registerMigration("v60-remote-port-known-as") { db in
+            // Nautilus Phase 4, 4.6c: the name the other instance knows this one by, so a mention of
+            // one of this instance's companions there can be recognised here.
+            try db.alter(table: "remote_ports") { t in t.add(column: "knownAs", .text) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1110,6 +1116,16 @@ public final class DatabaseService {
         public let rights: [RemoteRight]
         public let relays: [String]
         public let hostName: String
+        /// The name the other instance knows this one by (4.6c); nil before it said.
+        public var knownAs: String? = nil
+    }
+
+    /// Record the name the other instance knows this one by.
+    public func setRemotePortKnownAs(peerKey: String, portKey: String, knownAs: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE remote_ports SET knownAs = ? WHERE peerKey = ? AND portKey = ?",
+                           arguments: [knownAs, peerKey, portKey])
+        }
     }
 
     public func upsertRemotePort(_ r: RemotePortRow) throws {
@@ -1149,7 +1165,7 @@ public final class DatabaseService {
                 RemotePortRow(peerKey: r["peerKey"], portKey: r["portKey"], title: r["title"],
                               rights: (r["rights"] as String).split(separator: ",").compactMap { RemoteRight(rawValue: String($0)) },
                               relays: (r["relays"] as String).split(separator: ",").map(String.init),
-                              hostName: r["hostName"])
+                              hostName: r["hostName"], knownAs: r["knownAs"])
             }
         }
     }

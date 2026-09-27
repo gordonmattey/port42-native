@@ -114,6 +114,27 @@ extension AppState {
         return entry
     }
 
+    /// Companions on other instances a companion in `space` can @mention, each with the chat it was met
+    /// in: in a port here that another instance holds rights on, those who posted from there; in a tile
+    /// mirroring a port elsewhere, the companions who posted there that are not this instance's own.
+    func companionsElsewhere(space: String) -> [(name: String, port: String)] {
+        let shared = Set(((try? db.allRemoteRights()) ?? []).map(\.portKey))
+        let mine = localPeerID.map { $0 + "/" }
+        var out: [(name: String, port: String)] = [], seen = Set<String>()
+        for panel in portWindows.panels where panel.spaceId == space {
+            let entries: [PortChatEntry]
+            if mirroredRemote(panel.id) != nil {
+                entries = (chats.entries[panel.udid] ?? []).filter { e in !(mine.map { e.fromId.hasPrefix($0) } ?? false) }
+            } else if shared.contains(panel.udid) {
+                entries = ((try? db.chatEntries(chat: panel.udid, after: 0, limit: 200)) ?? []).filter { $0.fromId.contains("/") }
+            } else { continue }
+            for e in entries where e.fromKind == Principal.Kind.companion.rawValue && seen.insert(e.fromName).inserted {
+                out.append((e.fromName, panel.udid))
+            }
+        }
+        return out
+    }
+
     /// Who a post is from. A caller on another instance is recorded as the actor its instance names
     /// (4.6c): `<peer>/<actor>`, labelled with that instance's person unless it is the person, and of
     /// the actor's kind, so routing treats a companion there as a companion here. A claim of `human`
@@ -345,7 +366,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["whoami"] = BridgeMethod(permission: nil,
-        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. Call it first.",
+        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         var o: [String: BridgeValue] = ["name": .string(p.displayName), "kind": .string(p.kind.rawValue)]
         var spaceId = p.spaceId
@@ -365,6 +386,15 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             // How to @mention each, in the same order: a space or other character is escaped
             // (`app dev` is `@app%20dev`).
             o["mentions"] = .array(others.map { .string(CompanionName.mention($0)) })
+            // Companions on other instances, met in the chat of a port shared into or out of this
+            // space (4.6c): a mention of one in that port's chat reaches it there.
+            let elsewhere = appState.companionsElsewhere(space: sid)
+            if !elsewhere.isEmpty {
+                o["elsewhere"] = .array(elsewhere.map { e in
+                    .object(["name": .string(e.name), "mention": .string(CompanionName.mention(e.name)),
+                             "port": .string(e.port)])
+                })
+            }
         }
         return .object(o)
     }

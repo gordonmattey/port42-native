@@ -113,6 +113,7 @@ public struct SignOutSheet: View {
     }
 
     @State private var newRelay = ""
+    @AppStorage(AppState.machineNameKey) private var machineName = ""
 
     /// This instance as other machines reach it (nautilus Phase 4): its peer id, and the relays it is
     /// registered on. Changing the relays restarts the gateway, which registers on the new list.
@@ -131,6 +132,17 @@ public struct SignOutSheet: View {
                 Text(appState.localPeerID ?? "no peer id yet (the gateway has not started)")
                     .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
                     .textSelection(.enabled)
+
+                Text("THIS MACHINE'S NAME")
+                    .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                    .padding(.top, 6)
+                TextField(appState.currentUser?.displayName ?? "your name", text: $machineName)
+                    .textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    .padding(6).background(Color.white.opacity(0.04))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                Text("What people on other machines see your companions labelled with, when you join a port they share. Empty uses your name.")
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text("RELAYS")
                     .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)

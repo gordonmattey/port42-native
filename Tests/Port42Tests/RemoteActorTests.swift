@@ -64,6 +64,33 @@ struct RemoteActorTests {
                 "the driver was \(d.ref) \(d.name)")
     }
 
+    @Test("whoami lists the companions met on other instances, how to mention each, and the chat; not this instance's own")
+    func whoamiElsewhere() async throws {
+        let w = try makeParityWorld()
+        _ = w.state.portWindows.registerTiledPort(id: "s", html: "<p>x</p>", spaceId: w.space.id, createdBy: nil,
+                                                  title: "shared", position: nil)
+        let key = try #require(w.state.portWindows.panels.first { $0.id == "s" }?.udid)
+        w.state.grantRemoteRights([.see, .use], to: Self.peer, onPort: key)
+        let there = Principal.remote(peer: Self.peer, displayName: "Ada")
+        _ = try w.state.postToChat(key: key, text: "hi", from: there.acting(as: RemoteActor(id: "c-9", name: "wise-tern", kind: .companion)))
+        _ = try w.state.postToChat(key: key, text: "me", from: there.acting(as: RemoteActor(id: "u-ada", name: "Ada", kind: .human)))
+        let me = Principal.companion(id: w.companion.id, displayName: w.companion.displayName, spaceId: w.space.id)
+        let o = try #require(try await w.state.runBridgeMethod("whoami", principal: me, args: BridgeArgs([:])).toJSONObject() as? [String: Any])
+        let elsewhere = try #require(o["elsewhere"] as? [[String: Any]])
+        #expect(elsewhere.map { $0["name"] as? String } == ["wise-tern (Ada)"], "a person, or nobody, was listed as a companion")
+        #expect(elsewhere.first?["mention"] as? String == "@wise-tern%20%28Ada%29" && elsewhere.first?["port"] as? String == key)
+    }
+
+    @Test("a mention of a companion on another instance never wakes this instance's companion of the same name")
+    func noLocalWakeForARemoteName() throws {
+        let w = try makeParityWorld(companionName: "wise-tern")
+        let mentioned = AgentRouter.findTargetAgents(content: CompanionName.mention("wise-tern (Ada)") + " your turn", agents: [w.companion],
+                                                     spaceAgentIds: [], localOwner: nil)
+        #expect(mentioned.isEmpty, "a mention of Ada's wise-tern woke this instance's wise-tern")
+        #expect(AgentRouter.findTargetAgents(content: "@wise-tern your turn", agents: [w.companion],
+                                             spaceAgentIds: [], localOwner: nil).count == 1)
+    }
+
     @Test("a call sent to another instance says who here made it; a companion in a terminal goes as a companion")
     func actorSent() async throws {
         let (state, gw) = try RemotePortTests().world()

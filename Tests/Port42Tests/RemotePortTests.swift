@@ -92,7 +92,7 @@ struct RemotePortTests {
         let (state, gw) = try world()
         gw.reply = { method, args in
             method == "invite.redeem" && args["nonce"] as? String == "nonce-1"
-                ? [Self.response(["port": "P", "title": "shared chart", "rights": ["see", "use"]])]
+                ? [Self.response(["port": "P", "title": "shared chart", "rights": ["see", "use"], "knownAs": "Ada 25nj"])]
                 : [Self.response(["code": "invite_invalid", "error": "no"])]
         }
         let person = Principal.human(id: "u", displayName: "Ada", spaceId: nil)
@@ -102,6 +102,7 @@ struct RemotePortTests {
         let row = try #require(try state.db.remotePorts().first)
         #expect(row.peerKey == Self.host && row.portKey == "P" && row.relays == ["wss://relay.test/v1"])
         #expect(row.rights == [.see, .use])
+        #expect(row.knownAs == "Ada 25nj", "the name the other instance knows this one by was not kept")
     }
 
     @Test("a call naming a port on another instance is forwarded there, with the port's own id")

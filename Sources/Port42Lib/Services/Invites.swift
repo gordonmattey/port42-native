@@ -176,17 +176,18 @@ extension AppState {
         let name = typed.isEmpty ? "a guest" : String(typed.prefix(40))
         let existing = try db.client(peerKey: peer)
         let id = existing?.id ?? ClientRegistry.slug("peer-\(name)-\(peer.prefix(8))")
-        try db.upsertPeerClient(id: id, name: existing?.name ?? name, peerKey: peer)
+        let label = existing?.name ?? peerLabel(name, peer: peer)
+        try db.upsertPeerClient(id: id, name: label, peerKey: peer)
         let rights = remoteRights(of: peer, onPort: row.portKey).union(row.rights)
         grantRemoteRights(rights, to: peer, onPort: row.portKey)
         if row.redeemedBy == nil {
             try db.markInviteRedeemed(id: row.id, by: peer)
             let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
             postSystemChatLine(key: row.portKey,
-                               text: "\(existing?.name ?? name) joined from another machine (\(shown)). "
+                               text: "\(label) joined from another machine (\(shown)). "
                                    + "Remove them in Settings → Access.")
         }
-        return .object(["port": .string(row.portKey), "title": .string(panel.title),
+        return .object(["port": .string(row.portKey), "title": .string(panel.title), "knownAs": .string(label),
                         "rights": .array(rights.map(\.rawValue).sorted().map { .string($0) }),
                         "token": .string(portInput.token(for: row.portKey))])
     }
@@ -315,6 +316,25 @@ extension AppState {
 
     /// Redeem an invite made by another instance, as this instance, and remember the port. Returns
     /// the port's address: `port42://<host>/<port>`.
+    /// The name a newly enrolled instance is shown by here (4.6c, Gordon): the name it gave, unless this
+    /// person or another instance already goes by it, when it gains the first four characters of its
+    /// peer id. Fixed at enrolment, so a label people have seen never changes, and the first to take a
+    /// name keeps it plain.
+    func peerLabel(_ name: String, peer: String) -> String {
+        let taken = Set(((try? db.allClients()) ?? []).filter { $0.kind == .peer && $0.peerKey != peer }
+                            .map { $0.name.lowercased() })
+            .union([currentUser?.displayName.lowercased()].compactMap { $0 })
+        return taken.contains(name.lowercased()) ? "\(name) \(peer.prefix(4))" : name
+    }
+
+    /// The name this instance gives when it joins another: the machine's own name if the person set one
+    /// in Settings, else theirs.
+    var joiningName: String {
+        let set = (UserDefaults.standard.string(forKey: Self.machineNameKey) ?? "").trimmingCharacters(in: .whitespaces)
+        return set.isEmpty ? (currentUser?.displayName ?? "a Port42") : set
+    }
+    static let machineNameKey = "PORT42_MACHINE_NAME"
+
     /// The grant object for sharing one port: a local port's key, or `<peer>/<port>` for one elsewhere.
     static func shareObject(port: String) -> String { "share:" + port }
 
@@ -329,7 +349,7 @@ extension AppState {
     func acceptInvite(_ linkOrCoupon: String, code: String?) async throws -> (address: PortAddress, title: String, rights: [RemoteRight]) {
         guard let c = InviteCoupon.fromLink(linkOrCoupon) else { throw BridgeError.badArg("that is not an invite link") }
         if c.host == localPeerID { throw BridgeError.badArg("that invite is for a port on this instance") }
-        var args: [String: Any] = ["nonce": c.nonce, "name": currentUser?.displayName ?? "a Port42"]
+        var args: [String: Any] = ["nonce": c.nonce, "name": joiningName]
         if let code, !code.isEmpty { args["code"] = code }
         let out = try await door.remoteCall(to: c.host, relays: c.relays, method: "invite.redeem", args: args)
         let o = out as? [String: Any] ?? [:]
@@ -337,6 +357,9 @@ extension AppState {
         let title = (o["title"] as? String) ?? c.portTitle
         try db.upsertRemotePort(.init(peerKey: c.host, portKey: c.port, title: title, rights: rights,
                                       relays: c.relays, hostName: c.hostName))
+        if let knownAs = o["knownAs"] as? String {
+            try db.setRemotePortKnownAs(peerKey: c.host, portKey: c.port, knownAs: knownAs)
+        }
         return (PortAddress(peerID: c.host, spaceId: nil, portId: c.port), title, rights)
     }
 
