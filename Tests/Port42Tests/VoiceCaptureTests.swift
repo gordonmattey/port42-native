@@ -425,7 +425,7 @@ struct VoiceIndicatorStateTests {
     func silentWhenIdle() throws {
         let s = try shell()
         s.voiceModel = .ready
-        #expect(s.voiceIndicator == nil)
+        #expect(s.voiceIndicatorForSpace == nil)
     }
 
     /// The app does not ship the weights, so the fetch is the app acting on the person's behalf and has to be
@@ -434,7 +434,7 @@ struct VoiceIndicatorStateTests {
     func downloadIsVisible() throws {
         let s = try shell()
         s.voiceModel = .downloading(0.25)
-        let shown = try #require(s.voiceIndicator)
+        let shown = try #require(s.voiceIndicatorForSpace)
         #expect(shown.label == "downloading speech model 25%")
         #expect(!shown.live, "the mic is not open")
     }
@@ -443,7 +443,7 @@ struct VoiceIndicatorStateTests {
     func loadingIsVisible() throws {
         let s = try shell()
         s.voiceModel = .loading(0)
-        let shown = try #require(s.voiceIndicator)
+        let shown = try #require(s.voiceIndicatorForSpace)
         #expect(shown.label == "loading speech model")
     }
 
@@ -453,7 +453,7 @@ struct VoiceIndicatorStateTests {
         s.voiceModel = .ready
         s.voiceCapturing = true
         s.voicePartial = "hello there"
-        let shown = try #require(s.voiceIndicator)
+        let shown = try #require(s.voiceIndicatorForSpace)
         #expect(shown.live)
         #expect(shown.label == "hello there")
     }
@@ -463,13 +463,38 @@ struct VoiceIndicatorStateTests {
         let s = try shell()
         s.voiceModel = .absent
         s.voiceNotice = "nowhere to type: hello"
-        #expect(s.voiceIndicator?.label == "nowhere to type: hello")
+        #expect(s.voiceIndicatorForSpace?.label == "nowhere to type: hello")
     }
 
     @Test("an absent model says nothing until something asks for it")
     func absentIsQuiet() throws {
         let s = try shell()
         s.voiceModel = .absent
-        #expect(s.voiceIndicator == nil)
+        #expect(s.voiceIndicatorForSpace == nil)
+    }
+
+    /// GM, 2026-09-27: the download showed in the port and not on the space. The anchor is a property of a hold,
+    /// and a download is not part of one.
+    @Test("a download shows on the space, never on the tile being dictated into")
+    func downloadIsNotPinnedToATile() throws {
+        let s = try shell()
+        s.voiceModel = .downloading(0.4)
+        s.voiceAnchorPortId = "p"
+
+        #expect(s.voiceIndicator(forPort: "p") == nil, "the download was pinned to a tile")
+        #expect(s.voiceIndicatorForSpace?.label == "downloading speech model 40%")
+    }
+
+    @Test("a hold shows on its own tile while the space shows the model")
+    func holdAndDownloadAtOnce() throws {
+        let s = try shell()
+        s.voiceModel = .loading(0)
+        s.voiceCapturing = true
+        s.voiceAnchorPortId = "p"
+        s.voicePartial = "hello"
+
+        #expect(s.voiceIndicator(forPort: "p")?.label == "hello")
+        #expect(s.voiceIndicator(forPort: "other") == nil)
+        #expect(s.voiceIndicatorForSpace?.label == "loading speech model")
     }
 }

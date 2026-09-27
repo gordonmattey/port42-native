@@ -45,18 +45,34 @@ public final class ShellState: ObservableObject {
     /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
     /// is what puts the text into the focused surface.
     @Published public var voiceNotice: String?
-    /// What the voice indicator should show, or nil for nothing. ONE place decides, because three views draw
-    /// it (the shell, a tile, the floating panel over another app) and three sets of conditions drifted apart.
-    ///
-    /// A download is shown whether or not anyone is holding space: the app does not ship the weights, so the
-    /// fetch is the app doing something on the person's behalf and it has to be visible (GM, 2026-09-27).
-    public var voiceIndicator: (label: String, live: Bool)? {
-        if voiceCapturing { return (voicePartial ?? voiceModel.label, true) }
+    /// What a HOLD is saying: the live mic, the words so far, and what went wrong with that hold. It belongs
+    /// wherever the words are going, which is the tile being dictated into when there is one.
+    private var voiceHoldIndicator: (label: String, live: Bool)? {
+        if voiceCapturing { return (voicePartial ?? "listening", true) }
         if let notice = voiceNotice { return (notice, false) }
+        return nil
+    }
+
+    /// What the MODEL is doing. Not part of any hold, so it belongs to the space: a download pinned to the tile
+    /// of the last hold is in the wrong place, and disappears when that tile does (GM, 2026-09-27).
+    private var voiceModelIndicator: (label: String, live: Bool)? {
         switch voiceModel {
         case .downloading, .loading: return (voiceModel.label, false)
         case .ready, .absent, .failed: return nil
         }
+    }
+
+    /// The indicator for one tile: only the hold that is going there.
+    public func voiceIndicator(forPort id: String) -> (label: String, live: Bool)? {
+        guard voiceAnchorPortId == id else { return nil }
+        return voiceHoldIndicator
+    }
+
+    /// The indicator for the space: a hold that is not going to any tile, otherwise whatever the model is doing.
+    /// So a download shows on the space even while a hold is streaming into a tile.
+    public var voiceIndicatorForSpace: (label: String, live: Bool)? {
+        if voiceAnchorPortId == nil, let hold = voiceHoldIndicator { return hold }
+        return voiceModelIndicator
     }
 
     /// What the system has not granted yet, if a hold could not run because of it.

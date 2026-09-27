@@ -260,7 +260,7 @@ public struct ShellView: View {
 
             // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
             // listening without saying so.
-            if let voice = shell.voiceIndicator, shell.voiceAnchorPortId == nil {
+            if let voice = shell.voiceIndicatorForSpace {
                 VoiceIndicator(accent: shell.accent, label: voice.label, live: voice.live)
                     .zIndex(220)
                     .allowsHitTesting(false)
