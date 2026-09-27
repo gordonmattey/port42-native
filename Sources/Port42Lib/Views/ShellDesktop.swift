@@ -220,12 +220,14 @@ struct ShellDesktopView: View {
                 // (I4). Tile / peek / focus are geometry states of the same mounted view
                 // (placement §3): a previewed peek resizes railSlot → focusRect in place; an
                 // adopted peek slides rail → grid — never re-mounted. Paint order is zIndex.
+                // Pinned tiles paint above unpinned ones (ShellState.stackRank).
+                let ranks = ShellState.stackRank(contextItems.compactMap(\.panel))
                 ForEach(contextItems) { item in
                     let fallbackIdx = tiledPanels.firstIndex { $0.id == item.id } ?? 0
                     let pl = ShellPlacement.placement(
                         id: item.id, position: item.panel?.position(on: sid),
                         size: item.panel?.size ?? ShellPlacement.peekSize,
-                        z: item.panel?.z ?? 0,
+                        z: ranks[item.id] ?? item.panel?.z ?? 0,
                         zoom: shell.zoom, onDesktop: true,
                         peekIndex: item.peekIndex, fallbackIndex: fallbackIdx,
                         area: geo.size)
@@ -649,6 +651,12 @@ struct ShellTile: View {
                         .background(Port42Theme.bgHover, in: Capsule())
                         .help("\(held.name) drove this port most recently. Your writes are not blocked; a write composed against stale state is refused, not applied.")
                 }
+                // Pinned: a mark in the bar, so a tile that will not go under the others says why.
+                if let pin = tile.panel?.pin, pin != .none {
+                    Image(systemName: pin == .everywhere ? "pin.circle.fill" : "pin.fill")
+                        .font(.system(size: 8)).foregroundStyle(tileAccent.opacity(0.8))
+                        .help(pin == .everywhere ? "Pinned in every space" : "Pinned in this space")
+                }
                 Spacer(minLength: 8)
             }
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
@@ -717,6 +725,11 @@ struct ShellTile: View {
                         onHistory: { showMore = false; showVersions = true },
                         onHide: {
                             shell.hideTile(tile.panel?.id ?? tile.id)
+                            showMore = false
+                        },
+                        pin: tile.panel?.pin ?? .none,
+                        onPin: { pin in
+                            if let id = tile.panel?.id { appState.portWindows.setPin(id: id, pin) }
                             showMore = false
                         },
                         onSetBackground: {
@@ -1410,6 +1423,9 @@ struct PortMorePopover: View {
     let onRefresh: () -> Void
     let onHistory: () -> Void
     let onHide: () -> Void
+    /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
+    let pin: PortPin
+    let onPin: (PortPin) -> Void
     let onSetBackground: () -> Void
 
     var body: some View {
@@ -1423,6 +1439,12 @@ struct PortMorePopover: View {
             // chrome), not something that belongs on a random port.
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
+            Divider().opacity(0.4)
+            // A second click on the pinned choice unpins.
+            row(pin == .space ? "✓ Pinned in this space" : "Pin in this space", icon: "pin",
+                action: { onPin(pin == .space ? .none : .space) })
+            row(pin == .everywhere ? "✓ Pinned in every space" : "Pin in every space", icon: "pin.circle",
+                action: { onPin(pin == .everywhere ? .none : .everywhere) })
         }
         .padding(.vertical, 4)
         .frame(width: 200)

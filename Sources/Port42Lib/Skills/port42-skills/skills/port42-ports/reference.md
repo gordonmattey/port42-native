@@ -91,9 +91,9 @@ Return the calling port's own id, title, space, capabilities, and activity token
 
 ## port.manage
 
-Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop). Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.
+Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.
 
-        action (string, required): One of: focus, close, hide, show (minimize, dock, restore and undock are older names for hide and show)
+        action (string, required): One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
 

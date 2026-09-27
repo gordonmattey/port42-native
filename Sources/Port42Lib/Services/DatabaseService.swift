@@ -879,6 +879,16 @@ public final class DatabaseService {
             try db.alter(table: "imagine_teams") { t in t.add(column: "port", .text) }
         }
 
+        // v57 to v61 are Phase 4's (nautilus-phase4); nautilus continues at v62 so the numbers stay
+        // distinct when the branches meet.
+        migrator.registerMigration("v62-port-pinned-everywhere") { db in
+            // A port pinned in every space (GM, 2026-09-27). Pinned in its own space reuses
+            // `isAlwaysOnTop` (v13).
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "pinnedEverywhere", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1776,6 +1786,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     /// two desktops needs two positions; `posX`/`posY` above is the home-space projection of this map,
     /// kept in step so a pre-v46 reader and `ports.list` still see something sane.
     public var positions: String?
+    /// v62 — pinned in every space.
+    public var pinnedEverywhere: Bool = false
 
     public init(from panel: PortPanel) {
         self.id = panel.id
@@ -1790,6 +1802,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.isDocked = false
         self.isBackground = panel.isBackground
         self.isAlwaysOnTop = panel.isAlwaysOnTop
+        self.pinnedEverywhere = panel.pinnedEverywhere
         self.posX = panel.position.map { Double($0.x) }
         self.posY = panel.position.map { Double($0.y) }
         if !panel.positions.isEmpty {

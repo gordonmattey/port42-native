@@ -367,12 +367,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop). Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, show (minimize, dock, restore and undock are older names for hide and show)"]
+                "action": ["type": "string", "description": "One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)"]
             ],
             "required": ["id", "action"]
         ]) { _, args in
@@ -392,8 +392,14 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             appState.portWindows.minimize(panel.id)
         case "show", "restore", "undock":
             _ = appState.portWindows.restore(panel.id)
+        case "pin":
+            appState.portWindows.setPin(id: panel.id, .space)
+        case "pinEverywhere":
+            appState.portWindows.setPin(id: panel.id, .everywhere)
+        case "unpin":
+            appState.portWindows.setPin(id: panel.id, .none)
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, show, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, show, pin, pinEverywhere, unpin, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
