@@ -14,8 +14,8 @@ public struct SignOutSheet: View {
 
 
 
-    enum SettingsTab: String, CaseIterable { case ai = "AI", grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
-    @State private var tab: SettingsTab = .ai
+    enum SettingsTab: String, CaseIterable { case grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
+    @State private var tab: SettingsTab = .grants
     /// Bumped on revoke. The grant store is not `@Published` (it is read on every gated dispatch and
     /// publishing it would redraw the world per permission check), so the manager re-reads on demand.
     @State private var grantsRefresh: UInt = 0
@@ -60,7 +60,6 @@ public struct SignOutSheet: View {
             // The selected section, fully open. Each builder self-gates on `tab`.
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    aiConnectionSection
                     grantsSection
                     secretsSection
                     remoteAccessSection
@@ -113,43 +112,71 @@ public struct SignOutSheet: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
-    @ViewBuilder
-    private var aiConnectionSection: some View {
-        if tab == .ai {
-            Text("Port42 runs AI agents as CLIs in terminal ports: Claude Code, Codex, or your own. Each signs in to its own account in its own terminal; Port42 holds no model and no provider key.")
-                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    @State private var newRelay = ""
 
+    /// This instance as other machines reach it (nautilus Phase 4): its peer id, and the relays it is
+    /// registered on. Changing the relays restarts the gateway, which registers on the new list.
     @ViewBuilder
     private var remoteAccessSection: some View {
         if tab == .remote {
-            VStack(alignment: .leading, spacing: 12) {
-                // The three blanket "allow without prompting" toggles are GONE (D12, A.3). They
-                // granted terminal, filesystem and screen to anything that called, which is not a
-                // caller and so could never be revoked from one. What replaced them is the Access
-                // tab: every capability is asked for once, per grantee, and can be withdrawn there.
-                Text("Callers ask for each capability once. See what you have allowed, and take it back, under Access.")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("How other machines reach this Port42. Nothing here opens your Mac to the internet: it connects out to each relay, and the relay pairs it with the people you invite.")
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
 
+                Text("THIS INSTANCE")
+                    .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                    .padding(.top, 4)
+                Text(appState.localPeerID ?? "no peer id yet (the gateway has not started)")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
+                    .textSelection(.enabled)
+
+                Text("RELAYS")
+                    .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                    .padding(.top, 6)
+                let relays = AppState.configuredRelays()
+                if relays.isEmpty {
+                    Text("None. Add one, or nobody can reach a port you share.")
+                        .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                }
+                ForEach(relays, id: \.self) { relay in
+                    let up = appState.relayStates[relay] == true
+                    HStack(spacing: 8) {
+                        Circle().fill(up ? accent : Port42Theme.textSecondary.opacity(0.4)).frame(width: 7, height: 7)
+                        Text(relay.replacingOccurrences(of: "wss://", with: "").replacingOccurrences(of: "/v1", with: ""))
+                            .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                        Text(up ? "connected" : "not connected")
+                            .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                        Spacer()
+                        Button("remove") { appState.setRelays(relays.filter { $0 != relay }) }
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                            .buttonStyle(.plain)
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("wss://your-relay/v1", text: $newRelay)
+                        .font(Port42Theme.mono(11))
+                        .textFieldStyle(.plain)
+                        .padding(4)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        .onSubmit(addRelay)
+                    Button("add", action: addRelay)
+                        .font(Port42Theme.mono(11)).foregroundStyle(accent).buttonStyle(.plain)
+                }
             }
             .padding(.leading, 8)
             .padding(.top, 8)
         }
     }
 
-    private func remoteApiToggle(_ label: String, value: Binding<Bool>) -> some View {
-        let on = value.wrappedValue
-        return Button(action: { value.wrappedValue.toggle() }) {          // §4 chip — whole capsule tappable
-            Text(label).font(Port42Theme.mono(11))
-                .foregroundStyle(on ? accent : Port42Theme.textPrimary)
-                .padding(.horizontal, 11).padding(.vertical, 7)
-                .background((on ? accent.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
-                .overlay(Capsule().stroke(on ? accent.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
-        }.buttonStyle(.plain)
+    private func addRelay() {
+        let url = newRelay.trimmingCharacters(in: .whitespaces)
+        guard url.hasPrefix("wss://") || url.hasPrefix("ws://") else { return }
+        let relays = AppState.configuredRelays()
+        if !relays.contains(url) { appState.setRelays(relays + [url]) }
+        newRelay = ""
     }
 
 

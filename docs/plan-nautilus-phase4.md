@@ -473,6 +473,55 @@ now carries every field of the refusal (`RemotePortTests`, calibrated).
 `port42://invite#…` opens whichever instance macOS picks. The live test uses `invite.accept`; the
 click and ⌘K accept path (4.6b) needs an answer to this.
 
+**4.6b built so far, 2026-09-26: a port on another instance as a tile, live between two Port42s.**
+Accepting an invite opens a tile on this desktop that runs the host's own HTML. Everything that page
+asks of `window.port42` goes to the host, as this instance, with the host's port id in place of the
+tile's, so the host's rights decide; `presentation`, a fact about this desktop, stays here. The tile
+subscribes to the port: a `state` event fetches the HTML again, and a push reaches the tile's page as
+it reaches the host's, a `port42:data` event, so both copies see the same input. A host that cannot
+be reached shows as offline in the tile's chrome, and the tile retries. Mirrors resume after a
+restart. Settings: the AI tab is gone, and Remote shows this instance's peer id and its relays, each
+with whether this instance is registered there (`relay_state` from the gateway), with add and remove.
+Sharing asks an agent or client for each port it shares or opens (`share:<port>` grants), never the
+person on their own behalf.
+
+**Live on Dev2 and Dev6 through `relay1.port42.ai`, with Gordon at both screens:** a counter port on
+Dev2, clicked on either desktop, counts on both, each log naming the copy the click came from; one
+push reaches Dev6 in about half a second and a burst of 20 in under a second, nothing lost. Then a
+WebGL shader on Dev2 with four sliders: each machine renders it on its own GPU, and a slider moved on
+either desktop moves the other. Gordon: "shader test you made works great."
+
+**Found live, fixed:**
+- The tile's page got a push as a `push` bus event while the host's page gets `port42:data`, so a
+  page written for its host missed every push in the tile. One definition now
+  (`PortBridge.dataEventScript`) serves both (`RemoteTileTests`, calibrated).
+- A click on a port in the Port42 window that was not in front only brought the window forward:
+  the click lands on the web view, and WebKit accepts a first click only where a drag or scroll could
+  start. With two instances side by side every switch lost a click. The port's web view now accepts
+  it (`PortFirstClickTests`, calibrated). This was true of every port, not only shared ones.
+
+Gates: `RemoteTileTests` (6), `PortFirstClickTests` (1), `InviteTests` per-port sharing, and the
+relay-state frame in `RemotePortTests`; each calibrated by breaking what it guards. Harness five of
+five on Dev2. The harness now works in a space of its own and switches the person back afterwards
+(Gordon: tests never touch a space in use).
+
+Still in 4.6b: the Share button and dialog in the port chrome (rights, code, copy link), fork and
+move, and accepting by clicked link or ⌘K paste.
+
+**Share, move, fork (Gordon, 2026-09-26).** One port, three verbs,
+the same for another space on this instance and for another instance:
+
+- *Share (sync):* one port, shown in both places, the holder deciding every call. Built for another
+  instance in 4.6 (the remote tile); on this instance a port kept in another space is already a
+  tile on both.
+- *Fork:* a one-time copy that is then independent; for a remote port, `see` and a local
+  `port.create` from its HTML.
+- *Move:* a fork after which the source closes, so the port lives in one place only.
+
+Decided: fork and move ship with the share dialog in 4.6b, and forking a port shared from another
+instance needs a right of its own (`fork`), granted in the invite like the others, not implied by
+`see`.
+
 ### 4.7 The browser lane
 
 - `port42.ai/invite.html` gains the coupon handling, "Open here" and the bundled script (decision 6),

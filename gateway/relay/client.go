@@ -26,6 +26,8 @@ type Transport struct {
 	incoming chan transport.Session
 	// HandshakeTimeout bounds a Noise handshake, so a peer that stalls one holds nothing for long.
 	HandshakeTimeout time.Duration
+	// OnState, when set, is told each time this instance registers on a relay or loses it.
+	OnState func(relayURL string, registered bool)
 }
 
 func NewTransport(key ed25519.PrivateKey, relays []string) *Transport {
@@ -144,8 +146,14 @@ func (t *Transport) hostLoop(ctx context.Context, relayURL string) {
 		}
 		backoff = time.Second
 		log.Printf("[relay] registered on %s as %s", relayURL, t.PeerID())
+		if t.OnState != nil {
+			t.OnState(relayURL, true)
+		}
 		t.serveHostConn(ctx, conn)
 		log.Printf("[relay] lost %s; reconnecting", relayURL)
+		if t.OnState != nil {
+			t.OnState(relayURL, false)
+		}
 	}
 }
 

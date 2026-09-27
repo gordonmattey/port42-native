@@ -620,6 +620,17 @@ struct ShellTile: View {
             HStack(spacing: 8) {
                 Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
                 Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                // A port on another instance, mirrored here (nautilus Phase 4): say whose it is, and
+                // when its host cannot be reached, say that instead of showing a stale surface as live.
+                if let id = tile.panel?.id, let mirror = appState.mirrorStatus[id] {
+                    Text(mirror.online ? "shared" : "offline")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(mirror.online ? Port42Theme.textSecondary : Port42Theme.textPrimary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Port42Theme.bgHover, in: Capsule())
+                        .help(mirror.online ? "\(mirror.hostName)'s port, live from their machine."
+                                            : "\(mirror.hostName)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own.")
+                }
                 // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
                 // recently. Silent when it is you — the chrome speaks only when there is contention.
                 //

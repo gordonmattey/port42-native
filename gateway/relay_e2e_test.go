@@ -74,3 +74,29 @@ func TestTheDoorServesARemoteCallThroughARelay(t *testing.T) {
 		t.Fatalf("the reply did not come back through the relay: %v %s", err, reply)
 	}
 }
+
+func TestTheAppIsToldWhenItsInstanceIsRegisteredOnARelay(t *testing.T) {
+	rsrv := httptest.NewServer(relay.NewServer(relay.DefaultLimits).Handler())
+	relayURL := "ws" + strings.TrimPrefix(rsrv.URL, "http") + "/v1"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	a := newInstance(t, ctx)
+	a.gw.SetRelayState(relayURL, false)
+	// Losing a relay is reported the same way; the client's detection of a dead connection is
+	// relay_test's (an in-process server cannot drop a hijacked WebSocket to show it here).
+	tr := relay.NewTransport(a.gw.peerKey(), []string{relayURL})
+	tr.OnState = a.gw.SetRelayState
+	tr.Run(ctx)
+
+	want := func(code string) {
+		t.Helper()
+		for {
+			e := readEnvelope(t, ctx, a.app)
+			if e.Type == "relay_state" && len(e.Relays) == 1 && e.Relays[0] == relayURL && e.Code == code {
+				return
+			}
+		}
+	}
+	want("registered")
+	rsrv.Close()
+}

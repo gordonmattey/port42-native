@@ -129,6 +129,42 @@ struct InviteTests {
         await #expect(throws: BridgeError.self) { _ = try await pending.value }
     }
 
+    @Test("an agent is asked for each port it shares or opens, not once for all of them")
+    func sharingIsAskedPerPort() async throws {
+        let w = try world()
+        let agent = Principal.peer(id: "some-cli", displayName: "a script")
+        func share(_ port: String) -> Task<BridgeValue, Error> {
+            Task { @MainActor in try await w.state.runBridgeMethod("invite.create", principal: agent, args: BridgeArgs(["port": port])) }
+        }
+        let first = share(w.p)
+        for _ in 0..<200 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current?.detail?.contains("shared chart") == true, "the card did not name the port")
+        w.state.permissions.resolveCurrent(granted: true)
+        _ = try await first.value
+        _ = try await share(w.p).value                      // the same port again: not asked
+        #expect(w.state.permissions.current == nil)
+        let second = share(w.q)
+        for _ in 0..<200 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current?.detail?.contains("second") == true,
+                "leave to share one port let the agent share another without asking")
+        w.state.permissions.resolveCurrent(granted: false)
+        await #expect(throws: BridgeError.self) { _ = try await second.value }
+
+        let link = InviteCoupon(host: "aaaqeayeaudaocajbifqydiob4ibceqtcqkrmfyydenbwha5dypq", relays: ["r"], port: "P",
+                                rights: ["see"], nonce: "n", exp: Int(Date().timeIntervalSince1970) + 600,
+                                hostName: "Ada", portTitle: "her chart", code: false).link
+        let gw = RemotePortTests.ScriptedGateway()     // answers any call with an error, so nothing waits
+        gw.install(on: w.state.door)
+        let open = Task { @MainActor in
+            try await w.state.runBridgeMethod("invite.accept", principal: agent, args: BridgeArgs(["link": link]))
+        }
+        for _ in 0..<200 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current?.detail == "Open 'her chart' from Ada",
+                "an agent opened a port from another machine without asking for that port")
+        w.state.permissions.resolveCurrent(granted: false)
+        await #expect(throws: BridgeError.self) { _ = try await open.value }
+    }
+
     @Test("the invite discloses what the port can do on this machine")
     func disclosure() async throws {
         let w = try world()

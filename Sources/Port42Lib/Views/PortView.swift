@@ -19,6 +19,11 @@ class FileDropWebView: WKWebView {
     /// this per presentation — the same live webview re-parents between the two.
     var forwardsScrollToParent = false
 
+    /// A click on a port in a window that is not in front reaches the page. The click hits this view,
+    /// not `PortWebViewContainer`, and WebKit accepts a first click only where a drag or scroll could
+    /// start, so a button in the other Port42 window spent its first click bringing the window forward.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func scrollWheel(with event: NSEvent) {
         if forwardsScrollToParent { nextResponder?.scrollWheel(with: event) }
         else { super.scrollWheel(with: event) }

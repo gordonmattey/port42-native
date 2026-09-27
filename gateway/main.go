@@ -115,6 +115,10 @@ func main() {
 			// Remote callers arrive through relays (4.4), once this instance has a key to register.
 			if list := splitRelays(*relays); len(list) > 0 && gw.peerKey() != nil {
 				t := relay.NewTransport(gw.peerKey(), list)
+				for _, r := range list {
+					gw.SetRelayState(r, false)
+				}
+				t.OnState = gw.SetRelayState
 				t.Run(context.Background())
 				go gw.ServeRemote(context.Background(), t)
 			}

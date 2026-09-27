@@ -37,6 +37,11 @@ public struct InviteCoupon: Codable, Equatable {
     /// The link to send: it opens the invite page, which offers Port42 or the browser.
     public var link: String { Self.pageURL + "#" + encoded }
 
+    /// The coupon in an invite link (its fragment), or a bare coupon.
+    public static func fromLink(_ link: String) -> InviteCoupon? {
+        decode(link.split(separator: "#", maxSplits: 1).last.map(String.init) ?? link)
+    }
+
     public static func decode(_ s: String) -> InviteCoupon? {
         var b = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b.count % 4 != 0 { b += "=" }
@@ -204,10 +209,13 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
             ] as [String: Any],
             "required": ["port"],
         ]) { p, args in
-        // Sharing hands a port to someone elsewhere, so an agent or client asks first. The person
+        // Sharing hands a port to someone elsewhere, so an agent or client asks first, for each port
+        // (Gordon, 2026-09-26): leave to share one port is not leave to share the next. The person
         // using Port42 is never asked on their own behalf.
-        if p.kind != .human {
-            guard await appState.ensurePermission(.share, for: p) else {
+        if p.kind != .human, let key = appState.resolvePortRef(try args.requireString("port"))?.key {
+            let title = appState.portWindows.panels.first { $0.udid == key }?.title ?? key
+            guard await appState.ensureShareGrant(AppState.shareObject(port: key),
+                                                  detail: "Share '\(title)' with another machine", for: p) else {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
             }
         }
@@ -307,9 +315,19 @@ extension AppState {
 
     /// Redeem an invite made by another instance, as this instance, and remember the port. Returns
     /// the port's address: `port42://<host>/<port>`.
+    /// The grant object for sharing one port: a local port's key, or `<peer>/<port>` for one elsewhere.
+    static func shareObject(port: String) -> String { "share:" + port }
+
+    /// Ask a caller, once per port, to share it or open it (see `invite.create`, `invite.accept`).
+    func ensureShareGrant(_ object: String, detail: String, for p: Principal) async -> Bool {
+        if (try? db.grants(grantee: p.id, object: object, zone: ""))?.contains(.share) == true { return true }
+        guard await permissions.request(.share, from: p, detail: detail) else { return false }
+        try? db.saveGrants([.share], grantee: p.id, object: object, zone: "")
+        return true
+    }
+
     func acceptInvite(_ linkOrCoupon: String, code: String?) async throws -> (address: PortAddress, title: String, rights: [RemoteRight]) {
-        let fragment = linkOrCoupon.split(separator: "#", maxSplits: 1).last.map(String.init) ?? linkOrCoupon
-        guard let c = InviteCoupon.decode(fragment) else { throw BridgeError.badArg("that is not an invite link") }
+        guard let c = InviteCoupon.fromLink(linkOrCoupon) else { throw BridgeError.badArg("that is not an invite link") }
         if c.host == localPeerID { throw BridgeError.badArg("that invite is for a port on this instance") }
         var args: [String: Any] = ["nonce": c.nonce, "name": currentUser?.displayName ?? "a Port42"]
         if let code, !code.isEmpty { args["code"] = code }
@@ -359,14 +377,20 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
             ],
             "required": ["link"],
         ]) { p, args in
-        // Joining connects this machine to someone else's, so an agent or client asks first.
-        if p.kind != .human {
-            guard await appState.ensurePermission(.share, for: p) else {
+        // Joining connects this machine to someone else's, so an agent or client asks first, for each
+        // port it would open.
+        if p.kind != .human, let c = InviteCoupon.fromLink(try args.requireString("link")) {
+            guard await appState.ensureShareGrant(AppState.shareObject(port: "\(c.host)/\(c.port)"),
+                                                  detail: "Open '\(c.portTitle)' from \(c.hostName)", for: p) else {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
             }
         }
         let joined = try await appState.acceptInvite(try args.requireString("link"), code: args.string("code"))
-        return .object(["address": .string(joined.address.canonical), "title": .string(joined.title),
-                        "rights": .array(joined.rights.map { .string($0.rawValue) })])
+        // The port appears here as a tile that mirrors the host's.
+        let tile = try? await appState.openRemoteTile(peer: joined.address.peerID ?? "", port: joined.address.portId)
+        var out: [String: BridgeValue] = ["address": .string(joined.address.canonical), "title": .string(joined.title),
+                                          "rights": .array(joined.rights.map { .string($0.rawValue) })]
+        if let tile { out["tile"] = .string(tile) }
+        return .object(out)
     }
 }

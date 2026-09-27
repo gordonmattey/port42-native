@@ -86,6 +86,8 @@ struct DoorEnvelope: Codable {
     var selfPeer: String?
     /// A remote caller's authenticated peer id and the gateway's HMAC over it (4.3).
     var remotePeer: String?
+    /// On `relay_state`: the relay it is about.
+    var relays: [String]?
     var remoteAttest: String?
 
     var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
@@ -109,6 +111,7 @@ struct DoorEnvelope: Codable {
         case code
         case selfPeer = "self_peer"
         case remotePeer = "remote_peer"
+        case relays
         case remoteAttest = "remote_attest"
     }
 }
@@ -127,6 +130,8 @@ public final class GatewayDoor: NSObject, ObservableObject {
 
     /// The gateway told us this instance's peer id (derived from the key we handed it).
     public var onSelfPeer: (@MainActor (String) -> Void)?
+    /// The gateway told us whether this instance is registered on a relay (nautilus Phase 4).
+    public var onRelayState: (@MainActor (String, Bool) -> Void)?
 
     /// The app's answer to a call: `(senderId, callId, method, input, credential, emit)`.
     ///
@@ -248,6 +253,8 @@ public final class GatewayDoor: NSObject, ObservableObject {
             if let peer = envelope.selfPeer, !peer.isEmpty { onSelfPeer?(peer) }
         case "call":
             handleCall(envelope)
+        case "relay_state":
+            if let relay = envelope.relays?.first { onRelayState?(relay, envelope.code == "registered") }
         case "error":
             p42log("[door] gateway error: \(envelope.error ?? "?") \(envelope.code ?? "")")
         default:

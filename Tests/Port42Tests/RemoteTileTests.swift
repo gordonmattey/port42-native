@@ -1,0 +1,141 @@
+import Testing
+import Foundation
+@testable import Port42Lib
+
+/// Nautilus Phase 4, step 4.6b: a port on another instance as a tile here. Accepting an invite opens a
+/// tile with the host's HTML; a `state` event refetches it; the tile's own `window.port42` calls go to
+/// the host with the host's port id; a host that cannot be reached shows as offline. Headless: a
+/// scripted gateway plays the other instance.
+@Suite("Remote tile (Phase 4, 4.6b)")
+@MainActor
+struct RemoteTileTests {
+
+    static let host = RemotePortTests.host
+    typealias Gateway = RemotePortTests.ScriptedGateway
+
+    func world() throws -> (AppState, Gateway) {
+        let (state, gw) = try RemotePortTests().world()
+        AppState.mirrorRetry = 0.05
+        return (state, gw)
+    }
+
+    func accept(_ state: AppState) async throws -> String {
+        let person = Principal.human(id: "u", displayName: "Ada", spaceId: nil)
+        let out = try await state.runBridgeMethod("invite.accept", principal: person,
+                                                  args: BridgeArgs(["link": RemotePortTests().invite()]))
+        return try #require((out.toJSONObject() as? [String: Any])?["tile"] as? String)
+    }
+
+    /// The other instance: redeem works, getHtml serves `html()`, subscribe streams `events` and stays open.
+    func host(_ gw: Gateway, html: @escaping () -> String, events: [[String: Any]] = []) {
+        gw.reply = { method, _ in
+            switch method {
+            case "invite.redeem":
+                return [RemotePortTests.response(["port": "P", "title": "shared chart", "rights": ["see", "use"]])]
+            case "port.getHtml":
+                return [RemotePortTests.response(html())]
+            case "port.subscribe":
+                return events.map { e in
+                    let c = String(decoding: try! JSONSerialization.data(withJSONObject: e), as: UTF8.self)
+                    return ["type": "stream", "payload": ["senderName": "host", "senderType": "host", "content": c]]
+                }
+            case "port.push":
+                return [RemotePortTests.response(["ok": true, "token": "t:1"])]
+            default:
+                return [["type": "error", "code": "transport_failed", "error": "unscripted \(method)"]]
+            }
+        }
+    }
+
+    func settle(_ until: () -> Bool) async {
+        for _ in 0..<200 where !until() { try? await Task.sleep(nanoseconds: 5_000_000) }
+    }
+
+    @Test("accepting an invite opens a tile with the host's port, marked as theirs")
+    func acceptOpensTile() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>theirs v1</p>" })
+        let tile = try await accept(state)
+        let panel = try #require(state.portWindows.panels.first { $0.id == tile })
+        #expect(panel.html == "<p>theirs v1</p>")
+        #expect(panel.title == "shared chart · Gordon")
+        #expect(state.mirrorStatus[tile]?.online == true && state.mirrorStatus[tile]?.hostName == "Gordon")
+        #expect(state.mirroredRemote(tile)?.portKey == "P")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("a state event from the host refetches the port into the tile")
+    func stateRefreshes() async throws {
+        let (state, gw) = try world()
+        var version = 1
+        host(gw, html: { "<p>theirs v\(version)</p>" }, events: [["kind": "state", "payload": [:]]])
+        version = 1
+        let tile = try await accept(state)
+        version = 2
+        state.stopMirror(tile: tile)
+        state.startMirror(tile: tile)   // subscribes again, and the host says its state moved
+        await settle { state.portWindows.panels.first { $0.id == tile }?.html == "<p>theirs v2</p>" }
+        #expect(state.portWindows.panels.first { $0.id == tile }?.html == "<p>theirs v2</p>")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("a push to the host's port reaches the tile's page as the host's page gets it, a port42:data event")
+    func pushReachesPage() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == tile }?.bridge)
+        var scripts: [String] = []
+        bridge.scriptSink = { scripts.append($0) }
+        host(gw, html: { "<p>x</p>" }, events: [["kind": "push", "payload": ["n": 7]]])
+        state.startMirror(tile: tile)
+        await settle { !scripts.isEmpty }
+        #expect(scripts == [PortBridge.dataEventScript(["n": 7])], "the tile's page did not get the push the host's page gets")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("the tile's own calls go to the host, naming the host's port; presentation stays here")
+    func tileCallsForwarded() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == tile }?.bridge)
+        let before = gw.calls.count
+        let out = await bridge.handleMethod("port.push", args: [tile, ["n": 1]])
+        #expect((out as? [String: Any])?["ok"] as? Bool == true)
+        let pushes = gw.calls.dropFirst(before).filter { $0["method"] as? String == "port.push" }
+        #expect(pushes.count == 1, "the tile's call was not sent to the host once")
+        let sent = try #require(pushes.first)
+        #expect((sent["args"] as? [String: Any])?["id"] as? String == "P", "the tile's own id reached the host")
+
+        _ = await bridge.handleMethod("presentation", args: [])
+        #expect(!gw.calls.contains { $0["method"] as? String == "presentation" },
+                "presentation, a fact about this desktop, was sent to the host")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("a host that cannot be reached shows as offline")
+    func offline() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        gw.reply = { method, _ in method == "port.subscribe" ? [["type": "error", "code": "host_offline", "error": "gone"]]
+                                                           : [["type": "error", "code": "host_offline", "error": "gone"]] }
+        state.startMirror(tile: tile)
+        await settle { state.mirrorStatus[tile]?.online == false }
+        #expect(state.mirrorStatus[tile]?.online == false)
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("an ordinary tile's calls are never sent to another instance")
+    func localTileStaysLocal() async throws {
+        let (state, gw) = try world()
+        _ = state.portWindows.registerTiledPort(id: "mine", html: "<p>mine</p>", spaceId: nil, createdBy: nil,
+                                                title: "mine", position: nil)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == "mine" }?.bridge)
+        _ = await bridge.handleMethod("port.getHtml", args: ["mine"])
+        #expect(gw.calls.isEmpty)
+    }
+}

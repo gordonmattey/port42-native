@@ -136,4 +136,13 @@ struct RemotePortTests {
         } catch let e as BridgeError { #expect(e.code == "not_granted") }
         #expect(gw.calls.isEmpty, "something was sent out")
     }
+
+    @Test("the gateway's relay_state frames tell the app whether it is registered on each relay")
+    func relayState() throws {
+        let (state, _) = try world()
+        state.door.receive(#"{"type":"relay_state","relays":["wss://relay1.port42.ai/v1"],"code":"registered"}"#)
+        #expect(state.relayStates["wss://relay1.port42.ai/v1"] == true)
+        state.door.receive(#"{"type":"relay_state","relays":["wss://relay1.port42.ai/v1"],"code":"not_registered"}"#)
+        #expect(state.relayStates["wss://relay1.port42.ai/v1"] == false)
+    }
 }

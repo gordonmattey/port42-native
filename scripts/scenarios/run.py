@@ -57,6 +57,8 @@ def fresh_agent(c, cli):
     # companion by name once it auto-registers, which the terminal's sessionStarted hook does within
     # seconds; the wait covers that and the CLI's own boot.
     time.sleep(12)
+    # The terminal takes its companion's name once the session registers, so cleanup finds it by that.
+    TITLES[t["id"]] = "harness-s1-" + cli
     return "harness-s1-" + cli
 
 
@@ -348,6 +350,10 @@ def main():
             4: lambda: scenario4(c), 5: lambda: scenario5(c, not a.no_restart)}
     names = {1: "Make a thing", 2: "Drive a thing", 3: "Compose things", 4: "Share a thing (local half)",
              5: "Arrange things"}
+    # The harness works in a space of its own and puts the person back where they were: it never
+    # posts or makes ports in a space someone is using (Gordon, 2026-09-26).
+    before = c.call("space.current").get("id")
+    own = c.call("space.create", {"name": "harness " + time.strftime("%H%M%S"), "switch": True})
     for n in [int(x) for x in a.only.split(",")]:
         try:
             runs[n]()
@@ -376,6 +382,11 @@ def main():
                     if attempt == 2:
                         print(f"cleanup: {TITLES.get(pid) or pid}: {e}", file=sys.stderr)
                     time.sleep(3)
+    if before and before != own.get("id"):
+        try:
+            c.call("space.switchTo", {"space_id": before})
+        except Exception as e:
+            print(f"could not switch back: {e}", file=sys.stderr)
     width = max(len(r[1]) for r in RESULTS)
     for n, name, status, ev in RESULTS:
         print(f"{n}  {name:<{width}}  {status:<4}  {ev}")

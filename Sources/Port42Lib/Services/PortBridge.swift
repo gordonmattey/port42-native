@@ -413,13 +413,18 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     // MARK: - Method Routing
 
     @MainActor
-    private func handleMethod(_ method: String, args: [Any], callId: Int = 0) async -> Any {
+    func handleMethod(_ method: String, args: [Any], callId: Int = 0) async -> Any {
         // Registry-first (Phase 2): port JS dispatches extracted+wired methods through the shared impl.
         // JS calls positionally, so the positional args map to named via the method's paramNames; the
         // native JSON value is returned (a BridgeError becomes {error}, the shape JS already handles).
         // Resolve via the instance alias map (service name-maps like creases.* -> crease.* plus the
         // files.* base), not the static ToolNaming.resolveAlias which only knows files.*.
         let canonical = state?.resolveBridgeAlias(method) ?? ToolNaming.resolveAlias(method)
+        // A tile that mirrors a port on another instance: its calls are the other instance's, as this
+        // instance, and that instance's rights decide (nautilus Phase 4, 4.6b).
+        if let state, let tile = messageId, let mirrored = state.mirroredCall(canonical, fromTile: tile, args: args) {
+            return await mirrored.value
+        }
         if let state, let bridgeMethod = state.bridgeRegistry[canonical], bridgeMethod.wired {
             let principal = portPrincipal
             do {
@@ -522,6 +527,26 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// the body was not, so an event's name could not drift while its contents could be anything at
     /// all. A payload that cannot be expressed as a `BridgeValue` is a payload that could not have
     /// crossed a wire, and this is where that becomes a compile error instead of a slice-02 surprise.
+    /// A `port.push` to a web port, as its page receives it: a `port42:data` window event with the data
+    /// in `event.detail`. One definition, so a port's page and a copy of it on another instance
+    /// (nautilus 4.6b) receive the same event for the same push.
+    static func dataEventScript(_ data: Any) -> String? {
+        guard let json = SafeJSON.data(data, options: [.fragmentsAllowed]),
+              let str = String(data: json, encoding: .utf8) else { return nil }
+        return "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(str)}))"
+    }
+
+    /// Replaced in tests: receives the script `deliverData` would run in the page.
+    var scriptSink: ((String) -> Void)?
+
+    /// Deliver pushed data to this page as `port.push` would (see `dataEventScript`).
+    @MainActor
+    func deliverData(_ data: Any) {
+        guard let script = Self.dataEventScript(data) else { return }
+        if let scriptSink { scriptSink(script); return }
+        webView?.evaluateJavaScript(script) { _, _ in }
+    }
+
     @MainActor
     public func pushEvent(_ kind: PortEventKind, data: BridgeValue) {
         pushEvent(wire: kind.wire, data: data)

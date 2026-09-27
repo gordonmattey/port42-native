@@ -165,6 +165,8 @@ type Gateway struct {
 	remotes map[string]*remoteConn
 	// outbound holds this instance's sessions to other instances, for the host's remote calls.
 	outbound *outbound
+	// relayState is whether this instance is registered on each relay, told to the host (4.6).
+	relayState map[string]bool
 }
 
 // SetHostCredential is called once, from the watch-parent goroutine, before any peer can identify.
@@ -293,6 +295,9 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		welcome.SelfPeer = g.selfPeerID()
 	}
 	peer.Send(ctx, welcome)
+	if provenHost {
+		g.sendRelayStates(ctx, peer)
+	}
 
 	conn.SetReadLimit(maxMessageSize)
 

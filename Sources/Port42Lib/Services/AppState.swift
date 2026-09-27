@@ -219,7 +219,23 @@ public final class AppState: ObservableObject {
     var terminalClientPanels: [String: String] = [:]
     /// This instance's peer id, the `<peer>` in `port42://<peer>/<portId>` (nautilus Phase 4, 4.2).
     /// Told to us by the gateway, which derives it from the key we hand over; nil until it has.
-    public internal(set) var localPeerID: String?
+    @Published public internal(set) var localPeerID: String?
+    /// Tiles mirroring a port on another instance: the mirror tasks, and each tile's host and state.
+    var remoteMirrors: [String: Task<Void, Never>] = [:]
+    @Published public internal(set) var mirrorStatus: [String: MirrorStatus] = [:]
+    private var mirrorsRestored = false
+
+    /// Whether this instance is registered on each relay, as its gateway reports.
+    @Published public internal(set) var relayStates: [String: Bool] = [:]
+
+    /// Replace the relays this instance registers on, and restart the gateway onto them.
+    public func setRelays(_ relays: [String]) {
+        UserDefaults.standard.set(relays.joined(separator: ","), forKey: "PORT42_RELAYS")
+        relayStates = [:]
+        guard !AppState.isTestProcess else { return }
+        GatewayProcess.shared.stop()
+        GatewayProcess.shared.start()
+    }
 
     /// Companions watching ports (nautilus Phase 3.3). Started once ports are restored.
     lazy var companionWatches: CompanionWatchService = {
@@ -464,7 +480,13 @@ public final class AppState: ObservableObject {
         portWindows.setDatabase(db)
         portWindows.appState = self
         // The gateway names this instance's peer id in its welcome (nautilus Phase 4, 4.2).
-        door.onSelfPeer = { [weak self] peer in self?.localPeerID = peer }
+        door.onSelfPeer = { [weak self] peer in
+            guard let self else { return }
+            self.localPeerID = peer
+            // The gateway is up, so a remote tile restored from the last run can mirror again.
+            if !self.mirrorsRestored { self.mirrorsRestored = true; self.restoreMirrors() }
+        }
+        door.onRelayState = { [weak self] relay, up in self?.relayStates[relay] = up }
         // A caller on another machine (4.3): verified here, then run as a remote principal.
         door.onRemoteCallReceived = { [weak self] claim, method, input, emit in
             guard let self else { return ["error": "app state deallocated"] }

@@ -923,6 +923,11 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v59-remote-port-tile") { db in
+            // Nautilus Phase 4, 4.6b: the local tile that mirrors a port on another instance.
+            try db.alter(table: "remote_ports") { t in t.add(column: "localPort", .text) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1116,6 +1121,25 @@ public final class DatabaseService {
                     relays = excluded.relays, hostName = excluded.hostName
                 """, arguments: [r.peerKey, r.portKey, r.title, r.rights.map(\.rawValue).joined(separator: ","),
                                    r.relays.joined(separator: ","), r.hostName, Date()])
+        }
+    }
+
+    /// Record which local tile mirrors a remote port.
+    public func setRemotePortTile(peerKey: String, portKey: String, localPort: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE remote_ports SET localPort = ? WHERE peerKey = ? AND portKey = ?",
+                           arguments: [localPort, peerKey, portKey])
+        }
+    }
+
+    /// The local tile for each remote port that has one: tile id → (peer, port).
+    public func remotePortTiles() throws -> [String: (peerKey: String, portKey: String)] {
+        try dbQueue.read { db in
+            var out: [String: (String, String)] = [:]
+            for r in try Row.fetchAll(db, sql: "SELECT peerKey, portKey, localPort FROM remote_ports WHERE localPort IS NOT NULL") {
+                out[r["localPort"]] = (r["peerKey"], r["portKey"])
+            }
+            return out
         }
     }
 

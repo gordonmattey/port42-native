@@ -188,3 +188,35 @@ func (g *Gateway) deliverRemote(ctx context.Context, target string, env Envelope
 	}
 	return true
 }
+
+// SetRelayState records whether this instance is registered on a relay, and tells the host.
+func (g *Gateway) SetRelayState(relayURL string, registered bool) {
+	g.mu.Lock()
+	if g.relayState == nil {
+		g.relayState = map[string]bool{}
+	}
+	g.relayState[relayURL] = registered
+	host := g.peers[g.globalHostID]
+	g.mu.Unlock()
+	if host != nil {
+		g.sendRelayStates(context.Background(), host)
+	}
+}
+
+// sendRelayStates tells the host every relay and whether this instance is registered on it: one
+// `relay_state` frame per relay, `code` "registered" or "not_registered".
+func (g *Gateway) sendRelayStates(ctx context.Context, host *Peer) {
+	g.mu.RLock()
+	states := make(map[string]bool, len(g.relayState))
+	for k, v := range g.relayState {
+		states[k] = v
+	}
+	g.mu.RUnlock()
+	for url, up := range states {
+		code := "not_registered"
+		if up {
+			code = "registered"
+		}
+		host.Send(ctx, Envelope{Type: "relay_state", Relays: []string{url}, Code: code})
+	}
+}

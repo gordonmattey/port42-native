@@ -96,6 +96,9 @@ public enum PortGrantDisplay {
     public static func objectLabel(_ object: String) -> String {
         if object == PortObject.machinePortKey { return "Port42" }
         if object.hasPrefix("secret:") { return "the secret '\(object.dropFirst("secret:".count))'" }
+        if object.hasPrefix("share:") {
+            return object.dropFirst("share:".count).contains("/") ? "a port on another machine" : "one port"
+        }
         guard let slash = object.firstIndex(of: "/") else { return "a port" }
         let peer = String(object[object.startIndex..<slash])
         let port = String(object[object.index(after: slash)...])

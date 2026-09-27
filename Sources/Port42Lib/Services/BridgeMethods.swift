@@ -243,11 +243,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             guard let wv = webView(ref.id ?? ref.messageId ?? id) else {
                 throw BridgeError.notFound("port '\(id)'")
             }
-            guard let jsonData = SafeJSON.data(data, options: [.fragmentsAllowed]),
-                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            guard let script = PortBridge.dataEventScript(data) else {
                 throw BridgeError.badArg("could not serialize data to JSON")
             }
-            _ = try? await wv.evaluateJavaScript("window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))")
+            _ = try? await wv.evaluateJavaScript(script)
             return .object(["ok": .bool(true)])
         case .unknown:
             throw BridgeError.notFound("port '\(id)'")
