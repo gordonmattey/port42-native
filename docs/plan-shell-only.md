@@ -536,6 +536,16 @@ Things that would be cool once the five scenarios hold.
   zero error count, a non-empty page and DONE within budget, with evidence the site shows as
   "verified". Each recipe is a full three-agent run, so a sample first (about ten across the five
   groups) to measure what a run costs before the 129.
+- **Record your workflow, then build it better in Port42** (GM via growth, 2026-09-27). Record: for
+  about ten minutes Port42 logs the front app and window title each second, and counts window and app
+  switches and clipboard changes (a hash, never the content), all on this Mac; frames and spoken
+  narration only by explicit opt-in, which says in plain words that they go to the companion's model
+  provider. Read: a companion maps the jumps, the repeated paste loops and the interruptions. Rebuild:
+  it writes imagine lines for the workflow into the ⌘I box (the person presses Enter), and a space
+  appears with the person's surfaces as ports and pipes where they were copying. Measure again: the
+  same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
+  Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
+  (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
