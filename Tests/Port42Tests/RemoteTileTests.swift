@@ -277,6 +277,25 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("a tile whose host cannot be reached waits longer each time, up to a cap")
+    func backsOff() async throws {
+        #expect(AppState.mirrorDelay(failures: 1) == AppState.mirrorRetry)
+        #expect(AppState.mirrorDelay(failures: 3) == AppState.mirrorRetry * 4)
+        #expect(AppState.mirrorDelay(failures: 60) == AppState.mirrorRetryMax, "the wait has no cap")
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        gw.reply = { _, _ in [["type": "error", "code": "host_offline", "error": "gone"]] }
+        let before = gw.calls.count
+        state.startMirror(tile: tile)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        state.stopMirror(tile: tile)
+        let tries = gw.calls.dropFirst(before).filter { $0["method"] as? String == "port.subscribe" }.count
+        #expect(tries <= 7, "a tile tried an unreachable host \(tries) times in 1.2s: it does not back off")
+        #expect(tries >= 3, "a tile stopped trying")
+    }
+
     @Test("an ordinary tile's calls are never sent to another instance")
     func localTileStaysLocal() async throws {
         let (state, gw) = try world()

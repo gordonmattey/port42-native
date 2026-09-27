@@ -914,6 +914,15 @@ entitlement on the release build and an `apple-app-site-association` file on tel
 `https://tele.port42.ai/#…` opens Port42 when installed; Safari, Mail and Messages honour it, Chrome
 does not. Passed to nautilus for the integration list.
 
+**Found live, fixed 2026-09-27: dead tiles locked out live ones.** Dev6's tiles of ports on Dev2's old
+identity retried every five seconds, each retry a new relay session; the relay limits session requests
+per key and per address (Dev2, Dev6 and the browsers here share one), so Dev6 was refused
+`rate_limited` even for Dev2's live ports, and a live tile missed ember's new version. Now the gateway
+remembers a peer it could not reach (15 seconds offline, 60 rate limited) and fails further calls to
+it at once, and a tile's retries double from five seconds to five minutes, resetting once a
+subscription holds 30 seconds. Gates: `TestAnUnreachablePeerIsNotDialledAgainAtOnce` and
+`RemoteTileTests` (backs off), calibrated.
+
 ### 4.8 Scenario 4 in the harness
 
 The harness's scenario 4 becomes the master plan's test: a browser on another machine renders the

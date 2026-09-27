@@ -31,14 +31,31 @@ type outbound struct {
 	sessions map[string]*outSession // by peer id
 	dialing  map[string]chan struct{}
 	pending  map[string]string // call id -> peer id, for failing calls when a session ends
+	down     map[string]downPeer // peers found unreachable, not dialled again until `until`
 }
+
+// downPeer remembers a failed dial, so every call to a peer that is not there fails at once instead of
+// each opening a relay session: the relay limits session requests per key and per address, and a few
+// tiles of an instance that is gone would otherwise spend them all and lock out the live ones (Dev6,
+// 2026-09-27).
+type downPeer struct {
+	until     time.Time
+	code, msg string
+}
+
+// How long a peer that could not be reached is not dialled again: offline, and refused by the relay's
+// limits.
+var (
+	offlineHold = 15 * time.Second
+	limitedHold = 60 * time.Second
+)
 
 func (g *Gateway) out() *outbound {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.outbound == nil {
 		g.outbound = &outbound{sessions: map[string]*outSession{}, dialing: map[string]chan struct{}{},
-			pending: map[string]string{}}
+			pending: map[string]string{}, down: map[string]downPeer{}}
 	}
 	return g.outbound
 }
@@ -63,6 +80,17 @@ func (g *Gateway) handleRemoteCall(ctx context.Context, host *Peer, env Envelope
 		return
 	}
 	o := g.out()
+	o.mu.Lock()
+	d, isDown := o.down[env.ToPeer]
+	if isDown && time.Now().After(d.until) {
+		delete(o.down, env.ToPeer)
+		isDown = false
+	}
+	o.mu.Unlock()
+	if isDown {
+		fail(d.code, d.msg)
+		return
+	}
 	sess, err := o.session(ctx, env.ToPeer, func() (transport.Session, error) {
 		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
@@ -70,11 +98,16 @@ func (g *Gateway) handleRemoteCall(ctx context.Context, host *Peer, env Envelope
 	}, func(s transport.Session) { go g.readOutbound(host, env.ToPeer, s) })
 	if err != nil {
 		var r *relay.Refusal
+		code, msg, hold := CodeTransportFailed, "could not reach that instance: "+err.Error(), offlineHold
 		if errors.As(err, &r) && r.Code == relay.CodeHostOffline {
-			fail(CodeHostOffline, "that instance is not connected to its relay")
-			return
+			code, msg = CodeHostOffline, "that instance is not connected to its relay"
+		} else if errors.As(err, &r) && r.Code == relay.CodeRateLimited {
+			hold = limitedHold
 		}
-		fail(CodeTransportFailed, "could not reach that instance: "+err.Error())
+		o.mu.Lock()
+		o.down[env.ToPeer] = downPeer{until: time.Now().Add(hold), code: code, msg: msg}
+		o.mu.Unlock()
+		fail(code, msg)
 		return
 	}
 	call := Envelope{Type: "call", Method: env.Method, Args: env.Args, CallID: env.CallID, Actor: env.Actor}

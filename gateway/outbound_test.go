@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,5 +117,45 @@ func TestOnlyTheHostMakesRemoteCalls(t *testing.T) {
 		ToPeer: "x", Relays: []string{"wss://relay"}})
 	if e := readEnvelope(t, ctx, caller); e.Type != "error" || e.CallID != "sneak" || e.Code != CodeUnknownMethod {
 		t.Fatalf("a caller used this instance's key to call out: %+v", e)
+	}
+}
+
+// A peer that could not be reached is not dialled again for a while: every call to it fails at once,
+// so tiles of an instance that is gone cannot spend the relay's session requests and lock out live ones.
+func TestAnUnreachablePeerIsNotDialledAgainAtOnce(t *testing.T) {
+	rsrv := httptest.NewServer(relay.NewServer(relay.DefaultLimits).Handler())
+	defer rsrv.Close()
+	relayURL := "ws" + strings.TrimPrefix(rsrv.URL, "http") + "/v1"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var dials atomic.Int32
+	old := newDialer
+	newDialer = func(key ed25519.PrivateKey, relays []string) transport.Transport {
+		dials.Add(1)
+		return old(key, relays)
+	}
+	oldHold := offlineHold
+	offlineHold = 300 * time.Millisecond
+	defer func() { newDialer = old; offlineHold = oldHold }()
+
+	b := newInstance(t, ctx)
+	_, nobody, _ := ed25519.GenerateKey(rand.Reader)
+	to := transport.PeerID(nobody.Public().(ed25519.PublicKey))
+	ask := func(id string) Envelope {
+		sendEnvelope(t, ctx, b.app, Envelope{Type: "remote_call", CallID: id, Method: "ports.list", ToPeer: to, Relays: []string{relayURL}})
+		return readEnvelope(t, ctx, b.app)
+	}
+	for i, id := range []string{"a", "b", "c"} {
+		if e := ask(id); e.Code != CodeHostOffline {
+			t.Fatalf("call %d: %+v", i, e)
+		}
+	}
+	if n := dials.Load(); n != 1 {
+		t.Fatalf("three calls to a peer that is not there dialled %d times, want 1", n)
+	}
+	time.Sleep(400 * time.Millisecond)
+	ask("d")
+	if n := dials.Load(); n != 2 {
+		t.Fatalf("after the hold the peer was not tried again: %d dials", n)
 	}
 }

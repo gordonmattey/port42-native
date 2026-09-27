@@ -44,6 +44,18 @@ extension AppState {
 
     /// How long a mirror waits before trying again after its connection drops.
     static var mirrorRetry: TimeInterval = 5
+    /// The longest a tile waits between tries, however long its host has been away.
+    static var mirrorRetryMax: TimeInterval = 300
+    /// A subscription that held this long counts as connected, so the wait starts short again.
+    static var mirrorHeld: TimeInterval = 30
+
+    /// How long a tile waits after `failures` tries in a row: doubling from `mirrorRetry` to
+    /// `mirrorRetryMax`. A host that is gone for good (a changed identity, a Mac that is off) costs a try
+    /// every five minutes, not every five seconds; the relay limits session requests, and constant
+    /// tries from a few such tiles locked the live ones out (Dev6, 2026-09-27).
+    static func mirrorDelay(failures: Int) -> TimeInterval {
+        min(mirrorRetry * pow(2, Double(max(0, failures - 1))), mirrorRetryMax)
+    }
 
     /// The remote port a local tile mirrors, if it is one.
     func mirroredRemote(_ tile: String) -> DatabaseService.RemotePortRow? {
@@ -104,7 +116,9 @@ extension AppState {
         mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true, wakes: row.wakes)
         remoteMirrors[tile] = Task { @MainActor [weak self] in
             var first = true
+            var failures = 0
             while let self, !Task.isCancelled, self.portWindows.panels.contains(where: { $0.id == tile }) {
+                let started = Date()
                 if !first { await self.refreshMirror(tile: tile, row: row) }
                 first = false
                 self.mirrorStatus[tile]?.online = true
@@ -119,7 +133,8 @@ extension AppState {
                     p42log("[mirror] \(row.title): \(error)")
                 }
                 self.mirrorStatus[tile]?.online = false
-                try? await Task.sleep(nanoseconds: UInt64(Self.mirrorRetry * 1_000_000_000))
+                failures = Date().timeIntervalSince(started) > Self.mirrorHeld ? 1 : failures + 1
+                try? await Task.sleep(nanoseconds: UInt64(Self.mirrorDelay(failures: failures) * 1_000_000_000))
             }
             self?.remoteMirrors[tile] = nil
         }
