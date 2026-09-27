@@ -1,0 +1,121 @@
+<!doctype html><html><head><meta charset="utf-8"><title>duo shader</title>
+<style>html,body{margin:0;height:100%;background:#050807;color:#7f918c;font:13px ui-monospace,monospace}
+#msg{position:absolute;inset:0;display:grid;place-items:center}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block}</style>
+<meta name="version" content="2"></head>
+<body>
+<!-- ember: canvas -->
+<canvas id="gl"></canvas>
+<div id="msg" style="display:none;pointer-events:none"></div>
+<!-- /ember: canvas -->
+<!-- tide: controls -->
+<style>
+#controls{position:absolute;right:10px;bottom:10px;z-index:10;background:rgba(5,8,7,.72);border:1px solid #1d2a26;border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr 3em;gap:4px 8px;align-items:center;font:12px ui-monospace,monospace;color:#9fb3ad;min-width:14em;width:34%;max-width:22em}
+#controls input{width:100%;accent-color:#4fd1b0}
+#controls output{text-align:right;color:#cfe}
+#controls .st{grid-column:1/-1;font-size:10px;color:#5d6f6a}
+</style>
+<div id="controls">
+<label for="t-hue">hue</label><input id="t-hue" type="range" min="0" max="1" step="0.01" value="0.5"><output id="o-hue"></output>
+<label for="t-speed">speed</label><input id="t-speed" type="range" min="0" max="3" step="0.01" value="1"><output id="o-speed"></output>
+<label for="t-warp">warp</label><input id="t-warp" type="range" min="0" max="1.5" step="0.01" value="0.5"><output id="o-warp"></output>
+<div class="st" id="t-st">sync: starting</div>
+</div>
+<script type="module">
+const KEYS=['hue','speed','warp'];
+const P=window.params=window.params||{};
+for(const k of KEYS) if(typeof P[k]!=='number') P[k]=+document.getElementById('t-'+k).value;
+const st=document.getElementById('t-st');
+const show=()=>{for(const k of KEYS){document.getElementById('t-'+k).value=P[k];document.getElementById('o-'+k).textContent=(+P[k]).toFixed(2);}};
+show();
+let selfId=null,tok=null;
+async function findSelf(){
+  const ports=await port42.ports.list();
+  const me=ports.find(p=>(p.title||'').startsWith('duo shader'));
+  if(!me) throw new Error('own port not found');
+  selfId=me.id;tok=me.token;
+}
+let pending=null,inflight=false;
+async function send(){
+  if(inflight||!pending) return;
+  inflight=true;const data=pending;pending=null;
+  try{
+    if(!selfId) await findSelf();
+    try{({token:tok}=await port42.port.push(selfId,data,tok));}
+    catch(e){
+      if(e&&(e.code==='stale_write'||e.code==='token_required')){({token:tok}=await port42.port.push(selfId,data,e.current));}
+      else throw e;
+    }
+    st.textContent='sync: sent';
+  }catch(e){st.textContent='sync error: '+(e&&(e.code||e.message)||e);}
+  finally{inflight=false;if(pending) send();}
+}
+for(const k of KEYS){
+  document.getElementById('t-'+k).addEventListener('input',ev=>{
+    P[k]=+ev.target.value;show();
+    pending={type:'params',params:{hue:P.hue,speed:P.speed,warp:P.warp}};
+    send();
+  });
+}
+window.addEventListener('port42:data',e=>{
+  const d=e.detail;const src=d&&(d.params||(d.type==='params'?d:null));
+  if(!src) return;
+  for(const k of KEYS) if(typeof src[k]==='number') P[k]=src[k];
+  show();st.textContent='sync: received';
+});
+try{await findSelf();st.textContent='sync: ready';}catch(e){st.textContent='sync error: '+(e.code||e.message);}
+</script>
+<!-- /tide: controls -->
+<!-- ember: shader -->
+<script>
+window.params = window.params || { hue: 0.55, speed: 1.0, warp: 0.5 };
+(function () {
+  const cv = document.getElementById('gl'), msg = document.getElementById('msg');
+  const fail = t => { msg.textContent = t; msg.style.display = 'grid'; console.error(t); };
+  try {
+    const gl = cv.getContext('webgl', { preserveDrawingBuffer: true });
+    if (!gl) return fail('WebGL unavailable');
+    const vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+    const fs = `precision mediump float;
+uniform vec2 r;uniform float t,hue,warp;
+vec3 hsv(float h,float s,float v){vec3 k=clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);return v*mix(vec3(1),k,s);}
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.-r)/min(r.x,r.y);
+  for(int i=0;i<4;i++){uv+=warp*0.6*vec2(sin(uv.y*2.3+t),cos(uv.x*2.1-t*0.8))/float(i+1);}
+  float v=0.5+0.5*sin(length(uv)*4.-t*1.5+atan(uv.y,uv.x)*2.);
+  gl_FragColor=vec4(hsv(fract(hue+v*0.25+length(uv)*0.05),0.75,0.35+0.65*v),1.);
+}`;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(pr); if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const U = n => gl.getUniformLocation(pr, n), uR = U('r'), uT = U('t'), uH = U('hue'), uW = U('warp');
+    let t = 0, last = performance.now(), running = true;
+    function frame(now) {
+      const w = Math.max(1, Math.round(cv.clientWidth * devicePixelRatio)), h = Math.max(1, Math.round(cv.clientHeight * devicePixelRatio));
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      const p = window.params;
+      t += Math.min(0.1, (now - last) / 1000) * (+p.speed || 0); last = now;
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(uR, w, h); gl.uniform1f(uT, t); gl.uniform1f(uH, +p.hue || 0); gl.uniform1f(uW, +p.warp || 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      window.__frames = (window.__frames || 0) + 1;
+      if (running) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    try { port42.on('presentation', s => { const was = running; running = s.visible !== false;
+      if (running && !was) { last = performance.now(); requestAnimationFrame(frame); } }); } catch (e) {}
+    // lit-pixel probe for checks: returns count of non-dark pixels in the current frame
+    window.litPixels = () => { const w = cv.width, h = cv.height, px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let n = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i] + px[i+1] + px[i+2] > 60) n++; return { lit: n, total: w * h }; };
+  } catch (e) { fail('shader error: ' + e.message); }
+})();
+</script>
+<!-- /ember: shader -->
+</body></html>
