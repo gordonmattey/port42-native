@@ -72,7 +72,8 @@ struct ShareBox: View {
 
     @ViewBuilder
     private func result(_ made: Made) -> some View {
-        Text("link copied. send it to them; it works once, for 7 days.")
+        Text(made.code == nil ? "link copied. send it to them; it works once, for 7 days."
+                              : "link and code copied. it works once, for 7 days.")
             .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.accent)
         Text(made.link).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
             .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
@@ -80,8 +81,9 @@ struct ShareBox: View {
             HStack(spacing: 8) {
                 Text("code").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                 Text(code).font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.accent).textSelection(.enabled)
-                Text("send it another way").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
             }
+            Text("the code protects the link only if it travels another way.")
+                .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
         }
         if !made.discloses.isEmpty {
             Text("this port can use " + made.discloses.joined(separator: ", ")
@@ -93,10 +95,16 @@ struct ShareBox: View {
             Button("[ done ↵ ]") { portKey = nil }
                 .buttonStyle(.plain).font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
                 .keyboardShortcut(.return, modifiers: [])
-            Button(action: { copy(made.link) }) {
+            Button(action: { copy(Self.message(made)) }) {
                 Text("[ copy again ]").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
             }
             .buttonStyle(.plain)
+            if made.code != nil {
+                Button(action: { copy(made.link) }) {
+                    Text("[ link only ]").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -113,14 +121,20 @@ struct ShareBox: View {
                     principal: .human(id: user.id, displayName: user.displayName, spaceId: appState.currentSpace?.id),
                     args: BridgeArgs(["port": portKey, "rights": rights, "requireCode": code]))
                 let o = out.toJSONObject() as? [String: Any] ?? [:]
-                let link = o["link"] as? String ?? ""
-                made = Made(link: link, code: o["code"] as? String, discloses: o["discloses"] as? [String] ?? [])
-                copy(link)
+                let m = Made(link: o["link"] as? String ?? "", code: o["code"] as? String,
+                             discloses: o["discloses"] as? [String] ?? [])
+                made = m
+                copy(Self.message(m))
                 error = nil
             } catch {
                 self.error = (error as? BridgeError)?.message ?? error.localizedDescription
             }
         }
+    }
+
+    /// What one click copies: the link, and the code under it when there is one.
+    static func message(_ m: Made) -> String {
+        m.code.map { "\(m.link)\ncode: \($0)" } ?? m.link
     }
 
     private func copy(_ link: String) {

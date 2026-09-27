@@ -47,6 +47,13 @@ struct SharePillTests {
         #expect(w.state.sharePill(tile: tile, key: w.p) == nil, "a withdrawn invite still shows")
     }
 
+    @Test("one click copies the link, and the code under it when the invite has one")
+    func copiedMessage() {
+        #expect(ShareBox.message(.init(link: "L", code: nil, discloses: [])) == "L")
+        #expect(ShareBox.message(.init(link: "L", code: "123456", discloses: [])) == "L\ncode: 123456",
+                "the code was left out of the one-click copy")
+    }
+
     @Test("an invite link is recognised whether clicked or pasted, and nothing else is")
     func recognisesInviteLinks() throws {
         let link = RemotePortTests().invite()
