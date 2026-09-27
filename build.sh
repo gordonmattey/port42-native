@@ -485,8 +485,14 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
     hdiutil create -volname "Port42 Companion Computing" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" 2>&1
     rm -rf "$(dirname "$DMG_STAGING")"
 
-    # Sign DMG
-    codesign --force --sign "$SIGN_IDENTITY" "$DMG"
+    # Sign DMG, with a secure timestamp. Apple's timestamp service sometimes does not answer ("A
+    # timestamp was expected but was not found"), which stopped a v1.0.0 build here with no DMG
+    # signature (2026-09-27); retried a few times before giving up.
+    for attempt in 1 2 3 4; do
+        if codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"; then break; fi
+        [ "$attempt" = 4 ] && { echo "[build] ERROR: could not sign the DMG (timestamp service)"; exit 1; }
+        echo "[build] DMG signing failed (attempt $attempt); retrying"; sleep 8
+    done
     echo "[build] DMG signed."
 
     # Notarize
