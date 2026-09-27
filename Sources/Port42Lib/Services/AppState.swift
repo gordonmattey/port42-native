@@ -130,7 +130,7 @@ public final class AppState: ObservableObject {
     /// Tiles mirroring a port on another instance: the mirror tasks, and each tile's host and state.
     var remoteMirrors: [String: Task<Void, Never>] = [:]
     @Published public internal(set) var mirrorStatus: [String: MirrorStatus] = [:]
-    private var mirrorsRestored = false
+    var mirrorsRestored = false
 
     /// Whether this instance is registered on each relay, as its gateway reports.
     @Published public internal(set) var relayStates: [String: Bool] = [:]
@@ -238,7 +238,9 @@ public final class AppState: ObservableObject {
     @Published public var portWindows = PortWindowManager()
 
     /// True after restoreFromDB completes; gates switchToSpace calls in selectSpace.
-    private var portPanelsRestored = false
+    /// Tiles restored from the last run. A remote tile mirrors again once this and the gateway's
+    /// welcome have both happened, in either order (`resumeMirrorsWhenReady`).
+    var portPanelsRestored = false { didSet { if portPanelsRestored { resumeMirrorsWhenReady() } } }
 
     /// EVERYTHING a port's input can mutate, in one place (I2 · C2.0).
     ///
@@ -395,7 +397,7 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             self.localPeerID = peer
             // The gateway is up, so a remote tile restored from the last run can mirror again.
-            if !self.mirrorsRestored { self.mirrorsRestored = true; self.restoreMirrors(); self.refreshSharing() }
+            self.resumeMirrorsWhenReady()
         }
         door.onRelayState = { [weak self] relay, up in self?.relayStates[relay] = up }
         // A caller on another machine (4.3): verified here, then run as a remote principal.

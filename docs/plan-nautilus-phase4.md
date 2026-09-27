@@ -923,7 +923,11 @@ it at once, and a tile's retries double from five seconds to five minutes, reset
 subscription holds 30 seconds. Gates: `TestAnUnreachablePeerIsNotDialledAgainAtOnce` and
 `RemoteTileTests` (backs off), calibrated. Found with it: a tile restored after a restart ran the page it had saved, not
 the host's current one, until the host next changed it; a restored tile now fetches the page first
-(`RemoteTileTests`, calibrated).
+(`RemoteTileTests`, calibrated). And the reason tiles stayed out of sync after a laptop sleep or an app
+restart: mirrors were restored when the gateway's welcome came, and the tiles come back half a second
+after launch; when the welcome won, there was no tile to mirror and it never tried again. Mirrors now
+resume once both have happened, in either order (`resumeMirrorsWhenReady`; `RemoteTileTests`,
+calibrated).
 
 ### 4.8 Scenario 4 in the harness
 

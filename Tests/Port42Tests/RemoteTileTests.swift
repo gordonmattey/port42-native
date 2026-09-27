@@ -89,6 +89,20 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("tiles restored after a restart mirror again whichever comes first, the gateway or the tiles")
+    func resumesInEitherOrder() async throws {
+        let (state, gw) = try world()        // the gateway's welcome has come (world() sends it)
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        state.mirrorsRestored = false
+        state.portPanelsRestored = false      // as at launch: the welcome is in, the tiles are not yet
+        #expect(state.mirrorStatus[tile] == nil)
+        state.portPanelsRestored = true       // the tiles come back after the welcome
+        #expect(state.mirrorStatus[tile] != nil, "a tile restored after the gateway's welcome never mirrored")
+        state.stopMirror(tile: tile)
+    }
+
     @Test("a state event from the host refetches the port into the tile")
     func stateRefreshes() async throws {
         let (state, gw) = try world()

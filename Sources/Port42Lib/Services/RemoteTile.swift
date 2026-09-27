@@ -148,6 +148,16 @@ extension AppState {
         mirrorStatus.removeValue(forKey: tile)
     }
 
+    /// Mirror the tiles restored from the last run, once both the gateway is up (its welcome names this
+    /// instance) and the tiles are back. Either can come first: the welcome used to win, find no tiles,
+    /// and never try again, so after a restart shared tiles stayed disconnected (2026-09-27).
+    func resumeMirrorsWhenReady() {
+        guard localPeerID != nil, portPanelsRestored, !mirrorsRestored else { return }
+        mirrorsRestored = true
+        restoreMirrors()
+        refreshSharing()
+    }
+
     /// Start mirroring every remote tile that survived a restart. Run once the gateway is up.
     func restoreMirrors() {
         for tile in ((try? db.remotePortTiles()) ?? [:]).keys where portWindows.panels.contains(where: { $0.id == tile }) {
