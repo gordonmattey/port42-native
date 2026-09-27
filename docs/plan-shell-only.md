@@ -415,7 +415,7 @@ them; an item leaves only when it is done and verified.
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
-| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
+| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "What will you imagine?" (GM, 2026-09-27; was "say it, see it") |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 | 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`), confirmed by GM |
 | 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Done (`053f38b`), confirmed by GM: no bubbles; one AppKit text, so a drag copies across messages, with each message's time and sender; runs from one sender grouped; hover for a message's time; the time of the top message shown while scrolling |
