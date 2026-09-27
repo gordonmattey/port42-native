@@ -1,0 +1,62 @@
+# The relay anyone can run (nautilus Phase 4.9). Runs only when a `relay-v*` tag is pushed, or by hand:
+# builds the relay image for x86 and ARM and pushes it to GitHub's container registry, and attaches the
+# relay binaries to that tag's release. Nothing here touches the app or its DMG.
+name: relay
+
+on:
+  push:
+    tags: ["relay-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/port42-relay
+          tags: |
+            type=match,pattern=relay-v(.*),group=1
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          file: gateway/relay.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  binaries:
+    # Cross-compiled on Linux: the macOS binaries are unsigned here (no Developer ID in CI). Sign them
+    # locally with scripts/relay-dist.sh and replace them on the release when that matters.
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/relay-v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+      - run: scripts/relay-dist.sh "${GITHUB_REF_NAME#relay-}"
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "Port42 relay ${GITHUB_REF_NAME#relay-}" \
+                 --notes "The relay anyone can run. See docs/run-a-relay.md."
+          gh release upload "$GITHUB_REF_NAME" dist/relay/*.tar.gz dist/relay/*.zip dist/relay/SHA256SUMS --clobber

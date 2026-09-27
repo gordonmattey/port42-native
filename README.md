@@ -576,6 +576,12 @@ The gateway runs locally inside the app bundle. Messages sync between connected 
 
 **State flows one way:** SQLite (GRDB) → AppState (ObservableObject) → Views (SwiftUI). All persistence goes through `DatabaseService`. GRDB `ValueObservation` keeps the UI in sync reactively.
 
+## Run your own relay
+
+Sharing a port goes through a relay, `relay1.port42.ai` by default. Anyone can run their own: on
+Railway with no server, with Docker, or as a single binary for Linux, macOS or Windows. Add its
+`wss://…/v1` address in Settings, Relays. Guide: [docs/run-a-relay.md](docs/run-a-relay.md).
+
 ## Building from source
 
 Requires macOS 14+, Swift 6, and Go 1.21+.

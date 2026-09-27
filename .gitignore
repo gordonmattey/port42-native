@@ -58,3 +58,6 @@ cli/cli
 # Python bytecode
 __pycache__/
 *.pyc
+
+# The relay's release binaries (scripts/relay-dist.sh); published by the relay workflow, never committed.
+dist/relay/
