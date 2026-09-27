@@ -2,7 +2,7 @@
 
 Asked by GM on 2026-09-26: at first run, where the person picks the agent, offer to bring every
 running Claude Code and Codex session into Port42 in one click, choosing which sessions share a
-space. Approved by GM (2026-09-26); being built. Product idea; demand unvalidated.
+space. Approved by GM (2026-09-26). **Built** (steps 1 to 4); live import not yet run. Product idea; demand unvalidated.
 
 ## What exists
 
@@ -114,3 +114,23 @@ copy, and the original, if kept open, is out of date. Hence closing it.
 ## Not in this plan
 
 Sessions on another machine, sessions of other CLIs, and moving (quitting the original).
+
+## Built (2026-09-26)
+
+- **Find:** `SessionImport.find` over `ps`/`lsof` and the session logs; Port42's own sessions and CLI
+  helpers skipped; checked read-only on GM's Mac (24 sessions).
+- **Group:** `SessionImport.Selection` (one space per project, the last day ticked, move, new space,
+  rename).
+- **Bring in:** `AppState.importSessions`, `sessions.find` and `sessions.import` (terminal permission).
+  Claude forks through the shim: `PORT42_FORK_FROM` forks the original INTO the terminal's pinned
+  session on its first launch (`--resume <orig> --fork-session --session-id <pin>`, checked against the
+  real CLI), and every later launch resumes the pin, so a restart never forks the original again. Codex
+  runs `codex fork <id>` with the briefing as its first prompt (which is also what makes it report
+  SessionStart); when it reports its new session, the companion and its stored terminal switch to
+  `codex resume <new id>`. A companion's saved environment now reaches its terminal.
+- **Screens:** the step in the setup terminal (widened to 780) after the agent choice, with the grouped
+  list, drag between groups and onto "new space", rename, the fork note, then what came in and the
+  originals to close, landing on the first imported session; the ⌘K action "bring in running sessions"
+  with the same list in a command box.
+- **Not yet:** window titles through AppleScript (matched on tty) for the close list; a live import.
+

@@ -25,6 +25,7 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerWatchMethods(into: &r, appState: appState)      // companions.watch* (CompanionWatch.swift)
     registerCompanionCreate(into: &r, appState: appState)   // companions.create (CompanionWatch.swift)
     registerImagineMethods(into: &r, appState: appState)    // imagine.* (Imagine.swift)
+    registerSessionImportMethods(into: &r, appState: appState)   // sessions.* (SessionImportFlow.swift)
     // R3: every WRITE verb gains the optional `expect` token here, once, instead of eight times in
     // eight declarations. A write verb added tomorrow gets compare-and-swap by construction.
     return r.mapValues { $0.acceptingExpect() }

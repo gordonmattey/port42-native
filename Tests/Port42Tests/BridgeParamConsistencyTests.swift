@@ -200,6 +200,7 @@ struct BridgeParamConsistencyTests {
         // + port.reopen (closing archives, Phase 2 step 2). = 68.
         // + port.delete (delete a closed port for good). = 69.
         // + space.delete (GM, 2026-09-26: clearing test spaces; it closes the space's ports). = 70.
+        // sessions.find and sessions.import live in SessionImportFlow.swift, outside this scan.
         #expect(methods.count == 70, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 

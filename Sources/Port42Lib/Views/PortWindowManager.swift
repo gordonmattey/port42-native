@@ -326,6 +326,18 @@ public final class PortWindowManager: ObservableObject {
         appState.buildTerminalSurface(for: panel, config: config)
     }
 
+    /// Rewrite a terminal port's stored startup command, which is what a restore runs, and save it.
+    public func rewriteTerminalStartup(id: String, _ transform: (String) -> String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              var config = panels[idx].terminalConfig else { return }
+        let next = transform(config.startupCommand)
+        guard next != config.startupCommand else { return }
+        config.startupCommand = next
+        guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else { return }
+        panels[idx].html = json
+        persistPanel(id)
+    }
+
     /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
         guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }

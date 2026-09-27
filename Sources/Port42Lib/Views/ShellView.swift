@@ -167,6 +167,14 @@ public struct ShellView: View {
                 }.zIndex(216)
             }
 
+            if shell.showImportSessions {
+                ZStack {
+                    CommandBackdrop { shell.showImportSessions = false }
+                    SessionImportBox(isPresented: $shell.showImportSessions, appState: appState)
+                        .offset(y: -30)
+                }.zIndex(217)
+            }
+
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
             // The space's chat, dropped down from the top bar under the space name.
@@ -309,6 +317,7 @@ public struct ShellView: View {
         if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
         if shell.showImagine { shell.showImagine = false; return true }
+        if shell.showImportSessions { shell.showImportSessions = false; return true }
         return false
     }
 

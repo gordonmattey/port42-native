@@ -277,6 +277,88 @@ public enum SessionImport {
         return out.sorted { $0.lastActive > $1.lastActive }
     }
 
+    // MARK: - Grouping (step 2)
+
+    /// A space the import will make (or use), with the sessions going into it.
+    public struct Group: Equatable, Identifiable {
+        public let id: String
+        public var name: String
+        public var sessions: [String]
+    }
+
+    /// What the person has chosen: the groups, and which sessions are ticked.
+    public struct Selection: Equatable {
+        public var groups: [Group]
+        public var ticked: Set<String>
+        public var older: Set<String>
+
+        /// One group per project, the most recently active first; sessions active in the last day
+        /// ticked, older ones unticked (and shown collapsed).
+        public static func initial(_ cs: [Candidate], now: Date = Date(), recent: TimeInterval = 86400) -> Selection {
+            var order: [String] = []
+            var byProject: [String: [Candidate]] = [:]
+            for c in cs.sorted(by: { $0.lastActive > $1.lastActive }) {
+                if byProject[c.project] == nil { order.append(c.project) }
+                byProject[c.project, default: []].append(c)
+            }
+            let groups = order.map { Group(id: "g-\($0)", name: $0, sessions: byProject[$0]!.map(\.sessionId)) }
+            let recentIds = Set(cs.filter { now.timeIntervalSince($0.lastActive) <= recent }.map(\.sessionId))
+            return Selection(groups: groups, ticked: recentIds, older: Set(cs.map(\.sessionId)).subtracting(recentIds))
+        }
+
+        /// Move a session to another group (a drag onto its heading). An emptied group goes.
+        public mutating func move(_ session: String, to groupId: String) {
+            guard groups.contains(where: { $0.id == groupId }) else { return }
+            for i in groups.indices { groups[i].sessions.removeAll { $0 == session } }
+            if let i = groups.firstIndex(where: { $0.id == groupId }) { groups[i].sessions.append(session) }
+            groups.removeAll { $0.sessions.isEmpty }
+        }
+
+        /// Move a session into a new space of its own (a drag onto "new space").
+        public mutating func moveToNewGroup(_ session: String, named name: String) {
+            let id = "g-new-\(UUID().uuidString.prefix(8))"
+            groups.append(Group(id: id, name: uniqueName(name), sessions: []))
+            move(session, to: id)
+        }
+
+        public mutating func rename(_ groupId: String, to name: String) {
+            let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !n.isEmpty, let i = groups.firstIndex(where: { $0.id == groupId }) else { return }
+            groups[i].name = n
+        }
+
+        public mutating func toggle(_ session: String) {
+            if ticked.contains(session) { ticked.remove(session) } else { ticked.insert(session) }
+        }
+
+        func uniqueName(_ base: String) -> String {
+            var n = base, k = 2
+            while groups.contains(where: { $0.name.caseInsensitiveCompare(n) == .orderedSame }) { n = "\(base) \(k)"; k += 1 }
+            return n
+        }
+
+        /// The ticked sessions as import requests, in group order.
+        public func requests(_ cs: [Candidate]) -> [Request] {
+            let byId = Dictionary(cs.map { ($0.sessionId, $0) }, uniquingKeysWith: { a, _ in a })
+            return groups.flatMap { g in
+                g.sessions.filter { ticked.contains($0) }.compactMap { id -> Request? in
+                    guard let c = byId[id] else { return nil }
+                    return Request(sessionId: id, cli: c.cli, cwd: c.cwd, space: g.name,
+                                   name: c.branch.map { "\(c.project)-\($0)" } ?? c.project)
+                }
+            }
+        }
+    }
+
+    /// One session to bring in: which, from where, into which space, under what companion name.
+    public struct Request: Codable, Equatable {
+        public let sessionId: String
+        public let cli: CLI
+        public let cwd: String
+        public let space: String
+        public let name: String
+    }
+
     // MARK: - The real system
 
     /// The running processes, with each CLI process's working directory. `ps` for the table, `lsof`

@@ -441,13 +441,13 @@ func TestUserChoosesSession(t *testing.T) {
 
 func TestSessionPinStepsAsideForTheUsersChoice(t *testing.T) {
 	home := t.TempDir()
-	if got := sessionPin(home, "sid-1", nil); len(got) != 2 || got[1] != "sid-1" {
+	if got := sessionPin(home, "sid-1", "", nil); len(got) != 2 || got[1] != "sid-1" {
 		t.Fatalf("a bare launch gets the pin, got %v", got)
 	}
-	if got := sessionPin(home, "sid-1", []string{"--resume", "theirs"}); got != nil {
+	if got := sessionPin(home, "sid-1", "", []string{"--resume", "theirs"}); got != nil {
 		t.Fatalf("the person's --resume must win, got %v", got)
 	}
-	if got := sessionPin(home, "", nil); got != nil {
+	if got := sessionPin(home, "", "", nil); got != nil {
 		t.Fatalf("no pin without an id, got %v", got)
 	}
 }
@@ -524,5 +524,25 @@ func TestPluginDirArgs(t *testing.T) {
 	}
 	if got := pluginDirArgs(dir + "/missing"); got != nil {
 		t.Fatalf("a missing folder must not be passed (claude would refuse to start): %v", got)
+	}
+}
+
+// A session brought into Port42 is forked into the pin on its first launch, then resumed by the pin.
+func TestSessionPinForksAnImportOnceThenResumesIt(t *testing.T) {
+	home := t.TempDir()
+	first := sessionPin(home, "pin-1", "orig-9", nil)
+	want := []string{"--resume", "orig-9", "--fork-session", "--session-id", "pin-1"}
+	if strings.Join(first, " ") != strings.Join(want, " ") {
+		t.Fatalf("first launch = %v, want %v", first, want)
+	}
+	dir := filepath.Join(home, ".claude", "projects", "-x")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pin-1.jsonl"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionPin(home, "pin-1", "orig-9", nil); strings.Join(got, " ") != "--resume pin-1" {
+		t.Fatalf("a later launch = %v, want the pin resumed (never the original forked again)", got)
 	}
 }
