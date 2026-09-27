@@ -90,7 +90,8 @@ elif $DEV2; then
     DISPLAY_NAME="Port42 Dev2"; GW_PORT="4244"; DATA_DIR="Port42Dev2"; INVITE_NAME="com.port42.dev2.invite"; DEV_ISO=true
 elif $DEV6; then
     # Sixth and seventh isolated dev instances (nautilus Phase 4): a second Port42 on this Mac, so
-    # one instance can share a port with another through the relay.
+    # one instance can share a port with another through the relay. Same ids as on nautilus-phase4,
+    # so the two branches do not fight over a data directory.
     APP_DIR_NAME="Port42Dev6"; EXEC="Port42Dev6"; BUNDLE_ID="com.port42.dev6"
     DISPLAY_NAME="Port42 Dev6"; GW_PORT="4248"; DATA_DIR="Port42Dev6"; INVITE_NAME="com.port42.dev6.invite"; DEV_ISO=true
 elif $DEV7; then
@@ -382,6 +383,29 @@ cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
+# Speech model for voice input (hold space). The Core ML weights are ~461 MB, CC BY 4.0, and are NOT in git
+# and NOT in the shipped app: the DMG stays 42 MB and the weights are fetched on first use into a cache that
+# is shared by every instance on the machine (GM's call, 2026-09-27: a better distribution model than a
+# 500 MB download for a feature not everyone uses).
+#
+# BUNDLE_MODEL=1 copies them in anyway, for testing the bundled path or for a build that must work offline.
+MODEL_SRC="$HOME/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3"
+if [ "${BUNDLE_MODEL:-0}" != "0" ]; then
+    MODEL_DST="$RESOURCES/Models/parakeet-tdt-0.6b-v3"
+    if [ -d "$MODEL_DST/Encoder.mlmodelc" ] && [ "${BUNDLE_MODEL:-0}" != "force" ]; then
+        # Already in this bundle. Copying again is refused anyway once the app has been launched from
+        # here (macOS protects a launched bundle, and Core ML has the weights mapped), and the weights do
+        # not change between builds. BUNDLE_MODEL=force to replace them.
+        echo "[build] Speech model already bundled: $(du -sh "$MODEL_DST" | cut -f1)"
+    elif [ -d "$MODEL_SRC/Encoder.mlmodelc" ]; then
+        mkdir -p "$RESOURCES/Models"
+        rsync -a --delete "$MODEL_SRC/" "$MODEL_DST/"
+        echo "[build] Speech model bundled: $(du -sh "$MODEL_DST" | cut -f1) (CC BY 4.0, nvidia/parakeet-tdt-0.6b-v3 via FluidInference)"
+    else
+        echo "[build] WARNING: no speech model in the FluidAudio cache ($MODEL_SRC) — this build ships without it, and voice input will ask to download"
+    fi
+fi
+
 # Auto-detect Developer ID signing identity if not explicitly set.
 if [ -z "${PORT42_SIGN_IDENTITY:-}" ]; then
     DETECTED_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | awk '{print $2}')

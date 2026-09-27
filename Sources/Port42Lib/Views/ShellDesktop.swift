@@ -88,6 +88,15 @@ struct ShellChrome: View {
             if shell.hasBackgroundPort {
                 chromeButton("moon.stars", "Reset background") { shell.clearBackgroundToTile() }
             }
+            // Voice, when it has something to say about itself (a download, a load, a refusal). It sits in the
+            // chrome next to the other app-level state rather than floating over the desktop, where it overlaid
+            // the rail (GM, 2026-09-27). A hold shows on the tile it is going into, not here.
+            if let voice = shell.voiceIndicatorForSpace {
+                chromeRow {
+                    VoiceStatus(accent: shell.accent, label: voice.label, live: voice.live)
+                        .help("Voice input")
+                }
+            }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
 
             chromeRow { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20) }
@@ -593,6 +602,17 @@ struct ShellTile: View {
             .opacity(shell.cycleFlashId == tile.id ? 1 : 0)
             .animation(.easeOut(duration: 0.3), value: shell.cycleFlashId)
             .allowsHitTesting(false))
+        // Hold-to-talk, over the tile being dictated into: the words are about to land here, so the
+        // indicator belongs here and not in the middle of the desktop. Drawn by the shell, inside the
+        // unit, so a port can neither fake it nor hide it.
+        .overlay(alignment: .bottomTrailing) {
+            if let voice = shell.voiceIndicator(forPort: tile.id) {
+                VoiceStatus(accent: unitAccent, label: voice.label, live: voice.live)
+                    .padding([.trailing, .bottom], 12)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
         // Focused/peeking units aren't corner-resizable — the handles come off.

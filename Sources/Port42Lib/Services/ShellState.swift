@@ -38,6 +38,52 @@ public final class ShellState: ObservableObject {
     @Published public var showImagine: Bool = false
     /// What an imagine link filled the box with, taken by the box when it opens.
     @Published public var imagineLink: ImagineLinkRequest?
+    /// True while hold-to-talk is capturing. The SHELL owns this and draws it: a port must not be
+    /// able to suppress an indicator it does not draw, which is the security requirement behind
+    /// putting voice in the shell rather than in a port.
+    @Published public var voiceCapturing: Bool = false
+    /// Where the speech model is. A hold with no model must say so rather than do nothing.
+    @Published public var voiceModel: VoiceModelState = .absent
+    /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
+    /// is what puts the text into the focused surface.
+    @Published public var voiceNotice: String?
+    /// What a HOLD is saying: the live mic, the words so far, and what went wrong with that hold. It belongs
+    /// wherever the words are going, which is the tile being dictated into when there is one.
+    private var voiceHoldIndicator: (label: String, live: Bool)? {
+        if voiceCapturing { return (voicePartial ?? "listening", true) }
+        if let notice = voiceNotice { return (notice, false) }
+        return nil
+    }
+
+    /// What the MODEL is doing. Not part of any hold, so it belongs to the space: a download pinned to the tile
+    /// of the last hold is in the wrong place, and disappears when that tile does (GM, 2026-09-27).
+    private var voiceModelIndicator: (label: String, live: Bool)? {
+        switch voiceModel {
+        case .downloading, .loading: return (voiceModel.label, false)
+        case .ready, .absent, .failed: return nil
+        }
+    }
+
+    /// The indicator for one tile: only the hold that is going there.
+    public func voiceIndicator(forPort id: String) -> (label: String, live: Bool)? {
+        guard voiceAnchorPortId == id else { return nil }
+        return voiceHoldIndicator
+    }
+
+    /// The indicator for the space: a hold that is not going to any tile, otherwise whatever the model is doing.
+    /// So a download shows on the space even while a hold is streaming into a tile.
+    public var voiceIndicatorForSpace: (label: String, live: Bool)? {
+        if voiceAnchorPortId == nil, let hold = voiceHoldIndicator { return hold }
+        return voiceModelIndicator
+    }
+
+    /// What the system has not granted yet, if a hold could not run because of it.
+    @Published public var voicePermissionNeeded: VoicePermission?
+    /// The words so far, while the hold is still open. Feedback only: the text is inserted on release.
+    @Published public var voicePartial: String?
+    /// The port being dictated into, so the indicator sits on that tile instead of over the desktop.
+    /// Nil means the words are going somewhere the shell itself owns, such as the chat input.
+    @Published public var voiceAnchorPortId: String?
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The port the Share box is open for (4.6b), by port key; nil when it is closed.

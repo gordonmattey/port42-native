@@ -101,3 +101,19 @@ found by running the real gateway and door in tests (`GatewayStallTests`). The l
 froze the app at the switch between clips (sampled on Dev4; fixed in
 `bfb1053`). A flaky test, "stuck: the person is told..." (`StartupPromptTests`), failed once in
 three full-suite runs and is not root-caused (`docs/plan-imagine.md`, I.3).
+
+## Found while building voice input (2026-09-26, Dev7)
+
+Both were seen on the first holds in Dev7 with the weights already complete on disk (461 MB in
+`~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3`). **Both fixed 2026-09-27.**
+
+The loading/downloading confusion went first: the three phases FluidAudio reports on one progress stream
+(listing, downloading, compiling) now map to separate states, and only a real download says downloading.
+The rest followed GM's call: the model starts loading with the app rather than on demand, a hold that
+lands while it is still loading keeps its audio and is read the moment the model is ready, and the system
+permissions are asked for on the first hold, both at once, because otherwise they "just stream in".
+
+| Defect | What happened | Where | Fix direction |
+|---|---|---|---|
+| A first hold is lost to model loading, and the capsule calls loading a download | The capsule read "speech model 50%" and the hold produced no text, although nothing needed downloading | `VoiceSession.prepareModel`, `FluidVoiceTranscriber.prepare`: every `progressHandler` callback is mapped to `.downloading` | Separate loading from downloading (the weights are on disk or they are not), and let a hold that arrives before `.ready` keep its audio and transcribe when the model lands, instead of dropping it |
+| The microphone prompt arrives long after the first hold | macOS asked for microphone access well after the first holds, so those holds captured nothing and said nothing about why | no `AVCaptureDevice.requestAccess(for: .audio)` anywhere on the voice path; the prompt came from `AVAudioEngine` starting | Ask for access when the model becomes ready, hold the capsule at "allow the microphone" until the answer, and do not report a silent hold as success |

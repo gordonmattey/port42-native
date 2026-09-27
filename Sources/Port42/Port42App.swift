@@ -304,6 +304,9 @@ struct Port42App: App {
                 .frame(minWidth: 180, minHeight: 400)
                 .background(Port42Theme.bgPrimary)
                 .preferredColorScheme(.dark)
+                // Voice input starts with the app, so the speech model is warm before anyone holds space. Here
+                // rather than in AppState.init, which a test suite builds hundreds of.
+                .onAppear { appState.startVoice() }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 220, height: 700)

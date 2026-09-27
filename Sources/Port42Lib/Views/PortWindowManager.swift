@@ -176,6 +176,18 @@ public final class PortWindowManager: ObservableObject {
     /// Deferred one runloop turn: callers fire from inside a SwiftUI update transaction
     /// (zoom onChange / withAnimation), where an immediate makeFirstResponder can be
     /// dropped or beaten by the in-flight view churn. After the turn, ours is the last word.
+    /// Which port's surface has the keyboard right now, if any. Used to put the voice indicator on the
+    /// port being dictated into rather than in the middle of the desktop: the shell draws it, but it
+    /// belongs over the thing that is about to receive the words.
+    public func portHoldingKeyboard() -> String? {
+        guard let responder = NSApp?.keyWindow?.firstResponder as? NSView else { return nil }
+        for panel in panels {
+            guard let host = hostView(for: panel.id) else { continue }
+            if responder === host || responder.isDescendant(of: host) { return panel.id }
+        }
+        return nil
+    }
+
     public func focusKeyboard(on id: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
