@@ -540,6 +540,15 @@ Things that would be cool once the five scenarios hold.
   same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
   Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
   (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
+- **Crews by kind for imagine** (GM via growth, 2026-09-27: "for these application types surely you want
+  a set of agents appropriate to them"). Same shape and cost as today (a lead and two members, the same
+  version budget); only the member roles change by kind: data (analyst, engineer), design (designer,
+  engineer), sound (sound designer, engineer), work (writer, analyst), ops (operator, engineer), AI
+  work (evaluator, engineer), play (game master, world builder, engineer), learn (tutor, content writer,
+  engineer), and more on the Elements page. A crew is a small file of role briefs, the same path as
+  `Imagine.leadRole`/`engineerRole`; `imagine.start` and the deep link take an optional `crew`, else the
+  lead picks one from the line or defaults to engineers. Crews editable and shareable like ports.
+  Product idea; the site says crews by kind are coming, not that they exist.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
