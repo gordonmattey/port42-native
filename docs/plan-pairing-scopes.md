@@ -70,6 +70,69 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
    Port42 caller already reads, so a program set up with it just works. And `port42 --as <name>` picks a
    paired login by name on any single call, for the CLI.
 
+## Tests
+
+Every test below is calibrated as this project's tests are: break the code it guards, watch it fail,
+restore. A security test that has never failed proves nothing. Headless unless marked live.
+
+**Scope enforcement (the gate)**
+
+- **Every method is classified.** A new registry method without a class for scoped callers fails the
+  suite, as `RemoteAccessTests` does for remote ones, so nothing becomes reachable to a scoped caller
+  by being added.
+- **Each scope against each class.** For galaxy, space and port scopes: a port method on a port inside
+  the scope passes; on a port outside it is refused `not_granted`; a space method on the scope's space
+  passes, on another space is refused; a machine method (terminal, files, screen, clipboard,
+  AppleScript, REST) is refused for space and port scopes and asks its permission card for galaxy.
+- **No escape by naming.** A scoped caller names a port outside its scope by id, udid, title, a title
+  that matches a port inside, and a panel id: all refused. A port adopted into the scoped space is
+  inside it; a port pinned in every space is not, unless its home is the space.
+- **Listings are filtered.** `ports.list`, `space.list`, `companions.list`, `space.current` and whoami
+  show a scoped caller only what its scope holds; the counts match.
+- **Refused before the card.** A scoped caller never raises a permission card for anything outside its
+  scope (the gate runs first), checked by a card spy.
+- **Chat.** A port-scoped caller posts and reads its port's chat, and cannot post to the space's chat
+  or another port's; its @mentions still wake only what they name.
+- **The same message whether or not the target exists,** so a scoped caller cannot probe for ports.
+
+**Scopes on the client row**
+
+- **The upgrade is not a narrowing and not a widening.** Every existing client (installed CLI,
+  children, manual tokens) reads galaxy after migration v63; a new manual token asks its scope.
+- **Narrowing and revoking apply on the next call,** with no restart: a call after the change is
+  judged by the new scope; a revoked token is refused.
+- **A deleted space or port leaves its scoped tokens reaching nothing,** not reaching everything.
+
+**Pairing**
+
+- **Loopback only.** `pair.request` over the relay or from a remote peer is refused.
+- **Rate limits.** A second pending request from the same process is refused; the fourth request in a
+  minute is refused; the limits reset.
+- **Expiry.** An unanswered request is gone after 2 minutes; approving it after that does nothing.
+- **The code.** Approval with a wrong code is refused; after 5 wrong codes the request is closed (the
+  invite code's limit), so six digits cannot be guessed through the card.
+- **The token reaches only the requester.** Only the connection that asked receives it; another client
+  polling the request id gets nothing.
+- **Deny is quiet.** A denied request learns only "not approved".
+- **What the card shows is verified,** not claimed: the program path and app come from the
+  connection's process, and a name that claims to be another app is shown as the claim it is.
+- **The approved scope wins.** The person narrows a galaxy request to one space; the token is scoped
+  to that space.
+
+**The CLI (Go, against a fake door)**
+
+- `port42 pair` prints the code as three pairs, waits, writes the token file with mode 600, and prints
+  the export line; on deny or expiry it exits non-zero with the reason.
+- `port42 --as <name>` calls with that paired login; an unknown name fails before any call.
+
+**Live, on a dev instance**
+
+- Pair a real script from Terminal with `--space`, approve on the card, and drive a port in that space
+  with it; the same script is refused on a port in another space and on `terminal.exec`.
+- Revoke it in Settings, Access, and its next call is refused.
+- The five scenarios still pass: companions, the CLI and scripts made before the change keep working
+  (galaxy).
+
 ## Steps (after the Phase 4 merge)
 
 1. **Scope on the client row** (migration v63) and the scope gate, reusing `RemoteAccess` with the
