@@ -105,12 +105,14 @@ restore. A security test that has never failed proves nothing. Headless unless m
 
 **Pairing**
 
-- **Loopback only.** `pair.request` over the relay or from a remote peer is refused.
+- **From this Mac only.** Programs on this Mac reach Port42 through its local door; since Phase 4,
+  callers on other machines reach it through the relay, and they get access only by invite. A
+  `pair.request` that arrives through the relay, or from any caller that is not on this Mac, is refused.
 - **Rate limits.** A second pending request from the same process is refused; the fourth request in a
   minute is refused; the limits reset.
 - **Expiry.** An unanswered request is gone after 2 minutes; approving it after that does nothing.
-- **The code.** Approval with a wrong code is refused; after 5 wrong codes the request is closed (the
-  invite code's limit), so six digits cannot be guessed through the card.
+- **The code.** Approval with a wrong code is refused; after 3 wrong codes the request is closed (GM,
+  2026-09-27), so six digits cannot be guessed through the card.
 - **The token reaches only the requester.** Only the connection that asked receives it; another client
   polling the request id gets nothing.
 - **Deny is quiet.** A denied request learns only "not approved".
