@@ -387,6 +387,8 @@ them; an item leaves only when it is done and verified.
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
 | 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
+| 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`): up to 8 lines, then it scrolls; Return sends |
+| 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Built (`053f38b`), awaiting GM's look on Dev5: no bubbles (GM chose to see it without first); one AppKit text, so a drag still copies across messages; runs from one sender grouped; hover a message for its time. Bubbles can be drawn on the same view later |
 
 ## Future roadmap
 
