@@ -194,6 +194,17 @@ extension AppState {
         let id = existing?.id ?? ClientRegistry.slug("peer-\(name)-\(peer.prefix(8))")
         let label = existing?.name ?? peerLabel(name, peer: peer)
         try db.upsertPeerClient(id: id, name: label, peerKey: peer)
+        // A move hands the port over: its page goes to them, it closes here (archived, so it can be
+        // restored), and no right is granted, since nothing stays to reach.
+        if row.rights.contains(.move) {
+            guard row.redeemedBy == nil else { throw inviteError("used", "This port has already moved.") }
+            let html = (try? db.fetchPortHtml(udid: row.portKey)).flatMap { $0 } ?? panel.html
+            try db.markInviteRedeemed(id: row.id, by: peer)
+            let closing = panel.id
+            DispatchQueue.main.async { [weak self] in self?.portWindows.close(closing); self?.refreshSharing() }
+            p42log("[invite] %@ moved to %@", panel.title, label)
+            return .object(["moved": .bool(true), "title": .string(panel.title), "html": .string(html)])
+        }
         let rights = remoteRights(of: peer, onPort: row.portKey).union(row.rights)
         grantRemoteRights(rights, to: peer, onPort: row.portKey)
         if row.redeemedBy == nil {
@@ -241,7 +252,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
         var rights: [RemoteRight] = []
         for r in raw {
             guard let right = RemoteRight(rawValue: r) else {
-                throw BridgeError.badArg("unknown right '\(r)': use see, use, edit, wake_agents or fork")
+                throw BridgeError.badArg("unknown right '\(r)': use see, use, edit, wake_agents, fork or move")
             }
             if !rights.contains(right) { rights.append(right) }
         }
@@ -394,21 +405,29 @@ extension AppState {
         return true
     }
 
-    func acceptInvite(_ linkOrCoupon: String, code: String?) async throws -> (address: PortAddress, title: String, rights: [RemoteRight]) {
+    func acceptInvite(_ linkOrCoupon: String, code: String?) async throws -> (address: PortAddress, title: String, rights: [RemoteRight], moved: String?) {
         guard let c = InviteCoupon.fromLink(linkOrCoupon) else { throw BridgeError.badArg("that is not an invite link") }
         if c.host == localPeerID { throw BridgeError.badArg("that invite is for a port on this instance") }
         var args: [String: Any] = ["nonce": c.nonce, "name": joiningName]
         if let code, !code.isEmpty { args["code"] = code }
         let out = try await door.remoteCall(to: c.host, relays: c.relays, method: "invite.redeem", args: args)
         let o = out as? [String: Any] ?? [:]
-        let rights = ((o["rights"] as? [String]) ?? c.rights).compactMap(RemoteRight.init(rawValue:))
         let title = (o["title"] as? String) ?? c.portTitle
+        // A move: the port is now this instance's own, made from the page it sent; nothing is mirrored.
+        if o["moved"] as? Bool == true, let html = o["html"] as? String {
+            guard let space = currentSpace?.id else { throw BridgeError(code: .wrongState, message: "no space to put the port in") }
+            let made = createPort(type: "web", title: title, html: html, command: nil, cwd: nil, systemPrompt: nil,
+                                  spaceId: space, createdBy: nil, createdByName: nil)
+            guard let id = made["id"] as? String else { throw BridgeError.badArg(made["error"] as? String ?? "the port could not be made here") }
+            return (PortAddress(peerID: localPeerID, spaceId: nil, portId: id), title, [], id)
+        }
+        let rights = ((o["rights"] as? [String]) ?? c.rights).compactMap(RemoteRight.init(rawValue:))
         try db.upsertRemotePort(.init(peerKey: c.host, portKey: c.port, title: title, rights: rights,
                                       relays: c.relays, hostName: c.hostName))
         if let knownAs = o["knownAs"] as? String {
             try db.setRemotePortKnownAs(peerKey: c.host, portKey: c.port, knownAs: knownAs)
         }
-        return (PortAddress(peerID: c.host, spaceId: nil, portId: c.port), title, rights)
+        return (PortAddress(peerID: c.host, spaceId: nil, portId: c.port), title, rights, nil)
     }
 
     /// Where a port reference lives, when it is not here: the instance that holds it and its own id
@@ -499,6 +518,9 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
             }
         }
         let joined = try await appState.acceptInvite(try args.requireString("link"), code: args.string("code"))
+        if let moved = joined.moved {
+            return .object(["moved": .bool(true), "title": .string(joined.title), "port": .string(moved), "tile": .string(moved)])
+        }
         if let peer = joined.address.peerID {
             try? appState.db.setRemotePortWakes(peerKey: peer, portKey: joined.address.portId, wakes: remoteWake)
         }

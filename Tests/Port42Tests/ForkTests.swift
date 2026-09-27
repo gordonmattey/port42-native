@@ -59,4 +59,42 @@ struct ForkTests {
         #expect(state.mirroredRemote(copy) == nil, "the copy is still theirs")
         state.leaveRemotePort(tile: tile2)
     }
+
+    @Test("a move invite hands the port over once: its page goes, it closes here, and no right is granted")
+    func moveHandsOver() async throws {
+        let t = InviteTests()
+        let w = try t.world()
+        let made = try await t.create(w, rights: ["see", "move"])
+        let v = try await t.remote(w, as: InviteTests.ada, "invite.redeem", ["nonce": try t.coupon(made).nonce, "name": "Ada"])
+        let o = try #require(v as? [String: Any])
+        #expect(o["moved"] as? Bool == true && o["html"] as? String == "<p>p</p>" && o["title"] as? String == "shared chart")
+        for _ in 0..<50 where w.state.portWindows.panels.contains(where: { $0.id == "inv-p" }) { await Task.yield() }
+        #expect(!w.state.portWindows.panels.contains { $0.id == "inv-p" }, "the port stayed here after moving")
+        #expect(w.state.remoteRights(of: InviteTests.ada, onPort: w.p).isEmpty, "a move granted a right to a port that is gone")
+        let again = try await t.remote(w, as: InviteTests.ada, "invite.redeem", ["nonce": try t.coupon(made).nonce, "name": "Ada"])
+        #expect(t.reason(again) == "used" || t.reason(again) == "gone", "a port moved twice")
+    }
+
+    @Test("taking a moved port makes it this instance's own, with nothing mirrored")
+    func moveReceived() async throws {
+        let (state, gw) = try RemotePortTests().world()
+        try here(state)
+        gw.reply = { method, _ in
+            method == "invite.redeem"
+                ? [RemotePortTests.response(["moved": true, "title": "shared chart", "html": "<p>given</p>"])]
+                : [["type": "error", "code": "transport_failed", "error": "unscripted \(method)"]]
+        }
+        let link = InviteCoupon(host: RemotePortTests.host, relays: ["r"], port: "P", rights: ["see", "move"], nonce: "n",
+                                exp: Int(Date().timeIntervalSince1970) + 600, hostName: "Ada", portTitle: "shared chart",
+                                code: false).link
+        let out = try await state.runBridgeMethod("invite.accept", principal: .human(id: "u", displayName: "Me", spaceId: nil),
+                                                  args: BridgeArgs(["link": link]))
+        let o = try #require(out.toJSONObject() as? [String: Any])
+        let id = try #require(o["port"] as? String)
+        #expect(o["moved"] as? Bool == true)
+        let panel = try #require(state.portWindows.panels.first { $0.id == id })
+        #expect(panel.html == "<p>given</p>" && panel.title == "shared chart")
+        let rows = try state.db.remotePorts()
+        #expect(state.mirroredRemote(id) == nil && rows.isEmpty, "a moved port was mirrored as theirs")
+    }
 }

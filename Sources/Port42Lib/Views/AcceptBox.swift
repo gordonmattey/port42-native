@@ -14,11 +14,12 @@ struct AcceptBox: View {
     @State private var error: String?
 
     private var coupon: InviteCoupon? { link.flatMap(InviteCoupon.fromLink) }
+    private var moving: Bool { coupon?.rights.contains("move") == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("join")
+                Text(moving ? "take" : "join")
                     .font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.accent)
                     .shadow(color: Port42Theme.accent.opacity(0.8), radius: 6)
                 Text(coupon.map { "\($0.hostName)'s \($0.portTitle)" } ?? "an invite")
@@ -27,9 +28,11 @@ struct AcceptBox: View {
                 KeyCap(label: "esc")
             }
             if let c = coupon {
-                Text("\(c.hostName) is sharing a port with you. it opens here.")
+                Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their machine."
+                            : "\(c.hostName) is sharing a port with you. it opens here.")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !moving {
                 Text("you can " + ShareWords.rights(c.rights.compactMap(RemoteRight.init(rawValue:))))
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
                 Button { wake.toggle() } label: {
@@ -44,6 +47,7 @@ struct AcceptBox: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                }
                 if c.code {
                     HStack(spacing: 10) {
                         Text("code").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textSecondary)
@@ -54,7 +58,7 @@ struct AcceptBox: View {
                 }
                 if let error { Text(error).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.error) }
                 Button(action: accept) {
-                    Text(working ? "> joining…" : "[ open it ↵ ]").font(Port42Theme.monoBold(13))
+                    Text(working ? "> opening…" : (moving ? "[ take it ↵ ]" : "[ open it ↵ ]")).font(Port42Theme.monoBold(13))
                         .foregroundStyle(Port42Theme.accent)
                 }
                 .buttonStyle(.plain).keyboardShortcut(.return, modifiers: []).disabled(working)

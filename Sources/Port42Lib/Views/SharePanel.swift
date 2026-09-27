@@ -148,6 +148,40 @@ struct ShareGuestPanel: View {
     }
 }
 
+/// Where "Move to…" can take a port: another space here, or another machine (a hand-over invite).
+struct PortMovePopover: View {
+    enum Target { case space(String), machine }
+    @ObservedObject var appState: AppState
+    let accent: Color
+    let home: String?
+    var onPick: (Target) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(appState.spaces.filter { $0.id != home }) { space in
+                pick(space.name, icon: "square.stack") { onPick(.space(space.id)) }
+            }
+            Divider().opacity(0.4)
+            pick("another machine…", icon: "arrow.up.forward.app") { onPick(.machine) }
+        }
+        .padding(.vertical, 4)
+        .frame(width: 220)
+        .background(Port42Theme.bgPrimary)
+    }
+
+    private func pick(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 10)).foregroundStyle(accent).frame(width: 16)
+                Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// How sharing reads to a person: the rights in words.
 enum ShareWords {
     static func right(_ r: RemoteRight) -> String {
@@ -157,6 +191,7 @@ enum ShareWords {
         case .edit: return "edit"
         case .wakeAgents: return "wake"
         case .fork: return "copy"
+        case .move: return "move"
         }
     }
 

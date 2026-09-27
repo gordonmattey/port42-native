@@ -388,6 +388,7 @@ struct ShellTile: View {
     @State private var peekHovered = false
     @State private var showVersions = false
     @State private var showMore = false
+    @State private var showMove = false
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
     /// The port's console, opened from its title bar (it used to be a ">" drawn inside the page).
@@ -643,7 +644,7 @@ struct ShellTile: View {
                 // with everything about sharing one click behind it. Silent on a port nobody shares.
                 if let id = tile.panel?.id, let pill = appState.sharePill(tile: id, key: tile.panel?.udid) {
                     SharePillButton(appState: appState, pill: pill, tileId: id, portKey: tile.panel?.udid,
-                                    accent: tileAccent) { shell.shareTarget = tile.panel?.udid }
+                                    accent: tileAccent) { shell.shareMove = false; shell.shareTarget = tile.panel?.udid }
                 }
                 // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
                 // recently. Silent when it is you — the chrome speaks only when there is contention.
@@ -731,7 +732,7 @@ struct ShellTile: View {
                             shell.hideTile(tile.panel?.id ?? tile.id)
                             showMore = false
                         },
-                        onShare: shareablePort ? { showMore = false; shell.shareTarget = tile.panel?.udid } : nil,
+                        onShare: shareablePort ? { showMore = false; shell.shareMove = false; shell.shareTarget = tile.panel?.udid } : nil,
                         onFork: shareablePort ? {
                             showMore = false
                             let id = tile.panel?.id ?? tile.id
@@ -739,6 +740,7 @@ struct ShellTile: View {
                                 if let copy = try? await appState.forkPort(id) { shell.bringToFront(copy) }
                             }
                         } : nil,
+                        onMove: shareablePort ? { showMore = false; showMove = true } : nil,
                         onSetBackground: {
                             // MOVE the port to the background — a position change, not a clone. Its
                             // presentation flips to "background", so it drops out of the tile grid and
@@ -749,6 +751,16 @@ struct ShellTile: View {
                         })
                 }
                 .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+                .popover(isPresented: $showMove, arrowEdge: .bottom) {
+                    PortMovePopover(appState: appState, accent: shell.accent, home: tile.panel?.spaceId) { target in
+                        showMove = false
+                        let id = tile.panel?.id ?? tile.id
+                        switch target {
+                        case .space(let sid): appState.portWindows.move(id: id, toSpace: sid)
+                        case .machine: shell.shareMove = true; shell.shareTarget = tile.panel?.udid
+                        }
+                    }
+                }
             }
             // Focus toggle: enter focus, or shrink back out if already focused.
             Button {
@@ -1434,6 +1446,8 @@ struct PortMorePopover: View {
     var onShare: (() -> Void)? = nil
     /// A copy of this port, beside it (4.6b); nil hides the row.
     var onFork: (() -> Void)? = nil
+    /// Move it to another space, or hand it to another machine (4.6b); nil hides the row.
+    var onMove: (() -> Void)? = nil
     let onSetBackground: () -> Void
 
     var body: some View {
@@ -1451,7 +1465,10 @@ struct PortMorePopover: View {
             if let onFork {
                 row("Fork: a copy", icon: "arrow.triangle.branch", action: onFork)
             }
-            if onShare != nil || onFork != nil { Divider().opacity(0.4) }
+            if let onMove {
+                row("Move to…", icon: "arrow.right.square", action: onMove)
+            }
+            if onShare != nil || onFork != nil || onMove != nil { Divider().opacity(0.4) }
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
         }

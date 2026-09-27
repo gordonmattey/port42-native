@@ -558,6 +558,15 @@ current space, titled "… (copy)", with no grants of its own and no tie to the 
 `ForkTests` (an independent copy; refused without leave, made with it, and never still theirs),
 calibrated by three breaks. Suite 1350 green.
 
+**Move, built 2026-09-27.** "Move to…" under "…" on your own web port lists your other spaces (the
+existing re-home: only its space changes, the live view is untouched) and "another machine…", which
+opens the Share box as a hand-over: an invite carrying `move`, with an optional code. Opening it takes
+the port: its page goes to them as a port of their own, it closes here (archived, so restorable), and
+no right is granted, since nothing stays to reach; a second redeem is refused. The accept box says
+"take" and that it closes on their machine. `move` travels in the invite's rights, so no migration.
+Gates: `ForkTests` (the hand-over, and taking it), calibrated by three breaks. Suite 1352 green.
+4.6b is complete.
+
 ### 4.6c Companions across machines: one chat for a shared port
 
 **The test this step exists for (Gordon, 2026-09-26):** a companion on Dev2 and a companion on Dev6

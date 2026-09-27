@@ -188,7 +188,7 @@ public struct ShellView: View {
             if shell.shareTarget != nil {
                 ZStack {
                     CommandBackdrop { shell.shareTarget = nil }
-                    ShareBox(portKey: $shell.shareTarget, appState: appState)
+                    ShareBox(portKey: $shell.shareTarget, appState: appState, moving: shell.shareMove)
                         .offset(y: -30)
                 }.zIndex(218)
             }

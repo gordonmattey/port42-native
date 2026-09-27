@@ -32,6 +32,9 @@ public enum RemoteRight: String, CaseIterable, Equatable, Hashable {
     /// Take a copy of the port (Gordon, 2026-09-27: option A). The sharer's leave, which Port42 honours
     /// by offering Fork only when it is given. It cannot be enforced: `see` already delivers the page.
     case fork
+    /// Not a right held but a hand-over: an invite carrying `move` gives the port to whoever opens it,
+    /// once, and closes it here (4.6b). Never granted, so it reaches nothing.
+    case move
 }
 
 /// How a method is reachable from another machine.

@@ -7,6 +7,8 @@ import AppKit
 struct ShareBox: View {
     @Binding var portKey: String?
     @ObservedObject var appState: AppState
+    /// Hand the port over instead of sharing it: the link gives it to them once and it closes here.
+    var moving = false
 
     @State private var use = true
     @State private var edit = false
@@ -29,7 +31,7 @@ struct ShareBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("share")
+                Text(moving ? "move" : "share")
                     .font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.accent)
                     .shadow(color: Port42Theme.accent.opacity(0.8), radius: 6)
                 Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
@@ -39,12 +41,18 @@ struct ShareBox: View {
             if let made {
                 result(made)
             } else {
-                Text("with one person on another machine. they can always see it; choose what else.")
-                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
-                option("use it", "click, type, drive it", $use)
-                option("edit it", "change the port itself", $edit)
-                option("remote wake", "their companions can wake yours in its chat", $wake)
-                option("allow a copy", "they can fork it into a port of their own", $copy)
+                if moving {
+                    Text("to one person on another machine. when they open the link it becomes theirs and closes here.")
+                        .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("with one person on another machine. they can always see it; choose what else.")
+                        .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                    option("use it", "click, type, drive it", $use)
+                    option("edit it", "change the port itself", $edit)
+                    option("remote wake", "their companions can wake yours in its chat", $wake)
+                    option("allow a copy", "they can fork it into a port of their own", $copy)
+                }
                 option("require a code", "a six-digit code you send them another way", $code)
                 if let error { Text(error).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.error) }
                 Button(action: make) {
@@ -113,10 +121,14 @@ struct ShareBox: View {
     private func make() {
         guard let portKey, let user = appState.currentUser else { return }
         var rights = ["see"]
-        if use { rights.append("use") }
-        if edit { rights.append("edit") }
-        if wake { rights.append("wake_agents") }
-        if copy { rights.append("fork") }
+        if moving {
+            rights.append("move")
+        } else {
+            if use { rights.append("use") }
+            if edit { rights.append("edit") }
+            if wake { rights.append("wake_agents") }
+            if copy { rights.append("fork") }
+        }
         Task { @MainActor in
             do {
                 let out = try await appState.runBridgeMethod(
