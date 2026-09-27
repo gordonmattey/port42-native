@@ -757,11 +757,11 @@
     "name" : "port_history"
   },
   {
-    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop). Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
+    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
     "input_schema" : {
       "properties" : {
         "action" : {
-          "description" : "One of: focus, close, hide, show (minimize, dock, restore and undock are older names for hide and show)",
+          "description" : "One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)",
           "type" : "string"
         },
         "id" : {

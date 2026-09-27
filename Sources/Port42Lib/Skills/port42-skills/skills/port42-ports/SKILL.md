@@ -88,13 +88,12 @@ hidden claude or codex terminal is a headless agent reached through its chat.
 
 Only when the person asks you to share a port with someone:
 
-    port42 invite.create port=<id> rights:='["see","use"]'
+    port42 invite.create port=<id>
 
-It returns a `link` to send them. It opens one port, in Port42 or in their browser, and works once.
-Rights are `see`, `use`, `edit` and `wake_agents`; `requireCode:=true` adds a six-digit `code` to
-send another way. Tell the person what `discloses` lists: the port can do those things on this
-machine, and whoever joins can make it. `port42 invite.list` and `port42 invite.revoke id=<id>`
-manage unused invites; people who joined are removed in Settings → Access.
+It returns a `link` to send them; it works once, in Port42 or their browser. Rights default to
+`see`, `use` and `wake_agents`; add `edit` or `fork` in `rights`, and `requireCode:=true` for a
+six-digit `code` sent another way. Tell the person what `discloses` lists: what the port can do on
+this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unused one.
 
 ## Gotchas (each one broke a real port, silently)
 

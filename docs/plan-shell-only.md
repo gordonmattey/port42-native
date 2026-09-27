@@ -436,9 +436,16 @@ Things that would be cool once the five scenarios hold.
   asked why, in words ("echo could not reply: the API is overloaded. Wait a moment and send it
   again."), without @mentioning it, so it wakes no one. Codex has no failure hook; not covered.
 - **Pinning ports** (GM, 2026-09-27). Pin a port in its space (it keeps its place and stays up), and
-  pin a port across spaces (it shows in every space).
-- **Review the port's "…" menu** (GM, 2026-09-27). The order of every item, and what belongs
-  together: for example, Move could include "set as background".
+  pin a port across spaces (it shows in every space). **Built (2026-09-27):** "Pin in this space"
+  keeps the tile above every unpinned tile there (the `isAlwaysOnTop` column, unused since the old
+  windows went); "Pin in every space" shows it on every desktop, above the others, at one position
+  (migration `v62-port-pinned-everywhere`). Paint order is a rank, so a tile never climbs over the
+  shell's own layers. A pin mark shows in the title bar; `port.manage` takes pin, pinEverywhere,
+  unpin. Today "Pin" is one row whose choices open under it (in this space, in every space, unpin), at the end of the "…" menu; it moves into the placement group
+  with the menu review below, after the release (Phase 4 is changing the same menu).
+- **Review the port's "…" menu: agreed order (GM, 2026-09-27), held until after the release.**
+  Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
+  Share… · Fork, then Refresh · History… for web ports. No "Copy port id" (GM: no need found).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

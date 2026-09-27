@@ -499,8 +499,20 @@ public final class ShellState: ObservableObject {
         guard let sid = appState.currentSpace?.id else { return [] }
         return appState.portWindows.panels.filter { p in
             p.presentation == "tiled" && !p.isBackground
-                && (p.spaceId == sid || p.adoptedSpaceIds.contains(sid))
+                && (p.spaceId == sid || p.adoptedSpaceIds.contains(sid) || p.pinnedEverywhere)
         }
+    }
+
+    /// Paint order for the desktop's tiles (GM, 2026-09-27): pinned tiles above unpinned ones, each
+    /// group by its own z. A rank, not z plus a large offset, so a tile never climbs over the shell's
+    /// own layers (the rail, the drag overlays) however many times ports have been raised.
+    nonisolated public static func stackRank(_ panels: [PortPanel]) -> [String: Int] {
+        let ordered = panels.sorted { a, b in
+            a.isAlwaysOnTop != b.isAlwaysOnTop ? !a.isAlwaysOnTop : a.z < b.z
+        }
+        var rank: [String: Int] = [:]
+        for (i, p) in ordered.enumerated() { rank[p.id] = i + 1 }
+        return rank
     }
 
     /// One renderable unit on the desktop (Phase 1): a tiled panel, a peeking port, or a

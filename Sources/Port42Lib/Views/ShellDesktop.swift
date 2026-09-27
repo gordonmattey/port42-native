@@ -220,12 +220,14 @@ struct ShellDesktopView: View {
                 // (I4). Tile / peek / focus are geometry states of the same mounted view
                 // (placement §3): a previewed peek resizes railSlot → focusRect in place; an
                 // adopted peek slides rail → grid — never re-mounted. Paint order is zIndex.
+                // Pinned tiles paint above unpinned ones (ShellState.stackRank).
+                let ranks = ShellState.stackRank(contextItems.compactMap(\.panel))
                 ForEach(contextItems) { item in
                     let fallbackIdx = tiledPanels.firstIndex { $0.id == item.id } ?? 0
                     let pl = ShellPlacement.placement(
                         id: item.id, position: item.panel?.position(on: sid),
                         size: item.panel?.size ?? ShellPlacement.peekSize,
-                        z: item.panel?.z ?? 0,
+                        z: ranks[item.id] ?? item.panel?.z ?? 0,
                         zoom: shell.zoom, onDesktop: true,
                         peekIndex: item.peekIndex, fallbackIndex: fallbackIdx,
                         area: geo.size)
@@ -662,6 +664,12 @@ struct ShellTile: View {
                         .background(Port42Theme.bgHover, in: Capsule())
                         .help("\(held.name) drove this port most recently. Your writes are not blocked; a write composed against stale state is refused, not applied.")
                 }
+                // Pinned: a mark in the bar, so a tile that will not go under the others says why.
+                if let pin = tile.panel?.pin, pin != .none {
+                    Image(systemName: pin == .everywhere ? "pin.circle.fill" : "pin.fill")
+                        .font(.system(size: 8)).foregroundStyle(tileAccent.opacity(0.8))
+                        .help(pin == .everywhere ? "Pinned in every space" : "Pinned in this space")
+                }
                 Spacer(minLength: 8)
             }
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
@@ -741,6 +749,11 @@ struct ShellTile: View {
                             }
                         } : nil,
                         onMove: shareablePort ? { showMore = false; showMove = true } : nil,
+                        pin: tile.panel?.pin ?? .none,
+                        onPin: { pin in
+                            if let id = tile.panel?.id { appState.portWindows.setPin(id: id, pin) }
+                            showMore = false
+                        },
                         onSetBackground: {
                             // MOVE the port to the background — a position change, not a clone. Its
                             // presentation flips to "background", so it drops out of the tile grid and
@@ -1448,7 +1461,19 @@ struct PortMorePopover: View {
     var onFork: (() -> Void)? = nil
     /// Move it to another space, or hand it to another machine (4.6b); nil hides the row.
     var onMove: (() -> Void)? = nil
+    /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
+    let pin: PortPin
+    let onPin: (PortPin) -> Void
     let onSetBackground: () -> Void
+    @State private var pinOpen = false
+
+    private var pinTitle: String {
+        switch pin {
+        case .none: return "Pin"
+        case .space: return "Pinned in this space"
+        case .everywhere: return "Pinned in every space"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1471,20 +1496,47 @@ struct PortMorePopover: View {
             if onShare != nil || onFork != nil || onMove != nil { Divider().opacity(0.4) }
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
+            // One "Pin" option with its choices under it (GM, 2026-09-27). A popover has no
+            // submenus, so the row opens its choices in place.
+            row(pinTitle, icon: pin == .none ? "pin" : "pin.fill", trailing: pinOpen ? "▾" : "▸") {
+                withAnimation(.easeOut(duration: 0.15)) { pinOpen.toggle() }
+            }
+            if pinOpen {
+                subRow("In this space", on: pin == .space) { onPin(.space) }
+                subRow("In every space", on: pin == .everywhere) { onPin(.everywhere) }
+                if pin != .none { subRow("Unpin", on: false) { onPin(.none) } }
+            }
         }
         .padding(.vertical, 4)
         .frame(width: 200)
         .background(Port42Theme.bgPrimary)
     }
 
-    private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, icon: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 10)).foregroundStyle(accent).frame(width: 16)
                 Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                 Spacer(minLength: 0)
+                if let trailing {
+                    Text(trailing).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A choice under an opened row, indented, with a check on the current one.
+    private func subRow(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(on ? "✓" : "").font(Port42Theme.mono(10)).foregroundStyle(accent).frame(width: 16)
+                Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 28).padding(.trailing, 10).padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

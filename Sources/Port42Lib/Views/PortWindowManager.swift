@@ -5,6 +5,11 @@ import Combine
 
 // MARK: - Port Panel
 
+/// Where a port is pinned (GM, 2026-09-27).
+public enum PortPin: String, Sendable {
+    case none, space, everywhere
+}
+
 /// A port that has been popped out of the inline message stream.
 public struct PortPanel: Identifiable {
     public let id: String
@@ -34,11 +39,11 @@ public struct PortPanel: Identifiable {
 
     /// This tile's position on one desktop. `nil` for the space it has not been placed on.
     public func position(on spaceId: String?) -> CGPoint? {
-        positions[spaceId ?? self.spaceId ?? Self.homelessKey]
+        positions[pinnedEverywhere ? (self.spaceId ?? Self.homelessKey) : (spaceId ?? self.spaceId ?? Self.homelessKey)]
     }
 
     public mutating func setPosition(_ p: CGPoint?, on spaceId: String?) {
-        let key = spaceId ?? self.spaceId ?? Self.homelessKey
+        let key = pinnedEverywhere ? (self.spaceId ?? Self.homelessKey) : (spaceId ?? self.spaceId ?? Self.homelessKey)
         if let p { positions[key] = p } else { positions.removeValue(forKey: key) }
     }
 
@@ -58,7 +63,13 @@ public struct PortPanel: Identifiable {
     /// Port Units Phase 3 — spaces that ADOPTED this port (kept its peek). The port renders on
     /// its home desktop AND every adopter's; persisted, so adoption survives switch + restart.
     public var adoptedSpaceIds: [String] = []
+    /// Pinned in its space (GM, 2026-09-27): drawn above every unpinned tile there. The column
+    /// predates the shell (the old window's "always on top"), so it is reused, not renamed.
     public var isAlwaysOnTop: Bool = false
+    public var pin: PortPin { pinnedEverywhere ? .everywhere : (isAlwaysOnTop ? .space : .none) }
+    /// Pinned in every space: the port shows on every desktop, above unpinned tiles, at ONE position
+    /// (moving it anywhere moves it everywhere). Implies pinned.
+    public var pinnedEverywhere: Bool = false
     public var isBackground: Bool = false
     public var portType: String = "web"
     /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip) or "background" (the desktop
@@ -293,6 +304,7 @@ public final class PortWindowManager: ObservableObject {
             panel.z = row.z
             panel.railOrder = row.dockOrder
             // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
+            panel.pinnedEverywhere = row.pinnedEverywhere
             if let adoptedStr = row.adoptedSpaceIds,
                let data = adoptedStr.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
@@ -541,6 +553,14 @@ public final class PortWindowManager: ObservableObject {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].setPosition(position, on: spaceId)
         if let size { panels[idx].size = size }
+        persistPanel(id)
+    }
+
+    /// Pin a port in its space, in every space, or neither (GM, 2026-09-27), then persist.
+    public func setPin(id: String, _ pin: PortPin) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].isAlwaysOnTop = pin != .none
+        panels[idx].pinnedEverywhere = pin == .everywhere
         persistPanel(id)
     }
 
