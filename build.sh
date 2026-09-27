@@ -58,6 +58,7 @@ NO_DMG=false
 DEV2=false
 DEV3=false
 DEV4=false
+DEV5=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -67,6 +68,7 @@ for arg in "$@"; do
         --dev2)    DEV2=true ;;
         --dev3)    DEV3=true ;;
         --dev4)    DEV4=true ;;
+        --dev5)    DEV5=true ;;
     esac
 done
 
@@ -88,6 +90,11 @@ elif $DEV4; then
     # exercised here. Own bundle id, data dir and gateway port, like the others.
     APP_DIR_NAME="Port42Dev4"; EXEC="Port42Dev4"; BUNDLE_ID="com.port42.dev4"
     DISPLAY_NAME="Port42 Dev4"; GW_PORT="4246"; DATA_DIR="Port42Dev4"; INVITE_NAME="com.port42.dev4.invite"; DEV_ISO=true
+elif $DEV5; then
+    # Fifth isolated dev instance (2026-09-26): a clean one for first-run setup (the session import
+    # step), so Dev4's state is untouched. Phase 4 uses Dev6 and Dev7 (4248, 4249).
+    APP_DIR_NAME="Port42Dev5"; EXEC="Port42Dev5"; BUNDLE_ID="com.port42.dev5"
+    DISPLAY_NAME="Port42 Dev5"; GW_PORT="4247"; DATA_DIR="Port42Dev5"; INVITE_NAME="com.port42.dev5.invite"; DEV_ISO=true
 elif $DEV3; then
     # Third isolated dev instance, alongside Port42Dev/Dev2 — a free surface to test changes while
     # Dev keeps running whatever it's running (e.g. the companion loop). Own id, data dir, gateway.
