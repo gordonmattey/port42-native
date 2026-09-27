@@ -446,7 +446,10 @@ Things that would be cool once the five scenarios hold.
   error, a dropped connection), the chat that asked shows only what the CLI's hooks report: on
   intermittent wifi, Claude's notice surfaced as "@name is waiting for your input", not the error
   itself. Surface the error in the presence line (and the chat) when the CLI reports one. Claude
-  first; Codex to check.
+  first; Codex to check. **Done for Claude (2026-09-27):** Port42 registers Claude's `StopFailure`
+  hook; a failed turn clears the agent from the chat's presence and Port42 posts in the chat that
+  asked why, in words ("echo could not reply: the API is overloaded. Wait a moment and send it
+  again."), without @mentioning it, so it wakes no one. Codex has no failure hook; not covered.
 - **Pinning ports** (GM, 2026-09-27). Pin a port in its space (it keeps its place and stays up), and
   pin a port across spaces (it shows in every space).
 - **Review the port's "…" menu** (GM, 2026-09-27). The order of every item, and what belongs

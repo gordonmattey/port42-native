@@ -30,6 +30,9 @@ public enum TerminalHookEvent: Sendable, Equatable {
     /// switched to resume it on later launches).
     case sessionStarted(cli: String?, sessionId: String? = nil)
     case sessionEnded
+    /// The turn ended in a failure instead of a reply (Claude's StopFailure): `error` is the CLI's
+    /// code (`rate_limit`, `overloaded`, `server_error`, ...), `details` its own words, if any.
+    case turnFailed(error: String, details: String)
 }
 
 // MARK: - Receiver
@@ -152,6 +155,7 @@ public actor TerminalHooksService {
         var transcript: String?
         var transcriptBytes: Int64?
         var cli: String?
+        var error: String?
     }
 
     private nonisolated static func decode(_ data: Data) -> TerminalHookEvent? {
@@ -174,6 +178,9 @@ public actor TerminalHooksService {
         case "inputSubmitted": return .inputSubmitted(prompt: w.prompt ?? "")
         case "sessionStarted": return .sessionStarted(cli: w.cli, sessionId: w.sessionId)
         case "sessionEnded":   return .sessionEnded
+        case "turnFailed":
+            p42log("[hooks] turnFailed: %@ %@", w.error ?? "", w.text ?? "")
+            return .turnFailed(error: w.error ?? "unknown", details: w.text ?? "")
         default:               return nil
         }
     }

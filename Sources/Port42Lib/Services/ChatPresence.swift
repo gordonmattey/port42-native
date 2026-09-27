@@ -19,6 +19,31 @@ public struct ChatPresence: Equatable {
     public var since: Date
 }
 
+extension ChatPresence {
+    /// What the chat says when an agent's turn failed instead of replying (GM, 2026-09-27): who,
+    /// what went wrong in words, and what to do. Claude's StopFailure codes; anything else reads as
+    /// an error, with the CLI's own words when it gave them.
+    public static func failureNotice(name: String, error: String, details: String) -> String {
+        let what: String
+        switch error {
+        case "rate_limit": what = "it was rate limited. Wait a moment and send it again."
+        case "overloaded": what = "the API is overloaded. Wait a moment and send it again."
+        case "server_error": what = "the API could not be reached (the connection may have dropped). Send it again."
+        case "authentication_failed", "oauth_org_not_allowed", "cloud_credential_error":
+            what = "its login failed. Sign in again in its terminal."
+        case "billing_error": what = "its usage limit is reached. Check its plan."
+        case "account_on_hold", "verification_required": what = "its account needs attention. See its terminal."
+        case "model_not_found": what = "its model is not available. Check its terminal."
+        case "max_output_tokens": what = "its reply ran past the length limit."
+        case "invalid_request": what = "the request was refused."
+        default: what = "it hit an error."
+        }
+        let words = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        let said = words.isEmpty ? "" : " (\(words.count > 200 ? String(words.prefix(200)) + "…" : words))"
+        return "\(name) could not reply: \(what)\(said)"
+    }
+}
+
 @MainActor
 public final class ChatPresenceStore: ObservableObject {
     @Published public private(set) var byChat: [String: [ChatPresence]] = [:]

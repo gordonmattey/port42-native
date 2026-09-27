@@ -90,6 +90,21 @@ struct TerminalHooksServiceTests {
         #expect(received == .toolStarting(tool: "Bash", input: "ls"))
     }
 
+    @Test("turnFailed carries the CLI's error code and its words")
+    func turnFailedDecodes() async throws {
+        let sock = "/tmp/p42h-test-\(UInt32.random(in: 0..<1_000_000)).sock"
+        let service = TerminalHooksService(socketPath: sock)
+        let stream = await service.events()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try sendToSocket(sock, #"{"event":"turnFailed","error":"rate_limit","text":"429"}"#)
+        var received: TerminalHookEvent?
+        let collector = Task { for await e in stream { received = e; break } }
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        collector.cancel()
+        await service.stop()
+        #expect(received == .turnFailed(error: "rate_limit", details: "429"))
+    }
+
     @Test("sessionStarted carries the CLI that raised it")
     func sessionStartedCarriesCLI() async throws {
         let sock = "/tmp/p42h-test-\(UInt32.random(in: 0..<1_000_000)).sock"

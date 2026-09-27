@@ -278,6 +278,13 @@ func buildSettings(selfPath string) string {
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("needsAttention")}},
 			}},
+			// StopFailure ends a turn that failed (an API error, a dropped connection, a rate
+			// limit) instead of Stop. Without it the chat that asked saw nothing, or "waiting for
+			// your input" (GM, 2026-09-27, on intermittent wifi).
+			"StopFailure": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("turnFailed")}},
+			}},
 		},
 	}
 	b, err := json.Marshal(settings)
@@ -312,6 +319,8 @@ type normalizedEvent struct {
 	// Which CLI raised the hook. A plain terminal where the person typed `codex` used to be
 	// registered as Claude, because nothing said otherwise (2026-09-25).
 	CLI string `json:"cli,omitempty"`
+	// Why a turn failed (turnFailed only): the CLI's error code.
+	Error string `json:"error,omitempty"`
 }
 
 // runNotify reads Claude's raw hook payload from stdin, translates it to a normalized event,
@@ -376,6 +385,12 @@ func runNotify(event, cli string) {
 		if p, ok := payload["prompt"].(string); ok {
 			out.Prompt = p
 		}
+	case "turnFailed":
+		// Claude's StopFailure: `error` is one of a fixed set (rate_limit, overloaded,
+		// server_error, authentication_failed, billing_error, unknown, ...), `error_details` its
+		// own words when it has them.
+		out.Error, _ = payload["error"].(string)
+		out.Text, _ = payload["error_details"].(string)
 	case "needsAttention":
 		// Claude's Notification payload carries the human-readable reason ("Claude needs your
 		// permission to use Bash", "Claude is waiting for your input"). Carry it as the text, so

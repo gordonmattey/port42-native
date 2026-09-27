@@ -161,6 +161,9 @@ final class GhosttyTerminalController {
     var onSessionId: ((String) -> Void)?
     /// What the chat shows of this agent (ChatPresence): took the message up, needs the person, done.
     var onPresence: ((ChatPresence.State?) -> Void)?
+    /// The turn failed instead of replying (an API error, a dropped connection): the code and the
+    /// CLI's own words. AppState says so in the chat that asked.
+    var onTurnFailed: ((String, String) -> Void)?
     /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
@@ -325,6 +328,15 @@ final class GhosttyTerminalController {
             if !didNotifySessionStart {
                 didNotifySessionStart = true
                 onSessionStarted(cli)
+            }
+        case .turnFailed(let error, let details):
+            log("event=turnFailed error=\(error) details=\(details.prefix(80).debugDescription)")
+            onPresence?(nil)
+            onTurnFailed?(error, details)
+            // Back at its prompt, as after any turn: ready again once the screen is quiet.
+            if hooksCapable && cliRunning && inputReady {
+                inputReady = false
+                becomeReadyWhenQuiet()
             }
         case .sessionEnded:
             log("event=sessionEnded")
