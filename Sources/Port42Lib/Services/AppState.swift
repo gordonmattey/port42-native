@@ -370,6 +370,9 @@ public final class AppState: ObservableObject {
     /// at launch appears broken until it is restarted (GM, Dev7, 2026-09-27: holding space "just adds a
     /// string of spaces"). So the grant is re-checked on a slow timer and whenever the app is activated.
     private func watchForAccessibility() {
+        // Only when the feature is switched on. Every AppState used to arm a repeating timer, and a test suite
+        // builds hundreds of them.
+        guard UserDefaults.standard.bool(forKey: VoiceGlobalTrigger.enabledKey) else { return }
         let recheck = { [weak self] in
             guard let self, self.voiceInOtherApps == nil,
                   UserDefaults.standard.bool(forKey: VoiceGlobalTrigger.enabledKey) else { return }

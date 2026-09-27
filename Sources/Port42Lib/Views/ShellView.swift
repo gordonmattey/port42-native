@@ -260,10 +260,8 @@ public struct ShellView: View {
 
             // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
             // listening without saying so.
-            if (shell.voiceCapturing || shell.voiceNotice != nil) && shell.voiceAnchorPortId == nil {
-                VoiceIndicator(accent: shell.accent,
-                               label: shell.voiceNotice ?? voiceLabel,
-                               live: shell.voiceCapturing)
+            if let voice = shell.voiceIndicator, shell.voiceAnchorPortId == nil {
+                VoiceIndicator(accent: shell.accent, label: voice.label, live: voice.live)
                     .zIndex(220)
                     .allowsHitTesting(false)
                     .transition(.opacity)
@@ -499,8 +497,9 @@ public struct ShellView: View {
         }
         session.onModelState = { state in
             shell.voiceModel = state
+            appState.voiceModelState = state      // the shell takes this callback over from AppState
             switch state {
-            case .downloading, .loading: shell.voiceNotice = nil
+            case .downloading, .loading: shell.voiceNotice = nil   // the state speaks for itself
             default: break
             }
         }

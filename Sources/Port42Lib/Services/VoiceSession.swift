@@ -59,10 +59,17 @@ public final class VoiceSession {
     public static let downloadAllowedKey = "voiceModelDownloadAllowed"
 
     /// The default when nothing has been set, so a shipped app can dictate and a locked-down one can refuse.
-    public static var downloadAllowedByDefault: Bool { true }
+    nonisolated public static var downloadAllowedByDefault: Bool { true }
 
-    static func downloadAllowed(_ defaults: UserDefaults = .standard) -> Bool {
+    nonisolated static func downloadAllowed(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: downloadAllowedKey) as? Bool ?? downloadAllowedByDefault
+    }
+
+    /// Whether this call may fetch 461 MB. Launch may not: the app loads weights that are already there and
+    /// otherwise waits, because nobody has asked for dictation yet. A hold may, and that hold IS the asking.
+    nonisolated static func shouldDownload(askedByAHold: Bool, weightsOnDisk: Bool, allowed: Bool) -> Bool {
+        guard !weightsOnDisk else { return false }
+        return askedByAHold && allowed
     }
 
     public init(source: VoiceAudioSource,
@@ -116,7 +123,7 @@ public final class VoiceSession {
         // model lands. Only a model that is absent or failed stops it.
         switch model {
         case .ready, .loading, .downloading: break
-        case .absent, .failed: prepareModel(); return
+        case .absent, .failed: prepareModel(askedByAHold: true); return
         }
 
         do {
@@ -173,16 +180,19 @@ public final class VoiceSession {
         onPartial?(text)
     }
 
-    /// Load the model, downloading it first if that has been allowed. Safe to call repeatedly.
-    public func prepareModel() {
+    /// Load the model. At launch this only loads weights that are already on disk; a hold is what may fetch
+    /// them, because the app does not ship them and nobody has asked for dictation until then.
+    public func prepareModel(askedByAHold: Bool = false) {
         if case .downloading = model { return }
         if case .loading = model { return }
         if model == .ready { return }
         guard let fluid = transcriber as? FluidVoiceTranscriber else { return }
-        let allowed = Self.downloadAllowed()
-        guard allowed || FluidVoiceTranscriber.weightsOnDisk else { setModel(.absent); return }
+        let onDisk = FluidVoiceTranscriber.weightsOnDisk
+        let allowed = Self.shouldDownload(askedByAHold: askedByAHold, weightsOnDisk: onDisk,
+                                          allowed: Self.downloadAllowed())
+        guard allowed || onDisk else { setModel(.absent); return }
 
-        setModel(FluidVoiceTranscriber.weightsOnDisk ? .loading(0) : .downloading(0))
+        setModel(onDisk ? .loading(0) : .downloading(0))
         Task { [weak self] in
             do {
                 try await fluid.prepare(downloadAllowed: allowed) { state in

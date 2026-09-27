@@ -384,3 +384,92 @@ struct VoicePermissionTests {
         #expect(VoicePermission.microphone.label == "allow the microphone")
     }
 }
+
+@Suite("Fetching 461 MB is something a hold asks for, not something a launch does")
+struct VoiceDownloadDecisionTests {
+
+    /// The app does not ship the weights. Launching it must not pull them: nobody has asked for dictation yet,
+    /// and a download for a feature not everyone uses is exactly what shipping them was rejected for.
+    @Test("a launch never downloads")
+    func launchDoesNotDownload() {
+        #expect(!VoiceSession.shouldDownload(askedByAHold: false, weightsOnDisk: false, allowed: true))
+    }
+
+    @Test("a hold downloads when there is nothing on disk")
+    func holdDownloads() {
+        #expect(VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: false, allowed: true))
+    }
+
+    @Test("weights already on disk are loaded, never re-fetched")
+    func onDiskIsNeverRefetched() {
+        #expect(!VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: true, allowed: true))
+        #expect(!VoiceSession.shouldDownload(askedByAHold: false, weightsOnDisk: true, allowed: false))
+    }
+
+    @Test("a refusal holds even against a hold")
+    func refusalWins() {
+        #expect(!VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: false, allowed: false))
+    }
+}
+
+@Suite("One decision about what the voice indicator shows")
+@MainActor
+struct VoiceIndicatorStateTests {
+
+    private func shell() throws -> ShellState {
+        let db = try DatabaseService(inMemory: true)
+        return ShellState(appState: AppState(db: db))
+    }
+
+    @Test("nothing to say when the model is ready and no hold is open")
+    func silentWhenIdle() throws {
+        let s = try shell()
+        s.voiceModel = .ready
+        #expect(s.voiceIndicator == nil)
+    }
+
+    /// The app does not ship the weights, so the fetch is the app acting on the person's behalf and has to be
+    /// visible without anyone holding space (GM, 2026-09-27: "we need to show the user too it's downloading").
+    @Test("a download shows with no hold in progress")
+    func downloadIsVisible() throws {
+        let s = try shell()
+        s.voiceModel = .downloading(0.25)
+        let shown = try #require(s.voiceIndicator)
+        #expect(shown.label == "downloading speech model 25%")
+        #expect(!shown.live, "the mic is not open")
+    }
+
+    @Test("loading shows too, and does not call itself a download")
+    func loadingIsVisible() throws {
+        let s = try shell()
+        s.voiceModel = .loading(0)
+        let shown = try #require(s.voiceIndicator)
+        #expect(shown.label == "loading speech model")
+    }
+
+    @Test("an open hold wins, and shows the words so far")
+    func holdWins() throws {
+        let s = try shell()
+        s.voiceModel = .ready
+        s.voiceCapturing = true
+        s.voicePartial = "hello there"
+        let shown = try #require(s.voiceIndicator)
+        #expect(shown.live)
+        #expect(shown.label == "hello there")
+    }
+
+    @Test("a notice outranks the model's own state")
+    func noticeOutranksModel() throws {
+        let s = try shell()
+        s.voiceModel = .absent
+        s.voiceNotice = "nowhere to type: hello"
+        #expect(s.voiceIndicator?.label == "nowhere to type: hello")
+    }
+
+    @Test("an absent model says nothing until something asks for it")
+    func absentIsQuiet() throws {
+        let s = try shell()
+        s.voiceModel = .absent
+        #expect(s.voiceIndicator == nil)
+    }
+}

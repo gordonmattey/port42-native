@@ -588,11 +588,8 @@ struct ShellTile: View {
         // indicator belongs here and not in the middle of the desktop. Drawn by the shell, inside the
         // unit, so a port can neither fake it nor hide it.
         .overlay(alignment: .bottomTrailing) {
-            if shell.voiceAnchorPortId == tile.id,
-               shell.voiceCapturing || shell.voiceNotice != nil {
-                VoiceStatus(accent: unitAccent,
-                            label: shell.voiceNotice ?? shell.voiceModel.label,
-                            live: shell.voiceCapturing)
+            if shell.voiceAnchorPortId == tile.id, let voice = shell.voiceIndicator {
+                VoiceStatus(accent: unitAccent, label: voice.label, live: voice.live)
                     .padding([.trailing, .bottom], 12)
                     .allowsHitTesting(false)
                     .transition(.opacity)

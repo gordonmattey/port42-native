@@ -45,6 +45,20 @@ public final class ShellState: ObservableObject {
     /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
     /// is what puts the text into the focused surface.
     @Published public var voiceNotice: String?
+    /// What the voice indicator should show, or nil for nothing. ONE place decides, because three views draw
+    /// it (the shell, a tile, the floating panel over another app) and three sets of conditions drifted apart.
+    ///
+    /// A download is shown whether or not anyone is holding space: the app does not ship the weights, so the
+    /// fetch is the app doing something on the person's behalf and it has to be visible (GM, 2026-09-27).
+    public var voiceIndicator: (label: String, live: Bool)? {
+        if voiceCapturing { return (voicePartial ?? voiceModel.label, true) }
+        if let notice = voiceNotice { return (notice, false) }
+        switch voiceModel {
+        case .downloading, .loading: return (voiceModel.label, false)
+        case .ready, .absent, .failed: return nil
+        }
+    }
+
     /// What the system has not granted yet, if a hold could not run because of it.
     @Published public var voicePermissionNeeded: VoicePermission?
     /// The words so far, while the hold is still open. Feedback only: the text is inserted on release.
