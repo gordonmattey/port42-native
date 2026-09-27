@@ -13,7 +13,7 @@ const coupon = { v: 1, host: 'a'.repeat(52), relays: ['wss://relay.test/v1'], po
 const fragment = (c) => Buffer.from(JSON.stringify(c)).toString('base64url');
 
 function page(c = coupon, extra = '') {
-  const dom = new JSDOM(html, { url: 'https://open.port42.ai/' + extra + '#' + (c ? fragment(c) : 'not-a-coupon'),
+  const dom = new JSDOM(html, { url: 'https://tele.port42.ai/' + extra + '#' + (c ? fragment(c) : 'not-a-coupon'),
                                  pretendToBeVisual: true });
   const calls = [];
   let connects = 0;
@@ -48,10 +48,30 @@ test('before a click it reads the invite, clears it from the address bar, and co
   assert.match(p.doc.getElementById('get-app').href, /Port42\.dmg$/);
 });
 
-test('a link that is not an invite says so', () => {
+test('a link that is not an invite says so, and offers to take it pasted', () => {
   const p = page(null);
-  assert.equal(p.doc.getElementById('broken').hidden, false);
+  assert.equal(p.doc.getElementById('paste').hidden, false);
+  assert.match(p.doc.getElementById('paste-error').textContent, /not an invite/);
   assert.equal(p.connects(), 0);
+});
+
+test('the home page takes a pasted invite link, whole or as its fragment, and nothing else', () => {
+  const dom = new JSDOM(html, { url: 'https://tele.port42.ai/' });
+  const doc = dom.window.document;
+  let connects = 0;
+  start({ win: dom.window, doc, storage: null, connect: async () => { connects++; } });
+  assert.equal(doc.getElementById('paste').hidden, false, 'the home page does not ask for a link');
+  const submit = (text) => {
+    doc.getElementById('paste-input').value = text;
+    doc.getElementById('paste-form').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+  };
+  submit('hello');
+  assert.match(doc.getElementById('paste-error').textContent, /not an invite/);
+  assert.equal(doc.getElementById('intro').hidden, true);
+  submit('  https://tele.port42.ai/#' + fragment(coupon) + '\n');
+  assert.equal(doc.getElementById('intro').hidden, false, 'a pasted link was not opened');
+  assert.match(doc.getElementById('who').textContent, /Gordon shared 'chart'/);
+  assert.equal(connects, 0, 'pasting a link connected before the person chose');
 });
 
 test('joining redeems the invite as the name given, then shows the port in a frame that holds no key', async () => {

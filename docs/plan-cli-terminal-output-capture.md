@@ -129,7 +129,7 @@ User sends "hi" in Swim
 ## Post-Plan Bugs to Fix
 
 - **OpenClaw agent not appearing as companion**: When an OpenClaw agent connects to a channel via the plugin, it appears in the member list but not as a companion entry in the sidebar. Needs investigation after Step 5 is complete.
-- **OpenClaw agent not responding to messages (trigger="mention")**: Root cause identified — `port42-openclaw@0.4.8` has a bug in `connection.js`: `new RegExp("@" + name + "\b")` uses `"\b"` (backspace char) instead of `"\\b"` (word boundary), so the mention regex never matches. Workaround: use trigger="all" when connecting agents. Fix is in the plugin (their bug, not ours) — check for a newer version.
+- **OpenClaw agent not responding to messages (trigger="mention")**: Root cause identified — `port42-teleclaw@0.4.8` has a bug in `connection.js`: `new RegExp("@" + name + "\b")` uses `"\b"` (backspace char) instead of `"\\b"` (word boundary), so the mention regex never matches. Workaround: use trigger="all" when connecting agents. Fix is in the plugin (their bug, not ours) — check for a newer version.
 
 ## Out of Scope (this plan)
 

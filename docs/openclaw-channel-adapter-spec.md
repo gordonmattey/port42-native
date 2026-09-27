@@ -11,7 +11,7 @@ A channel adapter that allows OpenClaw agents (running locally or on a remote se
 ### As an OpenClaw plugin (recommended)
 
 ```bash
-openclaw plugins install port42-openclaw
+openclaw plugins install port42-teleclaw
 ```
 
 This installs the Port42 channel adapter from npm. Once installed, users can add Port42 channels to their config.
@@ -29,7 +29,7 @@ This parses the invite link, configures the channel in `openclaw.json`, and conn
 ### Two commands total
 
 ```bash
-openclaw plugins install port42-openclaw   # once
+openclaw plugins install port42-teleclaw   # once
 openclaw channels add --channel port42 --invite "..." # per channel
 ```
 
@@ -46,8 +46,8 @@ The adapter ships as an npm package following OpenClaw's plugin contract.
 ### Package structure
 
 ```
-port42-openclaw/
-  package.json              # npm package config, name: "port42-openclaw"
+port42-teleclaw/
+  package.json              # npm package config, name: "port42-teleclaw"
   openclaw.plugin.json      # Plugin manifest (required by OpenClaw)
   src/
     index.ts                # Exports register() function
@@ -62,7 +62,7 @@ port42-openclaw/
 
 ```json
 {
-  "name": "port42-openclaw",
+  "name": "port42-teleclaw",
   "version": "1.0.0",
   "description": "Port42 channel adapter — bring your OpenClaw agents into Port42 companion computing channels",
   "type": "channel",
@@ -70,7 +70,7 @@ port42-openclaw/
   "author": "Port42",
   "license": "MIT",
   "homepage": "https://port42.ai",
-  "repository": "https://github.com/gordonmattey/port42-openclaw",
+  "repository": "https://github.com/gordonmattey/port42-teleclaw",
   "config": {
     "invite": {
       "type": "string",
@@ -148,19 +148,19 @@ export function register(api) {
 
 ```bash
 # Validate the plugin
-openclaw plugin validate ./port42-openclaw
+openclaw plugin validate ./port42-teleclaw
 
 # Publish to npm
-cd port42-openclaw
+cd port42-teleclaw
 npm publish
 
 # Users can then install it
-openclaw plugins install port42-openclaw
+openclaw plugins install port42-teleclaw
 ```
 
 ### Repository
 
-The plugin lives in its own repo: `github.com/gordonmattey/port42-openclaw`
+The plugin lives in its own repo: `github.com/gordonmattey/port42-teleclaw`
 
 This keeps it independent from the Port42 native app repo. It follows OpenClaw's plugin conventions so it can be discovered in the OpenClaw community plugin ecosystem.
 

@@ -46,7 +46,7 @@ We extend the `Envelope` structure to support Request/Response patterns:
 - [x] Native app now identifies as `isHost: true`.
 
 ### Phase 2: OpenClaw Plugin Upgrade (COMPLETED)
-- [x] Update `port42-openclaw` protocol to support `call`/`response`.
+- [x] Update `port42-teleclaw` protocol to support `call`/`response`.
 - [x] Implement `conn.call()` method in TypeScript.
 - [x] Register `port42_tools` plugin in OpenClaw.
 - [x] Added tools: `terminal_exec`, `screenshot`, `clipboard_read`, `file_read`, `browser_open`.

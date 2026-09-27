@@ -1,7 +1,7 @@
-// Package open serves the invite page (nautilus Phase 4, 4.7): one page for every Port42, a
+// Package tele serves the invite page (nautilus Phase 4, 4.7): one page for every Port42, a
 // guest-only Port42 in the browser. It serves three files, each with the headers that keep the
 // guest's key its own: the page, the frame a shared port runs in, and the page's script.
-package open
+package tele
 
 import (
 	"net/http"

@@ -161,7 +161,7 @@ through the space's chat.
 (`store.go`, `apple_auth.go`, the channel cases). The space-invite and agent-invite payloads go.
 **The invite flow stays for Phase 4:** the link grammar, the deep-link accept path, the clipboard and
 the landing page. The bring-your-own-agent sheets
-and `OpenClawService` ride space invites, so they go, with the `port42-openclaw` and `port42-python`
+and `OpenClawService` ride space invites, so they go, with the `port42-teleclaw` and `port42-python`
 repos.
 
 **In-app engine:** `LLMEngine`, `GeminiEngine`, `LLMBackend`, `LLMStreamCollector`, `BridgeServiceAI`,

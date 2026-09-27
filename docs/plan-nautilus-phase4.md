@@ -759,13 +759,14 @@ ports only.
 
 **Decided (Gordon, 2026-09-27).** The invite page is managed in this repo and is one page for every
 Port42: the link names the Mac, the relay and the port, and the page is the same program for all of
-them, a guest-only Port42 in the browser with its own key. It is served from **`open.port42.ai`**,
+them, a guest-only Port42 in the browser with its own key. It is served from **`tele.port42.ai`**,
 its own small Railway service built from this repo (a Go server that serves the page with its
 security headers), published with each release, so the page and the app come from one commit. A
 subdomain rather than a path on port42.ai: a browser guest's key is stored per origin, so on its own
 origin nothing else on the website can reach it, and it deploys without the website. Invite links
-become `https://open.port42.ai/#<coupon>`; port42.ai may link or redirect to it. The page offers
-**Open in Port42**, **Open here** and **Get Port42** (the release DMG). The rest of the four decisions
+become `https://tele.port42.ai/#<coupon>`; port42.ai may link or redirect to it. The page offers
+**Open in Port42**, **Open here** and **Get Port42** (the release DMG). With no invite in the link,
+its home is a box to paste one into (Gordon); a link it cannot read lands there too. The rest of the four decisions
 above are as recommended.
 
 **Steps, each its own commit with gates.**
@@ -806,20 +807,20 @@ above are as recommended.
    and no key; calls named by the registry, unknown ones refused; offline dims the port, stops the
    chat and says why; a refused invite is explained), run by `go test` (`TestTheInvitePage`);
    calibrated by five breaks.
-3. *Bundle, server and hygiene:* the esbuild bundle with its integrity hash; `cmd/port42-open`, the
+3. *Bundle, server and hygiene:* the esbuild bundle with its integrity hash; `cmd/port42-tele`, the
    page's server, with its Content-Security-Policy (`connect-src` the relays only),
-   `Referrer-Policy: no-referrer` and no third-party script; `open.Dockerfile` for Railway; invite
-   links on `open.port42.ai`. Gates: the committed bundle matches a fresh build and the page names its
+   `Referrer-Policy: no-referrer` and no third-party script; `tele.Dockerfile` for Railway; invite
+   links on `tele.port42.ai`. Gates: the committed bundle matches a fresh build and the page names its
    hash; the server sends every header.
    **Built 2026-09-27.** The port runs in `frame.html`, not a `srcdoc`: a srcdoc frame inherits the
    page's policy, which must forbid inline script to protect the key, and ports are inline script.
    `frame.html` is served with the policy Port42 gives ports in the app (inline script and style,
    `data:` images, no network) and is sent the page by message; the frame keeps an opaque origin.
-   `gateway/open` serves the page (script only from itself, connections to any `wss:` relay since an
+   `gateway/tele` serves the page (script only from itself, connections to any `wss:` relay since an
    invite may name a self-hosted one, frames from itself, no referrer, no framing), the frame and the
-   bundle, and nothing else; `cmd/port42-open` and `open.Dockerfile` (context: the repo root) run it
+   bundle, and nothing else; `cmd/port42-tele` and `tele.Dockerfile` (context: the repo root) run it
    on Railway. `npm run build` bundles and writes the bundle's sha384 into the page. Invite links are
-   `https://open.port42.ai/#<coupon>`. Gates: `open_test.go` (every header, the page's `script-src`
+   `https://tele.port42.ai/#<coupon>`. Gates: `open_test.go` (every header, the page's `script-src`
    exactly `'self'`, a frame with no network, nothing else served) and `bundle.test.mjs` (the
    bundle is a fresh build and the page names its hash), calibrated by five breaks.
 4. *The `/port` spike and its query-string token deleted* from the gateway. Gate: `/port` answers 404.
@@ -863,6 +864,12 @@ port's chat, and the guest refused when it asks for another port, a listing of s
 clipboard.
 
 ## Not in this phase
+
+- **Teleport, the wider idea (Gordon, 2026-09-27).** Teleport is one concept, bringing something in
+  from elsewhere: `port42 teleport` brings a terminal session into a port, and `tele.port42.ai`
+  brings someone else's shared port in. Later, the same word could bring in a browser link through
+  a plugin, or an app, by recording the screen and following what the person does, so a working
+  day's tools become ports. Vision only; nothing here is designed or built.
 
 - **A direct path** (WebRTC, port mapping, IPv6), as a per-session upgrade behind the seam
   (`research-phase4-transport.md`).

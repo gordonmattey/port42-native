@@ -43,7 +43,7 @@ Each step is its own commit. Suite green, Go suites green, harness five of five,
 ### 1.2 Bring-your-own-agent over invites
 
 `OpenClawService`, `OpenClawSheet`, `PythonAgentSheet`, `AgentConnectSheet`, their `AppState` flags and
-their `ShellView` sheets. The `port42-openclaw` and `port42-python` repos are left alone here; retiring
+their `ShellView` sheets. The `port42-teleclaw` and `port42-python` repos are left alone here; retiring
 them is GM's call and outside this repo.
 
 **Done 2026-09-25.** The four files are gone, along with the flags and prefill state in `AppState`, the
@@ -291,7 +291,7 @@ galaxy view, the rung above every space).
 - **Signing keys:** `users.publicKey`, `users.privateKey` and their Keychain entry go. libp2p makes its
   own peer key.
 - **Spike harnesses:** deleted, with their debug-menu entries and launch flags.
-- **`port42-openclaw` and `port42-python`:** archived on GitHub.
+- **`port42-teleclaw` and `port42-python`:** archived on GitHub.
 
 **Done 2026-09-25.** Both repos archived. The five spike harnesses are deleted with their launch flags
 and debug-menu entries; the Ghostty version probe and the live instruments (port units, rest/wake,

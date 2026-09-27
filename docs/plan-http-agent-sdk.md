@@ -89,7 +89,7 @@ The only new gateway work is the `feedback` message type (Phase 4). Everything e
 
 ## Step 0: Repo + PyPI Setup
 
-New repo: `gordonmattey/port42-python` (same model as `port42-openclaw`)
+New repo: `gordonmattey/port42-python` (same model as `port42-teleclaw`)
 
 **Delivers:** repo, `pyproject.toml`, empty package skeleton, PyPI project claimed, `pip install port42` works (installs empty package)
 **Test:** `pip install port42` installs cleanly; `from port42 import Agent` gives ImportError with a useful message until Step 1 is done

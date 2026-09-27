@@ -41,9 +41,17 @@
 </head>
 <body>
 <main>
-  <section id="broken" hidden>
+  <section id="paste" hidden>
     <h1>port42</h1>
-    <p>This link is not an invite Port42 can read. Ask for it again.</p>
+    <p>Someone shared a port with you? Paste the link they sent.</p>
+    <form id="paste-form">
+      <input id="paste-input" placeholder="https://tele.port42.ai/#…" autocomplete="off" spellcheck="false">
+      <div class="buttons">
+        <button type="submit">Open</button>
+        <a id="get-app-home" class="button quiet" href="#">Get Port42</a>
+      </div>
+      <p id="paste-error" class="error"></p>
+    </form>
   </section>
 
   <section id="intro" hidden>
@@ -84,6 +92,6 @@
   </aside>
 </section>
 
-<script type="module" src="dist/port42-guest.js" integrity="sha384-z7Vax4ArOmt4gHoqwspdeDuvyB5IJ0FCYPmMtoE0GHtNIF1RuxXn/g/ybFXgfxPu"></script>
+<script type="module" src="dist/port42-guest.js" integrity="sha384-RBi5UA+HLm4Gz4yhLGgzQUXxhHsD9EZZlUQvtkzOL1Erbw2hay4cwTe35Ssu6sDe"></script>
 </body>
 </html>

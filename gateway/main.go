@@ -197,7 +197,7 @@ const rootPage = `<!DOCTYPE html>
 
 // newMux is the gateway's routes: the WebSocket door, `/call`, `/health` and the root page. The old
 // `/port` browser-guest spike and its query-string token are gone (nautilus Phase 4, 4.7): a browser
-// guest now comes through a relay, from the invite page (guest/, open.port42.ai).
+// guest now comes through a relay, from the invite page (guest/, tele.port42.ai).
 func newMux(gw *Gateway) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)

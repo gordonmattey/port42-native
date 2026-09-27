@@ -33,7 +33,7 @@ show its own chat UI.
 |---|---|
 | `Sources/Port42Lib/Resources/port42-mcp.js` | The whole bridge as one MCP `port42` tool (JSON-RPC/stdio → gateway WS). **Hermes's hands.** |
 | `AgentMode.remote` ("Python SDK / CLI agent via WebSocket") + `SyncService` identify/peer protocol | Hermes appears as a **companion in a space**; messages route to it, replies stream back. |
-| `OpenClawService.swift` (`npx openclaw plugins install port42-openclaw`, version detect, settings button) | **The exact onboarding playbook.** `HermesService` mirrors it. |
+| `OpenClawService.swift` (`npx openclaw plugins install port42-teleclaw`, version detect, settings button) | **The exact onboarding playbook.** `HermesService` mirrors it. |
 | `AgentProvider.compatibleEndpoint` + `providerBaseURL` | Model-agnostic config already exists (though it targets Port42's *own* `LLMEngine`; for Hermes-as-engine we bypass `LLMEngine`). |
 | `AgentProcess` / `AgentProtocol` (NDJSON stdio) | Fallback transport if we run Hermes as a child process instead of a WS peer. |
 

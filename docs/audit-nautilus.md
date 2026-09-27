@@ -252,7 +252,7 @@ typing indicators, read receipts, `Space.encryptionKey`, `Space.syncEnabled`, `A
 
 **BYO agents over invites (M, cut):** OpenClawService, OpenClawSheet, PythonAgentSheet,
 AgentConnectSheet. All four ride a space invite with an encryption key. The sibling repos
-`port42-openclaw` and `port42-python` go with them.
+`port42-teleclaw` and `port42-python` go with them.
 
 **In-app engine (L, cut):** LLMEngine, GeminiEngine, LLMBackend, LLMStreamCollector, BridgeServiceAI,
 AgentRouterLLM, AppState+PortAI, AgentAuth, ModelPicker, UsageView, the `ai.*` methods,
