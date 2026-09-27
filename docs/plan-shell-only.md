@@ -380,7 +380,7 @@ them; an item leaves only when it is done and verified.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Boot cinematic: pressing a key runs through every scene instead of moving one on | Not reproduced (Dev5, 2026-09-26, logged): each key moved exactly one scene. Four keys typed as the app opened landed in it and passed the first screen. Awaiting GM |
+| 1 | Boot cinematic: pressing a key runs through every scene instead of moving one on | Not reproduced (Dev5, 2026-09-26, logged): each key moved exactly one scene. Four keys typed as the app opened landed in it and passed the first screen. Closed: GM confirmed one key, one scene, working |
 | 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Open |
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
