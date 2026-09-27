@@ -145,3 +145,20 @@ already exists in the tree, applied to the manual.
 **Tools cost nothing here, so tool selectors save nothing.** 54 generated schemas would cost 11,380
 and have no consumer, because the CLI was chosen over MCP and the in-app model was deleted. Recorded
 so the lever is not reopened.
+
+## Voice input (2026-09-26)
+
+[voice-input.md](voice-input.md). Asked whether hold-to-talk is a port in the hidden state.
+
+**No, and hidden is the part to refuse.** Voice input is a shell faculty with a port-shaped
+transcription stage. The mic and transcriber are a port capability today; the trigger and the routing
+are shell concerns, because both need what the port model deliberately withholds: what key was
+pressed outside me, and what is focused besides me.
+
+Two findings reshape the proposal before the decomposition matters. macOS dictation already reaches
+every Port42 surface and is attributed to the human, because `GhosttyTerminalView` conforms to
+`NSTextInputClient` and funnels through the one write seam, so what the proposal adds is push-to-talk
+from other apps. And "hold space" does not survive the key path: `responderIsEditor` is true for every
+webview, surface and text field, `shouldYieldKey` then yields every key, the one bypass requires
+Command by construction, and **no `.keyUp` or `.flagsChanged` monitor exists anywhere**, so "hold"
+has no end signal.

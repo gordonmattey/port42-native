@@ -139,6 +139,12 @@ UNPROVEN is a result, not a gap in the audit, provided it says what would settle
 
 - **D1.** No bridge method can return unbounded data into a caller's context.
 - **D2.** No caller can spawn unbounded processes, ports, companions or agents.
+- **D4.** A capturing device is released when its port is hidden, or hiding is refused while it
+  captures. `minimize` currently suspends AI billing and does not touch audio
+  (`PortWindowManager.swift:656-663`), so a hidden port keeps the microphone hot, and nothing in the
+  app draws that state (no read of `isCapturing` under `Views/`, no menu bar item). The OS indicator
+  does not cover it: only one privacy indicator shows at a time, so a camera in use masks the
+  microphone, and `screen.record` with audio asks for both.
 - **D3.** `/imagine`'s budget cannot be bypassed by the agents it creates.
 
 ## In scope
@@ -165,7 +171,7 @@ which machine capability it may use (`terminal`, `screen`, `camera`) and never f
 act on, so the port model's own boundary, that one port cannot touch another, is enforced nowhere.
 
 Two facts produce it: every `port.*`, `ports.*`, `space.*`, `messages.*`, `bus.*` and `storage.*`
-method declares `permission: nil`, **41 of 69 registry methods ungated**; and `BridgeDispatcher`
+method declares `permission: nil`, **47 of 78 registry methods ungated** (re-measured 2026-09-26 on the current tree; an earlier count of 41 of 69 predates recent additions); and `BridgeDispatcher`
 hardcodes the object as `.machine` at both the read and write sites (`:112`, `:117`), so every grant
 in production is a port 0 grant. `PortObject.port` exists and nothing local fills it
 (`PortObject.swift:24-29`, `:61-63`).
