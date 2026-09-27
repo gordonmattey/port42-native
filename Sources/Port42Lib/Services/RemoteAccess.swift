@@ -156,10 +156,11 @@ public enum RemoteAccess {
         // NEVER for now: storage keys on the caller, so a guest would read its own empty bucket, not
         // the port's. Settled with the browser lane (4.7), which is where a port's storage calls first
         // arrive from a guest.
-        "storage.get": .never,
-        "storage.set": .never,
-        "storage.delete": .never,
-        "storage.list": .never,
+        // A shared port's own storage (4.7b): the copy names the port; see reads, use writes.
+        "storage.get": .port(param: "port", right: .see),
+        "storage.set": .port(param: "port", right: .use),
+        "storage.delete": .port(param: "port", right: .use),
+        "storage.list": .port(param: "port", right: .see),
     ]
 
     /// How `method` (canonical) is reachable remotely. Absent means never.

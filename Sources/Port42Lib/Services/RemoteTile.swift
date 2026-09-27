@@ -61,6 +61,8 @@ extension AppState {
         var named = BridgeArgs(positional: args, names: names).dictionary
         // The page names its own port by the id it has here; the host knows it by its own.
         for (k, v) in named where (v as? String) == tile { named[k] = row.portKey }
+        // The page's storage is its port's, on the host: name the port (4.7b).
+        if method.hasPrefix("storage."), named["port"] == nil { named["port"] = row.portKey }
         return Task { @MainActor in
             do {
                 let page = self.portWindows.panels.first { $0.id == tile }
@@ -146,6 +148,8 @@ extension AppState {
                 chats.received(key, entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
             }
+        case PortEventKind.storage.wire:
+            portWindows.panels.first { $0.id == tile }?.bridge.pushEvent(.storage, data: BridgeValue.fromJSONObject(o["payload"] ?? NSNull()))
         case PortEventKind.push.wire:
             // The host's page received this push as a `port42:data` event, so the copy does too. The
             // `push` bus event is for watchers of the port, and the page was never one.

@@ -75,6 +75,9 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     case message
     /// A post to the port's chat (`chat.post`); the payload is the entry.
     case chat
+    /// A port's storage changed (nautilus Phase 4, 4.7b): `{key}`. Every copy of the port hears it, so
+    /// a shared port's state reaches all of them.
+    case storage
     case companionActivity = "companion.activity"
 
     /// The name on the wire.

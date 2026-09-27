@@ -244,6 +244,9 @@ The calling port's current presentation state { state, visible, w, h }: whether 
 Delete a value from persistent storage
 
         key (string, required): The storage key to delete
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
 
     port42 storage.delete key=…
 
@@ -252,12 +255,19 @@ Delete a value from persistent storage
 Get a value from persistent key-value storage
 
         key (string, required): The storage key
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
 
     port42 storage.get key=…
 
 ## storage.list
 
 List all keys in persistent storage
+
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
 
     port42 storage.list
 
@@ -266,6 +276,9 @@ List all keys in persistent storage
 Store a value in persistent key-value storage
 
         key (string, required): The storage key
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
         value (string, required): The value to store
 
     port42 storage.set key=… value=…

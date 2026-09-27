@@ -1210,6 +1210,21 @@
         "key" : {
           "description" : "The storage key to delete",
           "type" : "string"
+        },
+        "port" : {
+          "description" : "For a copy of a port shared from another machine: that port's id, to reach its own storage there.",
+          "type" : "string"
+        },
+        "scope" : {
+          "description" : "\"global\" for storage shared across spaces; omit for this space's.",
+          "enum" : [
+            "global"
+          ],
+          "type" : "string"
+        },
+        "shared" : {
+          "description" : "true for the space's shared bucket rather than the caller's own.",
+          "type" : "boolean"
         }
       },
       "required" : [
@@ -1226,6 +1241,21 @@
         "key" : {
           "description" : "The storage key",
           "type" : "string"
+        },
+        "port" : {
+          "description" : "For a copy of a port shared from another machine: that port's id, to reach its own storage there.",
+          "type" : "string"
+        },
+        "scope" : {
+          "description" : "\"global\" for storage shared across spaces; omit for this space's.",
+          "enum" : [
+            "global"
+          ],
+          "type" : "string"
+        },
+        "shared" : {
+          "description" : "true for the space's shared bucket rather than the caller's own.",
+          "type" : "boolean"
         }
       },
       "required" : [
@@ -1239,7 +1269,21 @@
     "description" : "List all keys in persistent storage",
     "input_schema" : {
       "properties" : {
-
+        "port" : {
+          "description" : "For a copy of a port shared from another machine: that port's id, to reach its own storage there.",
+          "type" : "string"
+        },
+        "scope" : {
+          "description" : "\"global\" for storage shared across spaces; omit for this space's.",
+          "enum" : [
+            "global"
+          ],
+          "type" : "string"
+        },
+        "shared" : {
+          "description" : "true for the space's shared bucket rather than the caller's own.",
+          "type" : "boolean"
+        }
       },
       "type" : "object"
     },
@@ -1252,6 +1296,21 @@
         "key" : {
           "description" : "The storage key",
           "type" : "string"
+        },
+        "port" : {
+          "description" : "For a copy of a port shared from another machine: that port's id, to reach its own storage there.",
+          "type" : "string"
+        },
+        "scope" : {
+          "description" : "\"global\" for storage shared across spaces; omit for this space's.",
+          "enum" : [
+            "global"
+          ],
+          "type" : "string"
+        },
+        "shared" : {
+          "description" : "true for the space's shared bucket rather than the caller's own.",
+          "type" : "boolean"
         },
         "value" : {
           "description" : "The value to store",

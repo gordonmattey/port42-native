@@ -479,14 +479,26 @@ Generated from the live method registry: every entry below is served exactly as 
   storage.delete(key, options)
       Delete a value from persistent storage
         key (string, required): The storage key to delete
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.get(key, options)
       Get a value from persistent key-value storage
         key (string, required): The storage key
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.list(options)
       List all keys in persistent storage
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.set(key, value, options)
       Store a value in persistent key-value storage
         key (string, required): The storage key
+        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        scope (string): "global" for storage shared across spaces; omit for this space's.
+        shared (boolean): true for the space's shared bucket rather than the caller's own.
         value (string, required): The value to store
 
 ### terminal

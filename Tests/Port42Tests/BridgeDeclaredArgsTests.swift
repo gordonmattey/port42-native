@@ -68,8 +68,9 @@ struct BridgeDeclaredArgsTests {
         var open: Set<String> = []
         for (n, m) in w.registry where DeclaredArgs.isOpenBag(m.declaredArgs) { open.insert(n) }
         for (n, m) in w.state.bridgeStreamRegistry where DeclaredArgs.isOpenBag(m.declaredArgs) { open.insert(n) }
+        // storage.list left the list when it declared `port` (nautilus Phase 4, 4.7b).
         #expect(open == ["audio.capture", "camera.stream", "fs.pick", "screen.record",
-                         "screen.record.start", "screen.stream", "storage.list"])
+                         "screen.record.start", "screen.stream"])
     }
 
     /// Declarations stay COMPLETE: every argument a method body reads is declared. Without this, a

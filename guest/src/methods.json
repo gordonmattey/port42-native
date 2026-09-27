@@ -57,5 +57,21 @@
     "capabilities",
     "space_id",
     "include_closed"
+  ],
+  "storage.delete" : [
+    "key",
+    "options"
+  ],
+  "storage.get" : [
+    "key",
+    "options"
+  ],
+  "storage.list" : [
+    "options"
+  ],
+  "storage.set" : [
+    "key",
+    "value",
+    "options"
   ]
 }

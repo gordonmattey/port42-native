@@ -263,6 +263,20 @@ struct RemoteTileTests {
         #expect(try state.db.chatEntries(chat: key, after: 0, limit: 50).isEmpty, "the reply was kept here")
     }
 
+    @Test("the tile page's storage is its port's on the host: its storage calls name the port")
+    func tileStorageNamesThePort() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == tile }?.bridge)
+        let before = gw.calls.count
+        _ = await bridge.handleMethod("storage.get", args: ["state"])
+        let sent = try #require(gw.calls.dropFirst(before).first { $0["method"] as? String == "storage.get" })
+        #expect((sent["args"] as? [String: Any])?["port"] as? String == "P", "the copy's storage call did not name its port")
+        #expect((sent["args"] as? [String: Any])?["key"] as? String == "state")
+        state.stopMirror(tile: tile)
+    }
+
     @Test("an ordinary tile's calls are never sent to another instance")
     func localTileStaysLocal() async throws {
         let (state, gw) = try world()

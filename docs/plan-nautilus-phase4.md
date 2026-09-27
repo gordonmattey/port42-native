@@ -873,7 +873,15 @@ both joined, clicks and chat crossed between them and Dev2. Found:
    port's own storage on the host, reading with `see` and writing with `use`, never the space's shared
    bucket or the global one; (c) every change is a `storage` event to every copy, the host's own page
    included; (d) the manual's state pattern: load on start, reload on `storage`. Later, the same
-   storage may itself be shipped to guests rather than read from the host (Gordon).
+   storage may itself be shipped to guests rather than read from the host (Gordon). **Built 2026-09-27.**
+   `BridgeServiceStorage`: a port's page stores under `port:<key>` in its port's space; a remote
+   caller names `port` and reaches only that bucket (RemoteAccess: get and list `see`, set and delete
+   `use`; the shared and global buckets refused); set and delete announce `storage {key}` to the port's
+   own page, which publishes it to every copy; a mirrored tile and the browser page add `port` to their
+   storage calls and pass the event to the page. `scope` and `shared` are declared, so a named caller
+   may pass them flat. The manual's state pattern reloads on `storage`. Gates: `SharedStorageTests`
+   (per-port buckets; see reads, use writes, nothing else reachable; every change announced once),
+   `RemoteTileTests` and `page.test.mjs` (both copies name the port), calibrated by six breaks.
 2. **A guest asked a companion for something new, and it made a port the guest cannot see.** ember
    on Dev2 made "shader" and posted its id. Decided: a port id in a chat is a link (it focuses the port
    in Port42, opens it on the page if you have access); a companion never gives access on its own; it

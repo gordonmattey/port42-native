@@ -181,3 +181,11 @@ test('the chat is resized by dragging its bottom edge, and keeps its height next
   p.dom.window.dispatchEvent(at('pointermove', 900));
   assert.equal(chat.style.height, '460px', 'the chat kept resizing after the drag ended');
 });
+
+test('the page\'s storage calls name its port, which is the host\'s storage for it', async () => {
+  const calls = [];
+  const g = new Guest({ coupon, storage: null, ui: {}, connect: async () => ({}) });
+  g.session = { call: (m, a) => { calls.push({ m, a }); return Promise.resolve({ value: null }); } };
+  await g.frameCall('storage.get', ['state']);
+  assert.deepEqual(calls[0], { m: 'storage.get', a: { key: 'state', port: 'P' } });
+});

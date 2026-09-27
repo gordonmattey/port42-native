@@ -36,7 +36,10 @@ STATEFUL APP PATTERN — use this structure for any port with persistent state:
 
   The pattern: one state object, one render function, save on every mutation.
   All state lives in one place. Rendering is pure: always called after state changes.
-  Storage is loaded once on init, saved on every write. No scattered variables.
+  Storage is loaded on init, saved on every write, and loaded again when it changes.
+  A port's storage is its own, and a port may be open in several places at once (shared
+  with other machines, or in a browser): every copy reads and writes the same storage, and
+  each hears a 'storage' event when any copy changes it. No scattered variables.
 
   ```
   // 1. State object — single source of truth
@@ -65,10 +68,11 @@ STATEFUL APP PATTERN — use this structure for any port with persistent state:
     render();
   }
 
-  // 6. Init — load then render
+  // 6. Init — load then render, and load again whenever any copy of this port saves
   async function init() {
     await load();
     render();
+    port42.on('storage', async ({ key }) => { if (key === 'state') { await load(); render(); } });
   }
 
   init();
@@ -539,7 +543,7 @@ BRIDGE API REFERENCE:
     The system kinds you may also receive on a port's topic:
       audio.data · audio.transcription · browser.error · browser.load · browser.redirect
       camera.frame · chat · companion.activity · console · driver · filedrop · message
-      presentation · push · screen.frame · state · terminal.output
+      presentation · push · screen.frame · state · storage · terminal.output
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):

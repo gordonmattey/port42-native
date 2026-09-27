@@ -109,7 +109,10 @@ export class Guest {
     if (!this.session) throw new Refusal('host_offline', explain('host_offline', this.coupon.hostName));
     const names = METHODS[method];
     if (!names) throw new Refusal('not_granted', `${method} is not available to a guest`);
-    return this.session.call(method, named(args, names));
+    const call = named(args, names);
+    // The page's storage is its port's, on the host: name the port (4.7b).
+    if (method.startsWith('storage.') && call.port === undefined) call.port = this.coupon.port;
+    return this.session.call(method, call);
   }
 
   async post(text) {
