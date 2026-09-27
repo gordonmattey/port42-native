@@ -485,6 +485,21 @@ public final class ShellState: ObservableObject {
         return badge
     }
 
+    // MARK: First-run breakout (the aquarium video on the first zoom-out; GM brought it back 2026-09-27)
+
+    /// Non-nil while the first-run breakout plays: the rect the video STARTS at, the frame of the port
+    /// the person was focused on. It grows from there to full screen, plays out, and fades to leave
+    /// them in the space. Set by `ShellView` on the first `.focus → .space` of a first run.
+    @Published public var breakoutFrom: CGRect? = nil
+
+    /// Begin the breakout from the focused unit's frame. No-op if one is already running.
+    public func startBreakout(area: CGSize) {
+        guard breakoutFrom == nil else { return }
+        breakoutFrom = ShellPlacement.focusRect(in: area)
+    }
+
+    public func endBreakout() { breakoutFrom = nil }
+
     /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
     /// this desktop": the current space's tiled panels, plus adopted
     /// foreign ports. The desktop renders this set, placement places into it, and ShellView's
