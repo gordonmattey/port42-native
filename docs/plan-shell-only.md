@@ -346,7 +346,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Item | Status |
 |---|---|
 | Phases 0, 1, 2, 3, 5 | Done; five scenarios pass on Dev3/Dev4 |
-| Phase 4 (sharing, invites) | In progress on `nautilus-phase4` (the phase-four agent); merge when done |
+| Phase 4 (sharing, invites) | In progress on `nautilus-phase4` (0716d25, 1336 tests green, 2026-09-26): 4.6b tile, per-port share asks, 4.6c done; remaining 4.6b screens (GM choosing the chrome design), 4.7 browser lane, 4.8 harness scenario 4. Stable at a checkpoint, so it can merge back before the screens (GM's call). Its migrations run to v61; nautilus's next is v62 |
 | `/imagine` (`plan-imagine.md`) | Done: a bootstrap (space, port, three companions, brief), budget of 10 versions; verified live on Dev4 |
 | Merge `fixes-gemini-ngrok-floor` | Done (`5020941`): `3c9bec5` dead ngrok references (the four `ngrok-skip-browser-warning` headers in `gateway/main.go` stay, they emit a real header), `83c500d` macOS floor 14.0 everywhere, `be9251b` the managed instruction block outranks pre-marker Port42 instructions (the `auth_required` in `~/.gemini/GEMINI.md`) |
 | macOS 14 floor on Sonoma hardware | Not verified; GM has decided 14 ships |
@@ -354,7 +354,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | The call stall after a NaN (`2afbe1c`) and the lock screen video freeze (`bfb1053`) | Fixed, with tests |
 | Open defects (`defects-triage.md`) | To decide which ship in v1: terminal matched to companion by name, companion inflation, no cap on tool results, blank page after a WebContent crash |
 | Seen in the /imagine runs | The startup-stuck check is removed; still to watch: messages typed into a starting Claude not submitted (seen once) |
-| Test gate | `swift test` green before the release build (1271 tests in 173 suites at `314858c`; was 1185 in 152 on the merged branch) |
+| Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
 
@@ -370,7 +370,7 @@ them; an item leaves only when it is done and verified.
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
-| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Open: GM's words for the replacement, or the line removed |
+| 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 
 ## Future roadmap
