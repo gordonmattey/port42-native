@@ -439,7 +439,7 @@ public struct SetupView: View {
     /// Complete setup, bring the chosen sessions in, and either hand over or show what came in.
     private func finishSetup(importing requests: [SessionImport.Request]) {
         let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        appState.completeSetup(displayName: name, cli: chosenCLI)
+        appState.completeSetup(displayName: name, cli: chosenCLI, imported: requests)
         guard !requests.isEmpty, let person = appState.currentUser else { phase = .transition; return }
         do {
             importResults = try appState.importSessions(requests, person: person)

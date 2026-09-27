@@ -132,5 +132,8 @@ Sessions on another machine, sessions of other CLIs, and moving (quitting the or
   list, drag between groups and onto "new space", rename, the fork note, then what came in and the
   originals to close, landing on echo in genesis; the ⌘K action "bring in running sessions"
   with the same list in a command box.
+- **Echo's welcome names them** (GM, 2026-09-26): after it says what Port42 is, echo tells the person
+  which spaces were made and who waits in each (`AppState.echoImportedNote`, the `{{IMPORTED}}` slot in
+  `echo-prompt.txt`), and that the originals can be closed.
 - **Not yet:** window titles through AppleScript (matched on tty) for the close list; a live import.
 
