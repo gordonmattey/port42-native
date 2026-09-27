@@ -25,7 +25,7 @@ Transcription is local. Inside Port42 first; other apps later, behind Accessibil
 
 Each ships alone and is verifiable without the next.
 
-### Phase 1: the trigger
+### Phase 1: the trigger (DONE 2026-09-26, interaction confirmed in a dev instance)
 
 A pure state machine for hold-versus-tap, wired to the key monitor, with a visible indicator and the
 retract working on all three surfaces. **No microphone, no model.** Holding space shows that capture
@@ -37,6 +37,21 @@ flickers unacceptably in a Ghostty surface, the trigger changes and nothing else
 *Verify:* type normally and spaces behave. Hold space in a terminal, a web port and the chat input:
 one space appears and vanishes, the indicator shows, release clears it. Key repeat does not type
 extra spaces. A space with any modifier is untouched.
+
+*What shipped:*
+
+- `VoiceTrigger` (`Sources/Port42Lib/Services/VoiceTrigger.swift`), pure and synchronous, 0.2s
+  threshold, 14 tests in `Tests/Port42Tests/VoiceTriggerTests.swift`. Two gates calibrated by
+  breaking them (the modifier guard, and the swallow of repeats while pending).
+- Wired into `ShellView`'s `.keyDown` monitor ahead of the shell chords and the editor yield, so the
+  hold is seen while a field, a web port or a terminal holds the keyboard. A `.keyUp` monitor closes
+  it. The threshold is a timer armed only on a pending press and cancelled on key-up; if it fires
+  late the machine refuses to begin.
+- `ShellState.voiceCapturing` plus `VoiceIndicator`, drawn in the shell's overlay stack at
+  zIndex 220, under the blocking permission overlay. The shell draws it, not a port, so nothing can
+  listen without saying so.
+- The retract goes through the responder chain (`deleteBackward:`), guarded by `responds(to:)` so a
+  surface that does not implement it gets silence rather than a beep.
 
 ### Phase 2: capture and transcribe
 

@@ -36,6 +36,10 @@ public final class ShellState: ObservableObject {
     @Published public var showNewCompanion: Bool = false
     /// The quick imagine box (⌘I): one line starts an imagine team (docs/plan-imagine.md).
     @Published public var showImagine: Bool = false
+    /// True while hold-to-talk is capturing. The SHELL owns this and draws it: a port must not be
+    /// able to suppress an indicator it does not draw, which is the security requirement behind
+    /// putting voice in the shell rather than in a port.
+    @Published public var voiceCapturing: Bool = false
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.

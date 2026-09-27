@@ -25,6 +25,9 @@ public struct ShellView: View {
     }
 
     @State private var monitors: [Any] = []
+    /// Hold space to talk. The machine is pure (`VoiceTrigger`); this owns the clock and the timer.
+    @State private var voice = VoiceTrigger()
+    @State private var voiceTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
@@ -232,6 +235,15 @@ public struct ShellView: View {
 
 
 
+            // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
+            // listening without saying so.
+            if shell.voiceCapturing {
+                VoiceIndicator(accent: shell.accent)
+                    .zIndex(220)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+
             // Permission — the top layer, above every other overlay, because it BLOCKS: a caller
             // is suspended on the answer. One site for every asker (port JS / companion tool use /
             // gateway); see PermissionCoordinator for why this isn't rendered inside a tile.
@@ -333,6 +345,33 @@ public struct ShellView: View {
         }
     }
 
+    /// Arm the hold threshold. Cancelled on key-up, and harmless if it fires late: the machine
+    /// refuses to start capturing unless a hold is still pending.
+    private func armVoiceThreshold() {
+        voiceTimer?.invalidate()
+        voiceTimer = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.threshold, repeats: false) { _ in
+            Task { @MainActor in
+                guard voice.thresholdElapsed() == .beginCapture else { return }
+                retractOneCharacter()
+                shell.voiceCapturing = true
+            }
+        }
+    }
+
+    private func endVoice() {
+        shell.voiceCapturing = false
+    }
+
+    /// Take back the space that was typed on the way into a hold. The responder that received it is
+    /// the one that must delete it, so this goes through the same responder chain a Delete key
+    /// would, rather than synthesizing an event.
+    @MainActor
+    private func retractOneCharacter() {
+        guard let responder = NSApp.keyWindow?.firstResponder,
+              responder.responds(to: #selector(NSResponder.deleteBackward(_:))) else { return }
+        responder.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+    }
+
     // MARK: - Input (kiosk monitors → the zoom ladder)
 
     private func installInputMonitors() {
@@ -357,6 +396,18 @@ public struct ShellView: View {
         // terminal first (§3.1) so typing and TUI Esc reach the surface — EXCEPT the few
         // shell-global chords (plan-working-set §B), which drive the shell from anywhere.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            // Hold-to-talk is decided BEFORE the chord and editor-yield paths below, because the
+            // feature exists to work while a field or a port has the keyboard. It passes every key
+            // through unless a hold is actually in progress, so typing is untouched.
+            switch voice.keyDown(keyCode: e.keyCode,
+                                 hasModifiers: !e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                                 isRepeat: e.isARepeat, now: e.timestamp) {
+            case .consume: return nil
+            case .passThrough:
+                if voice.isPending { armVoiceThreshold() }
+            default: break
+            }
+
             // Shell-global chords bypass the editor yield: ⌘`/⇧⌘` cycle, ⌘1…9 jump, ⌘K
             // switcher. Consumed here, so the menu's ⌘K can't double-fire.
             let f = e.modifierFlags
@@ -399,7 +450,12 @@ public struct ShellView: View {
             return e
         }
 
-        monitors = [magnify, move, keys].compactMap { $0 }
+        let keyUps = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { e in
+            voiceTimer?.invalidate(); voiceTimer = nil
+            if voice.keyUp(keyCode: e.keyCode, now: e.timestamp) == .endCapture { endVoice() }
+            return e
+        }
+        monitors = [magnify, move, keys, keyUps].compactMap { $0 }
     }
 
     private func removeInputMonitors() {
