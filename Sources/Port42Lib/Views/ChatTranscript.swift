@@ -24,6 +24,14 @@ enum ChatTranscript {
 
     static func isMine(_ e: PortChatEntry, me: String?) -> Bool { me != nil && e.fromId == me }
 
+    /// Port42's own notices (a turn that failed, a budget spent) read as "system", not as a sender
+    /// named Port42 (GM, 2026-09-27). Stored notices keep their sender id, so older ones read the same.
+    static func isSystem(_ e: PortChatEntry) -> Bool { e.fromId == ChatRouting.port42SenderId }
+
+    static func senderName(_ e: PortChatEntry) -> String {
+        isSystem(e) ? "system" : (e.fromName.isEmpty ? e.fromId : e.fromName)
+    }
+
     /// Grouped under the message before it: the same sender, soon after.
     static func continues(_ e: PortChatEntry, after prev: PortChatEntry?) -> Bool {
         guard let prev else { return false }
@@ -63,9 +71,9 @@ enum ChatTranscript {
             let gap: CGFloat = before == nil ? 0 : (grouped ? 3 : 12)
             var bodyGap = gap
             if !own && !grouped {
-                let name = (e.fromName.isEmpty ? e.fromId : e.fromName)
-                out.append(NSAttributedString(string: name + "\n", attributes: [
-                    .font: bold, .foregroundColor: NSColor(ShellDock.avatarColor(e.fromId)),
+                let system = isSystem(e)
+                out.append(NSAttributedString(string: senderName(e) + "\n", attributes: [
+                    .font: bold, .foregroundColor: system ? NSColor(Port42Theme.textSecondary) : NSColor(ShellDock.avatarColor(e.fromId)),
                     .paragraphStyle: para(before: gap), .toolTip: tip,
                 ]))
                 bodyGap = 2
@@ -75,7 +83,7 @@ enum ChatTranscript {
             for (j, line) in lines.enumerated() {
                 let last = i == entries.count - 1 && j == lines.count - 1
                 out.append(NSAttributedString(string: line + (last ? "" : "\n"), attributes: [
-                    .font: body, .foregroundColor: own ? mine : theirs,
+                    .font: body, .foregroundColor: own ? mine : (isSystem(e) ? NSColor(Port42Theme.textSecondary) : theirs),
                     .paragraphStyle: para(before: j == 0 ? bodyGap : 0), .toolTip: tip,
                 ]))
             }
@@ -83,7 +91,7 @@ enum ChatTranscript {
             bodyRanges.append(NSRange(location: bodyStart, length: out.length - bodyStart))
         }
         return Built(text: out, ranges: ranges, bodyRanges: bodyRanges,
-                     senders: entries.map { $0.fromName.isEmpty ? $0.fromId : $0.fromName }, dates: entries.map(\.at))
+                     senders: entries.map(senderName), dates: entries.map(\.at))
     }
 
     /// What a copy puts on the pasteboard when the selection spans messages (GM, 2026-09-27): each
@@ -110,7 +118,7 @@ enum ChatTranscript {
 
         func built(_ text: NSAttributedString) -> Built {
             Built(text: text, ranges: ranges, bodyRanges: bodyRanges,
-                  senders: entries.map { $0.fromName.isEmpty ? $0.fromId : $0.fromName }, dates: entries.map(\.at))
+                  senders: entries.map(senderName), dates: entries.map(\.at))
         }
     }
 

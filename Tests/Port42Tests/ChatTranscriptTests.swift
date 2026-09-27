@@ -130,4 +130,19 @@ struct ChatTranscriptTests {
         let cutRun = Array(dropFirst.dropFirst()) + [e(5, "a", "alpha", "five", at: 430)] // cuts inside beta's run
         check([a, dropFirst, cutRun], inPlace: [false, true, false])
     }
+
+    @Test("Port42's notices read as system, dimmed, and are not a participant")
+    @MainActor
+    func systemNotices() throws {
+        let notice = PortChatEntry(seq: 1, at: t0, text: "echo could not reply", fromId: ChatRouting.port42SenderId,
+                                   fromName: "port42", fromKind: "peer")
+        let b = ChatTranscript.build([notice, e(2, "a", "alpha", "hi", at: 5)], me: nil, accent: .green)
+        #expect(b.text.string.hasPrefix("system\necho could not reply"))
+        #expect(b.senders.first == "system")
+        let store = PortChatStore()
+        store.load("c", from: try DatabaseService(inMemory: true))
+        store.received("c", notice)
+        store.received("c", e(2, "a", "alpha", "hi", at: 5))
+        #expect(store.participants("c").map(\.name) == ["alpha"])
+    }
 }
