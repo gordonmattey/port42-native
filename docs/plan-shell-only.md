@@ -369,7 +369,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | The call stall after a NaN (`2afbe1c`) and the lock screen video freeze (`bfb1053`) | Fixed, with tests |
 | Open defects (`defects-triage.md`) | To decide which ship in v1: terminal matched to companion by name, companion inflation, no cap on tool results, blank page after a WebContent crash |
 | Seen in the /imagine runs | The startup-stuck check is removed; still to watch: messages typed into a starting Claude not submitted (seen once) |
-| Test gate | `swift test` green before the release build (1271 tests in 173 suites at `314858c`; was 1185 in 152 on the merged branch) |
+| Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
 
