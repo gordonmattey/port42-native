@@ -1302,9 +1302,9 @@ public final class AppState: ObservableObject {
     /// ports and terminals kept running (their agents' CLIs included) under a space that no longer
     /// existed. THE one path: the galaxy's Delete and `space.delete`.
     public func deleteSpace(_ space: Space) {
-        for panel in portWindows.panels where panel.spaceId == space.id {
-            portWindows.close(panel.id)
-        }
+        let own = portWindows.panels.filter { $0.spaceId == space.id }
+        for panel in own { portWindows.close(panel.id) }
+        p42log("[Port42] deleted space '%@' (%@), closing %d port(s)", space.name, space.id, own.count)
         do {
             try db.deleteSpace(id: space.id)
             spaces = try db.getRegularSpaces()
