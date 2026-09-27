@@ -17,101 +17,6 @@ enum TerminalCwd {
     }
 }
 
-// MARK: - File Content Resolution
-
-/// Resolves file paths in messages and manages per-space directory allowlists.
-/// When a user shares a file path, the parent directory is added to the allowlist.
-/// Short filenames (like "readme.md") are resolved against allowed directories.
-@MainActor
-final class FileResolver {
-    /// Allowed directories per space (spaceId -> set of directory paths)
-    private var allowedDirs: [String: Set<String>] = [:]
-
-    /// Regex matching absolute paths (/...) or ~/... or file:// URLs
-    private static let absolutePathPattern = try! NSRegularExpression(
-        pattern: #"(?:file://)?([~/][^\s\n,;\"'<>]+)"#,
-        options: []
-    )
-
-    /// Regex matching bare filenames (word.ext) that might be in allowed dirs
-    private static let bareFilenamePattern = try! NSRegularExpression(
-        pattern: #"\b([\w.+-]+\.[\w]+)\b"#,
-        options: []
-    )
-
-    /// Max file size to inline (64KB keeps context reasonable)
-    private static let maxFileSize = 64 * 1024
-
-    /// Get the set of allowed directories for a space
-    func allowedDirectories(for spaceId: String) -> Set<String> {
-        allowedDirs[spaceId] ?? []
-    }
-
-    /// Scan text for file paths, read any that exist, add parent dirs to allowlist.
-    /// Also resolves bare filenames against previously allowed directories.
-    func resolve(_ text: String, spaceId: String) -> String {
-        var attachments: [String] = []
-        var resolvedPaths: Set<String> = []
-
-        // Pass 1: Resolve absolute paths and file:// URLs
-        let nsText = text as NSString
-        let absMatches = Self.absolutePathPattern.matches(
-            in: text, range: NSRange(location: 0, length: nsText.length)
-        )
-        for match in absMatches {
-            guard let range = Range(match.range(at: 1), in: text) else { continue }
-            var path = String(text[range])
-            if path.hasPrefix("~") {
-                path = (path as NSString).expandingTildeInPath
-            }
-            if let content = readFile(at: path) {
-                resolvedPaths.insert(path)
-                let dir = (path as NSString).deletingLastPathComponent
-                var dirs = allowedDirs[spaceId] ?? []
-                dirs.insert(dir)
-                allowedDirs[spaceId] = dirs
-                let filename = (path as NSString).lastPathComponent
-                attachments.append("--- contents of \(filename) ---\n\(content)\n--- end \(filename) ---")
-            }
-        }
-
-        // Pass 2: Try resolving bare filenames against allowed directories
-        let dirs = allowedDirs[spaceId] ?? []
-        if !dirs.isEmpty {
-            let bareMatches = Self.bareFilenamePattern.matches(
-                in: text, range: NSRange(location: 0, length: nsText.length)
-            )
-            for match in bareMatches {
-                guard let range = Range(match.range(at: 1), in: text) else { continue }
-                let filename = String(text[range])
-                // Skip if it was already resolved as an absolute path
-                for dir in dirs {
-                    let candidatePath = (dir as NSString).appendingPathComponent(filename)
-                    guard !resolvedPaths.contains(candidatePath) else { continue }
-                    if let content = readFile(at: candidatePath) {
-                        resolvedPaths.insert(candidatePath)
-                        attachments.append("--- contents of \(filename) ---\n\(content)\n--- end \(filename) ---")
-                        break // found it, stop searching dirs
-                    }
-                }
-            }
-        }
-
-        if attachments.isEmpty { return text }
-        return text + "\n\n" + attachments.joined(separator: "\n\n")
-    }
-
-    private func readFile(at path: String) -> String? {
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
-              !isDir.boolValue else { return nil }
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let size = attrs[.size] as? Int,
-              size <= Self.maxFileSize else { return nil }
-        return try? String(contentsOfFile: path, encoding: .utf8)
-    }
-}
-
 // MARK: - Weak Bridge Wrapper
 
 /// Weak wrapper for PortBridge references so ports can be deallocated naturally
@@ -293,7 +198,6 @@ public final class AppState: ObservableObject {
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
     /// Tracks last AI-triggered response time per agent per space to prevent loops
     private var agentAICooldowns: [String: Date] = [:]
-    private let aiCooldownInterval: TimeInterval = 30
 
     public let db: DatabaseService
     /// The call door: the app's one host connection to its local gateway (nautilus Phase 0 step 2).
@@ -301,7 +205,6 @@ public final class AppState: ObservableObject {
     public let door = GatewayDoor()
     #if !RELEASE
     #endif
-    let fileResolver = FileResolver()
 
     /// Manages popped-out and docked port panels
     @Published public var portWindows = PortWindowManager()
@@ -492,30 +395,9 @@ public final class AppState: ObservableObject {
 
     // MARK: - Port Bridge Events
 
-    /// Register a port bridge for live event pushing
-    public func registerPortBridge(_ bridge: PortBridge) {
-        // Clean up dead references
-        activeBridges.removeAll { $0.bridge == nil }
-        activeBridges.append(WeakBridge(bridge))
-
-        // Restore cached permissions (survives LazyVStack view recycling)
-        if let mid = bridge.messageId, let cached = cachedPortPermissions[mid] {
-            bridge.grantedPermissions = cached
-        }
-    }
-
     /// Find a registered port bridge by its id (a port's bridge registers under its own id).
     public func findInlineBridge(by messageId: String) -> PortBridge? {
         activeBridges.first(where: { $0.bridge?.messageId == messageId })?.bridge
-    }
-
-    /// Cache a port's granted permissions so they survive view recycling
-    public func cachePortPermissions(messageId: String, permissions: Set<PortPermission>) {
-        if permissions.isEmpty {
-            cachedPortPermissions.removeValue(forKey: messageId)
-        } else {
-            cachedPortPermissions[messageId] = permissions
-        }
     }
 
     // MARK: - Grant Persistence (P-260; the object slot A.1; the table A.2)

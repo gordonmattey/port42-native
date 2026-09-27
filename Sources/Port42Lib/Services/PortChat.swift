@@ -376,8 +376,6 @@ public final class PortChatStore: ObservableObject {
         lastRead = (defaults?.dictionary(forKey: Self.defaultsKey) as? [String: Int]) ?? [:]
     }
 
-    public func isLoaded(_ key: String) -> Bool { entries[key] != nil }
-
     /// Load a chat's newest entries once. A chat already loaded is kept current by `received`.
     public func load(_ key: String, from db: DatabaseService) {
         guard entries[key] == nil else { return }
