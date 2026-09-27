@@ -22,9 +22,17 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
 
-        // Initialize Sparkle (starts automatic update checks)
+        // Initialize Sparkle (starts automatic update checks). A debug build never starts it: its only
+        // update is the public release, which is not a dev build, and a dev instance whose updater cannot
+        // start put up a modal alert at launch that held every call until someone clicked it (Dev6,
+        // 2026-09-27). Release builds are unchanged.
+        #if DEBUG
+        let startUpdater = false
+        #else
+        let startUpdater = true
+        #endif
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: startUpdater,
             updaterDelegate: self,
             userDriverDelegate: nil
         )
