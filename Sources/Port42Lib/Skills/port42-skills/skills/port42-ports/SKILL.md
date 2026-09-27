@@ -26,6 +26,18 @@ Write the HTML to a file, then:
 - Write only what goes inside `<body>`. The Port42 dark theme is injected for you.
 - It returns the port's `id` and `token`. Answer where you were asked with the title and id.
 
+## Asked for a website, an app or a page
+
+Make it a web port: the port is the site. Put what it needs in its HTML (inline scripts and styles)
+and fetch data from the page with `port42.rest.call`.
+
+- Do not start a server for it (`python -m http.server`, `npm run dev`, `vite`) and point a browser
+  port at localhost. That leaves the person a process to manage and a second port that only frames
+  the first.
+- A server is for a project that already needs one (a backend, the person's own dev server). Run it
+  in your own terminal, never a new one, and say that it is running and how to stop it.
+- A browser port shows a real URL the person wants to see, and only when they ask for one.
+
 ## Change one
 
 Read it, change the least you can, write it back with its token:

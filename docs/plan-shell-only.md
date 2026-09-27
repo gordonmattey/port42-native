@@ -386,7 +386,7 @@ them; an item leaves only when it is done and verified.
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
 | 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Open: GM's words for the replacement, or the line removed |
-| 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Open: skill guidance (build a web port; run a server only in your own shell; open a browser port only when asked) |
+| 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
 
 ## Future roadmap
 
