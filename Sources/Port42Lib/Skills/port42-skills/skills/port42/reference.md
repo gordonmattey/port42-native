@@ -64,6 +64,14 @@ Get a space's metadata and member list: { id, name, type, memberCount, members: 
 
     port42 space.current space_id=…
 
+## space.delete
+
+Delete a space: its own ports and terminals close, then the space and its chat go. A port adopted into another space stays there. Cannot be undone. The same as Delete in the galaxy.
+
+        space_id (string, required): The space to delete (from space_list).
+
+    port42 space.delete space_id=…
+
 ## space.list
 
 List all spaces the user belongs to

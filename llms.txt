@@ -431,6 +431,9 @@ Generated from the live method registry: every entry below is served exactly as 
   space.current(space_id)
       Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.
         space_id (string): Optional space id to inspect. Defaults to the currently selected space.
+  space.delete(space_id)
+      Delete a space: its own ports and terminals close, then the space and its chat go. A port adopted into another space stays there. Cannot be undone. The same as Delete in the galaxy.
+        space_id (string, required): The space to delete (from space_list).
   space.list()
       List all spaces the user belongs to
   space.setWorkingDirectory(space_id, path)

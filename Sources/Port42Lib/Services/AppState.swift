@@ -1297,7 +1297,14 @@ public final class AppState: ObservableObject {
     /// that were created before encryption was added. Returns the updated space.
     @discardableResult
 
+    /// Delete a space: its own ports and terminals close first, then its rows go. A port adopted into
+    /// another space stays, since it lives there too. Before, only the rows went, and the space's live
+    /// ports and terminals kept running (their agents' CLIs included) under a space that no longer
+    /// existed. THE one path: the galaxy's Delete and `space.delete`.
     public func deleteSpace(_ space: Space) {
+        for panel in portWindows.panels where panel.spaceId == space.id {
+            portWindows.close(panel.id)
+        }
         do {
             try db.deleteSpace(id: space.id)
             spaces = try db.getRegularSpaces()
