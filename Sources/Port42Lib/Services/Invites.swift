@@ -202,7 +202,7 @@ extension AppState {
             let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
             postSystemChatLine(key: row.portKey,
                                text: "\(label) joined from another machine (\(shown)). "
-                                   + "Remove them in Settings → Access.")
+                                   + "To stop sharing, click 'shared' on the port.")
         }
         return .object(["port": .string(row.portKey), "title": .string(panel.title), "knownAs": .string(label),
                         "rights": .array(rights.map(\.rawValue).sorted().map { .string($0) }),

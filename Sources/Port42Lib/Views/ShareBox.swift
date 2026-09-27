@@ -13,7 +13,6 @@ struct ShareBox: View {
     @State private var wake = true
     @State private var code = false
     @State private var made: Made?
-    @State private var copied = false
     @State private var error: String?
 
     struct Made: Equatable {
@@ -47,7 +46,7 @@ struct ShareBox: View {
                 option("require a code", "a six-digit code you send them another way", $code)
                 if let error { Text(error).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.error) }
                 Button(action: make) {
-                    Text("[ make link ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
+                    Text("[ copy link ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
                 }
                 .buttonStyle(.plain).keyboardShortcut(.return, modifiers: [])
             }
@@ -73,8 +72,8 @@ struct ShareBox: View {
 
     @ViewBuilder
     private func result(_ made: Made) -> some View {
-        Text("send them this link. it works once, for 7 days.")
-            .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+        Text("link copied. send it to them; it works once, for 7 days.")
+            .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.accent)
         Text(made.link).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
             .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
         if let code = made.code {
@@ -91,12 +90,13 @@ struct ShareBox: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         HStack(spacing: 18) {
+            Button("[ done ↵ ]") { portKey = nil }
+                .buttonStyle(.plain).font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
+                .keyboardShortcut(.return, modifiers: [])
             Button(action: { copy(made.link) }) {
-                Text(copied ? "[ copied ]" : "[ copy link ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
+                Text("[ copy again ]").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
             }
-            .buttonStyle(.plain).keyboardShortcut(.return, modifiers: [])
-            Button("[ done ]") { portKey = nil }
-                .buttonStyle(.plain).font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
+            .buttonStyle(.plain)
         }
     }
 
@@ -113,8 +113,9 @@ struct ShareBox: View {
                     principal: .human(id: user.id, displayName: user.displayName, spaceId: appState.currentSpace?.id),
                     args: BridgeArgs(["port": portKey, "rights": rights, "requireCode": code]))
                 let o = out.toJSONObject() as? [String: Any] ?? [:]
-                made = Made(link: o["link"] as? String ?? "", code: o["code"] as? String,
-                            discloses: o["discloses"] as? [String] ?? [])
+                let link = o["link"] as? String ?? ""
+                made = Made(link: link, code: o["code"] as? String, discloses: o["discloses"] as? [String] ?? [])
+                copy(link)
                 error = nil
             } catch {
                 self.error = (error as? BridgeError)?.message ?? error.localizedDescription
@@ -125,6 +126,5 @@ struct ShareBox: View {
     private func copy(_ link: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(link, forType: .string)
-        copied = true
     }
 }

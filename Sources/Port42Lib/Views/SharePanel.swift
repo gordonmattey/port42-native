@@ -120,7 +120,7 @@ struct ShareGuestPanel: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("remote wake").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                    Text("their chat can wake your companions here, on your model")
+                    Text("their chat can wake your companions")
                         .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -134,7 +134,7 @@ struct ShareGuestPanel: View {
                 Text("leave: close it here").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Closes the tile and forgets the port on this machine. They can invite you again.")
+            .help("Closes it here and forgets it on this machine. They can invite you again.")
         }
     }
 }

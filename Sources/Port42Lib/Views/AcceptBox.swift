@@ -27,7 +27,7 @@ struct AcceptBox: View {
                 KeyCap(label: "esc")
             }
             if let c = coupon {
-                Text("\(c.hostName) is sharing one port with you. it opens here as a tile, live from their machine.")
+                Text("\(c.hostName) is sharing a port with you. it opens here.")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("you can " + ShareWords.rights(c.rights.compactMap(RemoteRight.init(rawValue:))))
@@ -37,7 +37,7 @@ struct AcceptBox: View {
                         Text(wake ? "[x]" : "[ ]").font(Port42Theme.mono(12))
                             .foregroundStyle(wake ? Port42Theme.accent : Port42Theme.textSecondary)
                         Text("remote wake").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                        Text("their chat can wake your companions, on your model")
+                        Text("their chat can wake your companions")
                             .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                         Spacer(minLength: 0)
                     }
