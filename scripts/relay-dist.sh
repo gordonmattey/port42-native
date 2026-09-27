@@ -38,5 +38,5 @@ for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 wi
   rm -rf "${OUT:?}/$name"
   echo "[relay-dist] $pkg"
 done
-(cd "$OUT" && shasum -a 256 ./*.tar.gz ./*.zip > SHA256SUMS)
+(cd "$OUT" && shasum -a 256 -- *.tar.gz *.zip > SHA256SUMS)
 echo "[relay-dist] done: $OUT"
