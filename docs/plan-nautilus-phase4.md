@@ -840,8 +840,9 @@ Settings already takes relay addresses; this makes running one a click. (1) A Do
 `cmd/port42-relay` (for example `ghcr.io/gordonmattey/port42-relay`), (2) static binaries for Linux
 x86 and ARM and for macOS on each release, (3) a "Deploy on Railway" template from this repo and
 `relay.Dockerfile`, so someone with no ops experience gets a `*.up.railway.app` address with TLS and
-pastes `wss://<it>/v1` into Settings, (4) a short page on running one. To plan in detail before
-building, after the browser lane's live test.
+pastes `wss://<it>/v1` into Settings, (4) a short page on running one. Taken by the nautilus
+session (Gordon), on branch `relay-dist` cut from this branch, new files only. Also decided for v1,
+after this branch merges: pairing (`port42 pair`, approved in the app) and scoped tokens.
 
 ### 4.8 Scenario 4 in the harness
 
