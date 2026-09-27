@@ -57,9 +57,12 @@ struct RemoteActorTests {
             .acting(as: RemoteActor(id: "c-9", name: "wise-tern", kind: .companion))
         let tok = try #require((try await w.state.runBridgeMethod("ports.list", principal: there, args: BridgeArgs([:]))
             .toJSONObject() as? [[String: Any]])?.first?["token"] as? String)
+        // Read as of the write, not of whenever the check runs: a driver shows for 30 seconds, and a
+        // loaded machine took longer than that to get from the write to the check.
+        let before = Date()
         _ = try await w.state.runBridgeMethod("port.update", principal: there,
                                               args: BridgeArgs(["id": key, "html": "<p>y</p>", "token": tok]))
-        let d = try #require(w.state.portInput.driver(of: key, now: Date()))
+        let d = try #require(w.state.portInput.driver(of: key, now: before.addingTimeInterval(1)))
         #expect(d.ref == ActorRef(peer: Self.peer, principal: "c-9") && d.name == "wise-tern (Ada)",
                 "the driver was \(d.ref) \(d.name)")
     }
