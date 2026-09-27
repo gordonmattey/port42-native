@@ -1,31 +1,10 @@
 import SwiftUI
 
-/// Hold-to-talk, shown at the bottom right of whatever the words are going into: the tile being
-/// dictated into, or the shell itself when the words go to its own input.
+/// Hold-to-talk. Two places show it: the tile being dictated into (the hold itself, over that tile) and the
+/// app's chrome (what the model is doing, next to the other app-level state). A third, `VoiceHUD`, is the
+/// floating panel used when another app has the keyboard and our window may not be on screen.
 ///
-/// While the microphone is hot this is a mic and nothing else. The words are already streaming into the
-/// surface as uncommitted text, so a caption repeating them is the same sentence twice. Text appears only
-/// when there is something the surface cannot say for itself: no model, nowhere to type, a failed mic.
-///
-/// Either way the SHELL draws it, never the port, so a port can neither fake it nor hide it.
-struct VoiceIndicator: View {
-    let accent: Color
-    let label: String
-    let live: Bool
-
-    var body: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                VoiceStatus(accent: accent, label: label, live: live)
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 110)                 // clear of the dock
-            }
-        }
-    }
-}
-
+/// Every one of them is drawn by the SHELL, never by a port, so a port can neither fake it nor hide it.
 /// The mic when it is hot, the words when something is wrong. Used by the shell and by a tile.
 struct VoiceStatus: View {
     let accent: Color

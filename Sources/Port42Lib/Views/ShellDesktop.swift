@@ -88,6 +88,15 @@ struct ShellChrome: View {
             if shell.hasBackgroundPort {
                 chromeButton("moon.stars", "Reset background") { shell.clearBackgroundToTile() }
             }
+            // Voice, when it has something to say about itself (a download, a load, a refusal). It sits in the
+            // chrome next to the other app-level state rather than floating over the desktop, where it overlaid
+            // the rail (GM, 2026-09-27). A hold shows on the tile it is going into, not here.
+            if let voice = shell.voiceIndicatorForSpace {
+                chromeRow {
+                    VoiceStatus(accent: shell.accent, label: voice.label, live: voice.live)
+                        .help("Voice input")
+                }
+            }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
 
             chromeRow { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20) }

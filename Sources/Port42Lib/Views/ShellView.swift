@@ -260,13 +260,6 @@ public struct ShellView: View {
 
             // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
             // listening without saying so.
-            if let voice = shell.voiceIndicatorForSpace {
-                VoiceIndicator(accent: shell.accent, label: voice.label, live: voice.live)
-                    .zIndex(220)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
-
             // Permission — the top layer, above every other overlay, because it BLOCKS: a caller
             // is suspended on the answer. One site for every asker (port JS / companion tool use /
             // gateway); see PermissionCoordinator for why this isn't rendered inside a tile.
