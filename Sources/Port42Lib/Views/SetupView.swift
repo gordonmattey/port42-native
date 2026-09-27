@@ -83,6 +83,8 @@ public struct SetupView: View {
             // and the namespace. The agent line reports a real result. Draft copy; GM owns the words.
             .init(text: "Mounting surface drivers...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
             .init(text: "Scanning for agents...", style: .post, delay: 0.7, suffix: " \(agentScanResult)", suffixDelay: 1.5),
+            // Filled in live: the scan starts when setup opens, so it is done by the time you pick.
+            .init(text: "Scanning for agent sessions...", style: .post, delay: 0.7, suffix: " {sessions}", suffixDelay: 1.5),
             .init(text: "Opening the port namespace...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome to Port42.", style: .header, delay: 0.6),
@@ -93,6 +95,13 @@ public struct SetupView: View {
     }
 
     /// The boot line's real result: which agent CLIs are on this Mac.
+    /// A boot line's suffix, with the session scan's result filled in as it lands.
+    private func liveSuffix(_ s: String) -> String {
+        guard s.contains("{sessions}") else { return s }
+        let result = importStage == .finding ? "…" : importCandidates.isEmpty ? "NONE" : "\(importCandidates.count) FOUND"
+        return s.replacingOccurrences(of: "{sessions}", with: result)
+    }
+
     private var agentScanResult: String {
         let found = ["claude", "codex"].filter { ClaudeCodeSetup.findBinary($0) != nil }
         return found.isEmpty ? "NONE YET" : found.map { $0 == "codex" ? "CODEX" : "CLAUDE CODE" }.joined(separator: ", ")
@@ -133,6 +142,7 @@ public struct SetupView: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 terminalVisible = true
             }
+            findSessions()      // at once: done by the time the boot lines reach it
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 startBootSequence()
             }
@@ -459,14 +469,12 @@ public struct SetupView: View {
         let ticked = importSelection.requests(importCandidates).count
         return VStack(alignment: .leading, spacing: 10) {
             if importStage == .finding {
-                Text("> looking for agents already running on this Mac…")
+                Text("> scanning for agent sessions…")
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
             } else if importStage == .choosing {
-                Text("> looking for agents already running on this Mac…")
-                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
                 let claude = importCandidates.filter { $0.cli == .claude }.count
                 let codex = importCandidates.count - claude
-                Text("> found \(importCandidates.count) session\(importCandidates.count == 1 ? "" : "s"): " +
+                Text("> found \(importCandidates.count) agent session\(importCandidates.count == 1 ? "" : "s"): " +
                      [claude > 0 ? "\(claude) claude code" : nil, codex > 0 ? "\(codex) codex" : nil].compactMap { $0 }.joined(separator: ", "))
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
                 SessionImportList(candidates: importCandidates, selection: $importSelection)
@@ -600,7 +608,7 @@ public struct SetupView: View {
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(lineColor(for: line.style))
                 if revealedSuffixes.contains(index) {
-                    Text(suffix)
+                    Text(liveSuffix(suffix))
                         .font(Port42Theme.monoBold(14))
                         .foregroundStyle(Port42Theme.textPrimary)
                         .transition(.opacity)
