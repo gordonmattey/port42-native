@@ -16,6 +16,9 @@ public struct SetupView: View {
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var submittedName: String?
     @State private var showAnalyticsConsent = false
+    /// Echo's CLI is picked: the chooser gives way to the analytics question, which ends setup (GM,
+    /// 2026-09-26: picking echo is the high point, so the question comes after it, not before).
+    @State private var agentChosen = false
     // Bring running sessions in (docs/plan-session-import.md): found while the agent is being chosen.
     @State private var importCandidates: [SessionImport.Candidate] = []
     @State private var importSelection = SessionImport.Selection(groups: [], ticked: [], older: [])
@@ -260,16 +263,22 @@ public struct SetupView: View {
                             }
                         }
 
-                        // Analytics consent (after "Welcome, name.", before auth)
+                        // The agent chooser (after "Welcome, name." and the sessions)
+                        if showAuthOptions && !agentChosen && (importStage == .none || importStage == .chosen) {
+                            agentChooserContent
+                                .id("auth")
+                        }
+                        if agentChosen {
+                            HStack(spacing: 6) {
+                                Text(">").font(Port42Theme.monoBold(14)).foregroundStyle(Port42Theme.accent)
+                                Text("echo runs on \(chosenCLI).").font(Port42Theme.mono(14))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                            }
+                        }
+                        // Analytics consent, the last question: its answer finishes setup.
                         if showAnalyticsConsent {
                             analyticsConsentContent
                                 .id("analytics")
-                        }
-
-                        // The agent chooser (appears after analytics consent)
-                        if showAuthOptions && (importStage == .none || importStage == .chosen) {
-                            agentChooserContent
-                                .id("auth")
                         }
                         if showAuthOptions && [.finding, .choosing, .done].contains(importStage) {
                             importStepContent
@@ -414,7 +423,10 @@ public struct SetupView: View {
         }
         Analytics.shared.setupStep("agent_\(option)")
         chosenCLI = option
-        finishSetup(importing: pendingImports)
+        withAnimation(.easeIn(duration: 0.2)) { agentChosen = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeIn(duration: 0.2)) { showAnalyticsConsent = true }
+        }
     }
 
     /// Which CLI the sessions being brought in use, to suggest for the first companion.
@@ -556,16 +568,7 @@ public struct SetupView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showAnalyticsConsent = false
         }
-
-        // Show auth options after analytics consent
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            withAnimation(.easeIn(duration: 0.2)) {
-                showAuthOptions = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                isAuthPickerFocused = true
-            }
-        }
+        finishSetup(importing: pendingImports)
     }
 
     // MARK: - Transition (fade to black, circle, reveal)
@@ -716,10 +719,13 @@ public struct SetupView: View {
         revealLines(lines, current: 0) { count in
             visibleCreateLines = count
         } completion: {
-            // Show analytics consent after "Welcome, name." before auth options
+            // The sessions and the agent chooser after "Welcome, name."; analytics comes last.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 withAnimation(.easeIn(duration: 0.2)) {
-                    showAnalyticsConsent = true
+                    showAuthOptions = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    isAuthPickerFocused = true
                 }
             }
         }
@@ -778,7 +784,7 @@ public struct SetupView: View {
         }
 
         Task {
-            // Start create sequence (which shows analytics then auth options)
+            // Start create sequence (which shows the sessions, the agent chooser, then analytics)
             try? await Task.sleep(nanoseconds: 400_000_000)
             withAnimation(.easeIn(duration: 0.2)) {
                 startCreateSequence()
