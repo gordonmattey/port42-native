@@ -70,4 +70,33 @@ struct ChatTranscriptTests {
         #expect(!ChatTranscript.label(at(23, 9), now: now, calendar: cal).contains("Sep"), "within the week: a weekday")
         #expect(ChatTranscript.label(at(2, 9), now: now, calendar: cal).contains("Sep"))
     }
+
+    @Test("a copy across messages carries each one's time and sender, mine included; within one message it is plain")
+    func copy() {
+        let b = ChatTranscript.build([e(1, "me", "gordon", "make it warmer"), e(2, "a", "alpha", "done, v3 is up", at: 60)],
+                                     me: "me", accent: .green)
+        let all = NSRange(location: 0, length: b.text.length)
+        #expect(ChatTranscript.copyText(b, selection: all) ==
+                "[\(ChatTranscript.tooltip(t0))] gordon: make it warmer\n[\(ChatTranscript.tooltip(t0.addingTimeInterval(60)))] alpha: done, v3 is up")
+        // Starting mid-way through the first message cuts it there.
+        let s = b.text.string as NSString
+        let from = s.range(of: "warmer").location
+        let partial = ChatTranscript.copyText(b, selection: NSRange(location: from, length: b.text.length - from))
+        #expect(partial?.hasPrefix("[\(ChatTranscript.tooltip(t0))] gordon: warmer\n") == true)
+        #expect(ChatTranscript.copyText(b, selection: s.range(of: "v3 is")) == nil)
+    }
+
+    @Test("opening a chat scrolls to its end without raising (the crash on opening a port's chat, Dev5 2026-09-27)")
+    @MainActor
+    func scrollBeforeLayout() throws {
+        let scroll = ChatTranscriptView.makeScroll()
+        let text = try #require(scroll.documentView as? NSTextView)
+        #expect(text.textLayoutManager == nil, "TextKit 2 raised when scrolled before its first layout")
+        let b = ChatTranscript.build((1...40).map { e($0, "a", "alpha", "line \($0)", at: Double($0)) }, me: nil, accent: .green)
+        text.textStorage?.setAttributedString(b.text)
+        ChatTranscriptView.scrollToEnd(scroll)          // no window, no layout yet: must not throw
+        scroll.frame = NSRect(x: 0, y: 0, width: 300, height: 120)
+        ChatTranscriptView.scrollToEnd(scroll)
+        #expect(scroll.contentView.bounds.maxY >= text.bounds.maxY - 1, "not at the newest message")
+    }
 }

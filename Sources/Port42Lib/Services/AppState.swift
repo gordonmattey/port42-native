@@ -1674,6 +1674,18 @@ public final class AppState: ObservableObject {
             let name = self.currentName(of: config)
             if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
         }
+        controller.onTurnFailed = { [weak self] error, details in
+            guard let self else { return }
+            let name = self.currentName(of: config)
+            self.clearTerminalTyping(name: name, spaceId: config.spaceId)
+            defer { self.companionWatches.turnEnded(companionName: name) }
+            // The chat that asked, else the terminal's own. Posted as Port42, and naming the
+            // companion without an @, so it wakes no one.
+            guard let chat = self.chatReplyTargets.removeValue(forKey: name.lowercased())
+                    ?? self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
+            _ = try? self.postToChat(key: chat, text: ChatPresence.failureNotice(name: name, error: error, details: details),
+                                     from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
+        }
         controller.onSessionId = { [weak self] sid in
             self?.noteSessionId(sid, config: config, panelId: panel.id)
         }

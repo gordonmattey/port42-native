@@ -104,4 +104,37 @@ struct ChatPresenceTests {
         #expect(w.state.presence.entries(key).isEmpty)
         withExtendedLifetime(w.state) {}
     }
+
+    @Test("a failed turn says why in words, with the CLI's own words when it gave them")
+    func failureNotice() {
+        #expect(ChatPresence.failureNotice(name: "echo", error: "server_error", details: "")
+                == "echo could not reply: the API could not be reached (the connection may have dropped). Send it again.")
+        #expect(ChatPresence.failureNotice(name: "echo", error: "rate_limit", details: "429 Too Many Requests")
+                .hasSuffix("Wait a moment and send it again. (429 Too Many Requests)"))
+        #expect(ChatPresence.failureNotice(name: "echo", error: "something_new", details: "").contains("it hit an error"))
+        #expect(!ChatPresence.failureNotice(name: "echo", error: "overloaded", details: "").contains("@"),
+                "the notice must not @mention the companion, or it would wake it")
+    }
+
+    @Test("a failed turn clears presence and tells the chat that asked, without waking the companion (end to end)")
+    func failedTurnEndToEnd() throws {
+        let w = try makeParityWorld()
+        var a = AgentConfig.createCommand(ownerId: "u", displayName: "alpha", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        a.openInTerminal = true
+        w.state.companions = [a]
+        let panelId = try #require(w.state.spawnNativeTerminalPort(command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
+                                                      title: "alpha", companionName: "alpha", companionId: a.id,
+                                                      systemPrompt: nil, postCard: false))
+        let key = try #require(w.state.portWindows.panels.first { $0.id == panelId }?.udid)
+        _ = try w.state.postToChat(key: key, text: "alpha, go", from: .human(id: "u", displayName: "gordon", spaceId: w.space.id))
+        let controller = try #require(w.state.terminalControllers[panelId])
+        controller.handleEvent(.inputSubmitted(prompt: "alpha, go"))
+        controller.handleEvent(.turnFailed(error: "overloaded", details: "529"))
+        #expect(w.state.presence.entries(key).isEmpty)
+        let last = try #require(w.state.db.chatEntries(chat: key, after: 0, limit: 10).last)
+        #expect(last.fromId == ChatRouting.port42SenderId)
+        #expect(last.text.hasPrefix("alpha could not reply: the API is overloaded"))
+        #expect(w.state.chatReplyTargets["alpha"] == nil, "the notice woke the companion")
+        withExtendedLifetime(w.state) {}
+    }
 }

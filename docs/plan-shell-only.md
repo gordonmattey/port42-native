@@ -366,14 +366,17 @@ them; an item leaves only when it is done and verified.
 | # | Item | Status |
 |---|---|---|
 | 1 | Boot cinematic: pressing a key right after the first scene appears skips to the BIOS | Done: the first scene's video took keyboard focus, so later keys never reached the cinematic and its scenes ran on by their timers (replayed on Dev5). Keys now come from a window monitor while it is up; a held key's repeats do nothing. Replayed live: ten spaces, one scene each, the tenth ends it; GM confirmed on a fresh Dev5 |
-| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Built, second pass after GM's check: invisible zones like a port's own edges, no bar or icons (GM). A port's chat drags by its bottom edge, down to covering the whole port; the space chat by its bottom-right corner, like a port. Sizes hold for the session. Open: something behind the open space chat makes windows under it hard to click (GM) |
+| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Done, confirmed by GM (2026-09-27): invisible zones like a port's own edges; a port's chat drags by its bottom edge down to covering the port, the space chat by its bottom-right corner. Something behind the open space chat made windows under it hard to click once (GM); not reproduced, reopen if seen |
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
 | 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
-| 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`): up to 8 lines, then it scrolls; Return sends |
-| 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Built (`053f38b`), awaiting GM's look on Dev5: no bubbles (GM chose to see it without first); one AppKit text, so a drag still copies across messages; runs from one sender grouped; hover a message for its time. Bubbles can be drawn on the same view later |
+| 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`), confirmed by GM |
+| 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Done (`053f38b`), confirmed by GM: no bubbles; one AppKit text, so a drag copies across messages, with each message's time and sender; runs from one sender grouped; hover for a message's time; the time of the top message shown while scrolling |
+| 10 | Opening a port's chat crashed the app (Dev5, 2026-09-27) | Done (`53515ac`), confirmed by GM: TextKit 1, and the scroll moves the clip view; a test reproduces the crash on the old code |
+| 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
+| 12 | Checking a port put up to ~400 KB of log into an agent's context (`port.console` returned the last 100 lines of up to 4,000 characters) | Done: `level=count` gives only the error and warning counts; the default (`problems`) the errors and warnings themselves (last 20, each cut to 1,000 characters); `level=all` the whole log, for debugging. A terminal defaults to its last 50 lines. The ports skill and the /imagine roles check the count first and read errors only if there are any |
 
 ## Future roadmap
 
@@ -391,7 +394,18 @@ Things that would be cool once the five scenarios hold.
 - **Multi-display.** Spaces placed across monitors.
 - **More agents as equal first-run paths**, such as Gemini and Antigravity.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
-- **One guided permission flow** in place of a series of dialogs.
+- **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
+  (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
+  and most come from agents running in Port42's terminals, which macOS attributes to Port42. Idea: a
+  first-run step for the ones nearly everyone hits (the Desktop, Documents and Downloads folders, or
+  Full Disk Access through System Settings, which macOS allows only by the person's own toggle), with
+  camera, microphone and screen left to first use. Product idea; not designed.
+- **Mac apps in spaces** (GM, 2026-09-27). Bring other macOS apps into Port42 and organize them in
+  spaces. macOS gives no way to put another app's window inside ours. Two routes: manage the real
+  windows through the Accessibility API (each space remembers its apps' windows and shows, places and
+  hides them as you move between spaces; fully usable, but they sit over Port42 rather than in a
+  tile), or a live mirror of a window as a tile through ScreenCaptureKit with input forwarded
+  (in the tile, but input and fidelity are approximations). Research; demand unvalidated.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
 - **Antigravity as a companion** (GM deferred, 2026-09-26). `agy` has hooks (PreToolUse, PostToolUse,
   Pre/PostInvocation, Stop) from a workspace `.agents/hooks.json` or a plugin; open questions are an
@@ -413,6 +427,18 @@ Things that would be cool once the five scenarios hold.
   events, no timeout. Codex reports no submit, so it shows "has your message" until its turn ends; a
   Claude that was waiting on a permission shows waiting until the turn ends (no hook reports the
   approval).
+- **Presence shows why an agent cannot reply** (GM, 2026-09-27). When a CLI's turn fails (an API
+  error, a dropped connection), the chat that asked shows only what the CLI's hooks report: on
+  intermittent wifi, Claude's notice surfaced as "@name is waiting for your input", not the error
+  itself. Surface the error in the presence line (and the chat) when the CLI reports one. Claude
+  first; Codex to check. **Done for Claude (2026-09-27):** Port42 registers Claude's `StopFailure`
+  hook; a failed turn clears the agent from the chat's presence and Port42 posts in the chat that
+  asked why, in words ("echo could not reply: the API is overloaded. Wait a moment and send it
+  again."), without @mentioning it, so it wakes no one. Codex has no failure hook; not covered.
+- **Pinning ports** (GM, 2026-09-27). Pin a port in its space (it keeps its place and stays up), and
+  pin a port across spaces (it shows in every space).
+- **Review the port's "…" menu** (GM, 2026-09-27). The order of every item, and what belongs
+  together: for example, Move could include "set as background".
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

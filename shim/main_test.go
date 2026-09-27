@@ -546,3 +546,68 @@ func TestSessionPinForksAnImportOnceThenResumesIt(t *testing.T) {
 		t.Fatalf("a later launch = %v, want the pin resumed (never the original forked again)", got)
 	}
 }
+
+// A failed turn (Claude's StopFailure) reaches the app with its code and its words, so the chat
+// that asked can say why there is no reply (GM, 2026-09-27).
+func TestBuildSettingsStopFailure(t *testing.T) {
+	s := buildSettings("/x/port42-claude-shim")
+	var parsed struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v\n%s", err, s)
+	}
+	blocks := parsed.Hooks["StopFailure"]
+	if len(blocks) != 1 || len(blocks[0].Hooks) != 1 ||
+		blocks[0].Hooks[0].Command != `'/x/port42-claude-shim' notify turnFailed claude` {
+		t.Fatalf("StopFailure not wired: %s", s)
+	}
+}
+
+func TestNotifyCarriesTheFailure(t *testing.T) {
+	sock := fmt.Sprintf("/tmp/p42f%d.sock", time.Now().UnixNano()%1_000_000)
+	defer os.Remove(sock)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 4096)
+		n, _ := c.Read(buf)
+		got <- string(buf[:n])
+	}()
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+	go func() {
+		w.Write([]byte(`{"session_id":"s9","hook_event_name":"StopFailure","error":"overloaded",` +
+			`"error_details":"529 Overloaded"}`))
+		w.Close()
+	}()
+	t.Setenv("PORT42_HOOKS_SOCKET", sock)
+	runNotify("turnFailed", "")
+	select {
+	case msg := <-got:
+		var ev normalizedEvent
+		if err := json.Unmarshal([]byte(msg), &ev); err != nil {
+			t.Fatalf("bad event: %v %s", err, msg)
+		}
+		if ev.Event != "turnFailed" || ev.Error != "overloaded" || ev.Text != "529 Overloaded" {
+			t.Fatalf("failure lost: %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no event")
+	}
+}
