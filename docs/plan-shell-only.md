@@ -373,10 +373,11 @@ last is green:
 fast-forwarded to it; voice merged in `3387174` (conflicts in `.gitignore`, `ShellState`, `build.sh`
 and Settings, where the AI tab stays gone and a Voice tab joins). 1458 Swift tests and the Go suite
 green (the guest's tests need `npm install` in `guest/`). The scenario runs and the companion
-post-and-mention check are still to do on a dev instance. The DNS test is Phase 4's: the CNAME
-`tele` → `f7i1ufev.up.railway.app` in Cloudflare (waiting on GM's token), then `https://tele.port42.ai`
-serves the invite page with its CSP and a valid certificate, and a live invite opened there joins a
-port through relay1.
+post-and-mention check are still to do on a dev instance. The DNS test PASSED (Phase 4, 2026-09-27,
+`1f45faa`): `tele.port42.ai` is live (a DNS-only CNAME with Railway's `_railway-verify.tele` TXT, since
+Railway cannot verify through Cloudflare's proxy), a valid Let's Encrypt certificate, the page and
+frame CSPs correct live, the served bundle matching the committed one, and GM joined a Dev2 invite
+there through relay1. Still open with Phase 4: the daily-driver deep-link test.
 
 1. **`relay-dist` into `nautilus-phase4`.** New files only; Phase 4 merges it.
 2. **`nautilus-phase4` into `nautilus`,** when Phase 4 is done or at a checkpoint GM picks. Phase 4
