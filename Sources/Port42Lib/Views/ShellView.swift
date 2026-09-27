@@ -1143,9 +1143,16 @@ struct ShellSettingsView: View {
             HStack {
                 Text("COMPANION SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
-                Button { dismiss(save: false) } label: {
+                Button { dismiss(save: true) } label: {
+                    Text("Done").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.bgPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(col, in: RoundedRectangle(cornerRadius: 5))
+                }.buttonStyle(.plain).help("Save and close (Return)")
+                // Closing keeps what you typed, as a click outside does (GM, 2026-09-27: the only
+                // button discarded the rename, so it never saved). Esc is the way to throw it away.
+                Button { dismiss(save: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Close without saving")
+                }.buttonStyle(.plain).help("Close (Esc discards changes)")
             }
             HStack(spacing: 12) {
                 Circle().fill(col.gradient).frame(width: 46, height: 46)
@@ -1215,9 +1222,16 @@ struct ShellSettingsView: View {
             HStack {
                 Text("SPACE SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
-                Button { dismiss(save: false) } label: {   // ✕ = discard the rename
+                Button { dismiss(save: true) } label: {
+                    Text("Done").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.bgPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(acc, in: RoundedRectangle(cornerRadius: 5))
+                }.buttonStyle(.plain).help("Save and close (Return)")
+                // Closing keeps what you typed, as a click outside does (GM, 2026-09-27: the only
+                // button discarded the rename, so it never saved). Esc is the way to throw it away.
+                Button { dismiss(save: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Close without saving")
+                }.buttonStyle(.plain).help("Close (Esc discards changes)")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("NAME").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
