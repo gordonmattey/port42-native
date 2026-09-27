@@ -157,6 +157,8 @@ final class GhosttyTerminalController {
     /// auto-register an ad-hoc `claude` terminal as a space companion (docs/summer2026-todo.md).
     /// Fires at most once per controller. No-op by default (tests / non-companion terminals).
     private let onSessionStarted: (String?) -> Void
+    /// The CLI's own session id, on every start that reports one.
+    var onSessionId: ((String) -> Void)?
     /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
@@ -304,8 +306,9 @@ final class GhosttyTerminalController {
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box
             if unconfirmed > 0 { unconfirmed -= 1 }
-        case .sessionStarted(let cli):
+        case .sessionStarted(let cli, let sessionId):
             log("event=sessionStarted cli=\(cli ?? "?")")
+            if let sessionId, !sessionId.isEmpty { onSessionId?(sessionId) }
             self.cli = cli ?? self.cli
             if !cliRunning {
                 cliRunning = true

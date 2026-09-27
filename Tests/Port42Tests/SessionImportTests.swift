@@ -101,3 +101,93 @@ struct SessionImportTests {
         #expect(c.title.hasSuffix("…") && c.title.count == 60)
     }
 }
+
+@Suite("Session import: grouping and bringing in")
+@MainActor
+struct SessionImportFlowTests {
+
+    func cand(_ id: String, _ cli: SessionImport.CLI, project: String, branch: String?, age: TimeInterval) -> SessionImport.Candidate {
+        .init(cli: cli, pid: Int32.random(in: 100...9999), cwd: "/tmp/\(project)", project: project, branch: branch,
+              sessionId: id, title: "t \(id)", lastActive: Date().addingTimeInterval(-age), app: "Terminal", tty: nil)
+    }
+
+    @Test("grouped by project, newest first; the last day ticked; moving, a new space and renaming")
+    func grouping() {
+        let cs = [cand("a", .claude, project: "port42", branch: "nautilus", age: 60),
+                  cand("b", .claude, project: "port42", branch: "phase4", age: 120),
+                  cand("c", .codex, project: "kynee", branch: "main", age: 600),
+                  cand("d", .claude, project: "scratch", branch: nil, age: 3 * 86400)]
+        var s = SessionImport.Selection.initial(cs)
+        #expect(s.groups.map(\.name) == ["port42", "kynee", "scratch"])
+        #expect(s.groups[0].sessions == ["a", "b"])
+        #expect(s.ticked == ["a", "b", "c"] && s.older == ["d"])
+        s.move("c", to: s.groups[0].id)
+        #expect(s.groups.map(\.name) == ["port42", "scratch"], "an emptied group goes")
+        #expect(s.groups[0].sessions == ["a", "b", "c"])
+        s.moveToNewGroup("b", named: "port42")
+        #expect(s.groups.last?.name == "port42 2" && s.groups.last?.sessions == ["b"], "a new space never takes an existing name")
+        s.rename(s.groups[0].id, to: "  work  ")
+        #expect(s.groups[0].name == "work")
+        s.toggle("d")
+        let reqs = s.requests(cs)
+        #expect(reqs.map(\.sessionId) == ["a", "c", "d", "b"])
+        #expect(reqs.first { $0.sessionId == "a" }?.name == "port42-nautilus" && reqs.first { $0.sessionId == "d" }?.name == "scratch")
+        #expect(reqs.first { $0.sessionId == "c" }?.space == "work")
+    }
+
+    func req(_ id: String, _ cli: SessionImport.CLI, space: String, name: String) -> SessionImport.Request {
+        .init(sessionId: id, cli: cli, cwd: "/tmp", space: space, name: name)
+    }
+
+    @Test("bringing in: a companion per session in its space, whose terminal forks the session; names and spaces reused sensibly")
+    func importing() throws {
+        let w = try makeParityWorld()
+        let person = w.state.currentUser!
+        let results = try w.state.importSessions([req("claude-1", .claude, space: "port42 work", name: "port42-nautilus"),
+                                                  req("codex-1", .codex, space: "port42 work", name: "port42-nautilus")], person: person)
+        #expect(results.count == 2 && results[0].spaceId == results[1].spaceId, "one space for the group")
+        let space = try #require(w.state.spaces.first { $0.id == results[0].spaceId })
+        #expect(space.name == "port42-work")
+        #expect(results.map(\.companion) == ["port42-nautilus", "port42-nautilus-2"], "a second session gets its own name")
+        let claude = try #require(w.state.companions.first { $0.displayName == "port42-nautilus" })
+        #expect(claude.envVars?["PORT42_FORK_FROM"] == "claude-1" && claude.args == nil)
+        let claudeTerm = try #require(w.state.portWindows.panels.first { w.state.terminal($0.terminalConfig, isFor: claude) })
+        #expect(claudeTerm.terminalConfig?.env["PORT42_FORK_FROM"] == "claude-1", "the fork reaches the terminal's environment")
+        #expect(claudeTerm.terminalConfig?.cwd == "/tmp")
+        let codex = try #require(w.state.companions.first { $0.displayName == "port42-nautilus-2" })
+        #expect(codex.args == ["fork", "codex-1"])
+        let codexTerm = try #require(w.state.portWindows.panels.first { w.state.terminal($0.terminalConfig, isFor: codex) })
+        let start = codexTerm.terminalConfig?.startupCommand ?? ""
+        #expect(start.hasPrefix("codex fork codex-1 "), "\(start)")
+        #expect(CLIHookProducer.isBriefedStart(start), "its first turn is the briefing, whose reply is not posted")
+        // A later import into a space of the same name lands beside it.
+        let again = try w.state.importSessions([req("claude-2", .claude, space: "Port42 Work", name: "other")], person: person)
+        #expect(again[0].spaceId == space.id)
+    }
+
+    @Test("an imported Codex resumes its own fork after the first launch, in its command and its stored terminal")
+    func codexSwitchesToResume() throws {
+        let w = try makeParityWorld()
+        let r = try w.state.importSessions([req("orig-9", .codex, space: "x", name: "cx")], person: w.state.currentUser!)
+        let c = try #require(w.state.companions.first { $0.displayName == "cx" })
+        let panel = try #require(w.state.portWindows.panels.first { w.state.terminal($0.terminalConfig, isFor: c) })
+        w.state.noteSessionId("fork-7", config: panel.terminalConfig!, panelId: panel.id)
+        #expect(w.state.companions.first { $0.id == c.id }?.args == ["resume", "fork-7"])
+        let stored = w.state.portWindows.panels.first { $0.id == panel.id }?.terminalConfig?.startupCommand ?? ""
+        #expect(stored.hasPrefix("codex resume fork-7 ") && !stored.contains("orig-9"), "\(stored)")
+        #expect(CLIHookProducer.isBriefedStart(stored))
+        // A later start reporting the same session changes nothing more.
+        w.state.noteSessionId("fork-7", config: panel.terminalConfig!, panelId: panel.id)
+        #expect(w.state.companions.first { $0.id == c.id }?.args == ["resume", "fork-7"])
+        _ = r
+    }
+
+    @Test("after a first-run import the person lands in the first imported space, on its session")
+    func landing() throws {
+        let w = try makeParityWorld()
+        let r = try w.state.importSessions([req("s1", .claude, space: "landing", name: "lander")], person: w.state.currentUser!)
+        w.state.landOnImported(r)
+        #expect(w.state.currentSpace?.id == r[0].spaceId)
+        #expect(w.state.onboardingFocusPortId == r[0].portId && r[0].portId != nil)
+    }
+}

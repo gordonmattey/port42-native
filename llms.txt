@@ -443,6 +443,14 @@ Generated from the live method registry: every entry below is served exactly as 
   screen.windows()  [permission: screen]
       List all visible windows with their titles, apps, and positions
 
+### sessions
+
+  sessions.find()  [permission: terminal]
+      The Claude Code and Codex sessions running on this Mac that Port42 did not start, each with its project, branch, title, last activity and the app it runs in, grouped into a space per project. What the first-run import and ⌘K 'bring in running sessions' offer.
+  sessions.import(sessions)  [permission: terminal]
+      Bring running sessions into Port42 as forks: each becomes a companion in its space whose terminal starts with a copy of the whole conversation; the original is not touched and should then be closed. Each item: {id, cli, cwd, space, name}.
+        sessions (array, required): The sessions to bring in: {id, cli (claude|codex), cwd, space, name}.
+
 ### space
 
   space.create(name, switch)

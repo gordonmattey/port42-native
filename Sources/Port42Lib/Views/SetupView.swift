@@ -16,6 +16,14 @@ public struct SetupView: View {
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var submittedName: String?
     @State private var showAnalyticsConsent = false
+    // Bring running sessions in (docs/plan-session-import.md): found while the agent is being chosen.
+    @State private var importCandidates: [SessionImport.Candidate] = []
+    @State private var importSelection = SessionImport.Selection(groups: [], ticked: [], older: [])
+    @State private var importStage: ImportStage = .none
+    @State private var importResults: [SessionImportResult] = []
+    @State private var importError: String?
+    @State private var chosenCLI = "claude"
+    enum ImportStage { case none, choosing, done }
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
@@ -141,7 +149,8 @@ public struct SetupView: View {
 
     private var setupTerminal: some View {
         setupTerminalContent
-            .frame(width: 520)
+            .frame(width: importStage == .none ? 520 : 780)
+            .animation(.easeOut(duration: 0.25), value: importStage)
             .frame(maxHeight: 700)
             .background(Port42Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -243,9 +252,15 @@ public struct SetupView: View {
                         }
 
                         // The agent chooser (appears after analytics consent)
-                        if showAuthOptions {
+                        if showAuthOptions && importStage == .none {
                             agentChooserContent
                                 .id("auth")
+                        }
+                        if importStage != .none {
+                            importStepContent
+                                .id("import")
+                        }
+                        if showAuthOptions {
 
                             // Bottom padding so scroll can reach auth content
                             Spacer().frame(height: 20)
@@ -271,7 +286,8 @@ public struct SetupView: View {
                 .onChange(of: showAnalyticsConsent) { _, _ in
                     scrollToEnd(proxy: proxy)
                 }
-                .onChange(of: showAuthOptions) { _, _ in
+                .onChange(of: showAuthOptions) { _, shown in
+                    if shown { findSessions() }
                     scrollToEnd(proxy: proxy)
                 }
                 .onChange(of: claudeSetup.state) { _, newState in
@@ -375,9 +391,78 @@ public struct SetupView: View {
             return
         }
         Analytics.shared.setupStep("agent_\(option)")
+        chosenCLI = option
+        // Sessions already running on this Mac: offer to bring them in before finishing.
+        if !importCandidates.isEmpty && importStage == .none {
+            importSelection = SessionImport.Selection.initial(importCandidates)
+            importStage = .choosing
+            return
+        }
+        finishSetup(importing: [])
+    }
+
+    /// Complete setup, bring the chosen sessions in, and either hand over or show what came in.
+    private func finishSetup(importing requests: [SessionImport.Request]) {
         let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        appState.completeSetup(displayName: name, cli: option)
-        phase = .transition
+        appState.completeSetup(displayName: name, cli: chosenCLI)
+        guard !requests.isEmpty, let person = appState.currentUser else { phase = .transition; return }
+        do {
+            importResults = try appState.importSessions(requests, person: person)
+            importStage = .done
+        } catch {
+            importError = error.localizedDescription
+            phase = .transition
+        }
+    }
+
+    /// Find running sessions while the person is choosing the agent; it takes a moment.
+    private func findSessions() {
+        Task.detached(priority: .userInitiated) {
+            let found = SessionImport.find(procs: SessionImport.probe(), home: NSHomeDirectory())
+            await MainActor.run { importCandidates = found }
+        }
+    }
+
+    private var importStepContent: some View {
+        let ticked = importSelection.requests(importCandidates).count
+        return VStack(alignment: .leading, spacing: 10) {
+            if importStage == .choosing {
+                Text("> looking for agents already running on this Mac…")
+                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
+                let claude = importCandidates.filter { $0.cli == .claude }.count
+                let codex = importCandidates.count - claude
+                Text("> found \(importCandidates.count) session\(importCandidates.count == 1 ? "" : "s"): " +
+                     [claude > 0 ? "\(claude) claude code" : nil, codex > 0 ? "\(codex) codex" : nil].compactMap { $0 }.joined(separator: ", "))
+                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
+                SessionImportList(candidates: importCandidates, selection: $importSelection)
+                    .padding(.vertical, 4)
+                Text("port42 opens a copy of each, with the whole conversation.\nyour terminals aren't touched.")
+                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                HStack(spacing: 16) {
+                    Button { finishSetup(importing: importSelection.requests(importCandidates)) } label: {
+                        Text(ticked == 0 ? "[ continue ↵ ]" : "[ bring \(ticked) in ↵ ]")
+                            .font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: [])
+                    Button { finishSetup(importing: []) } label: {
+                        Text("skip").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                SessionImportDone(results: importResults, candidates: importCandidates)
+                Button {
+                    appState.landOnImported(importResults)
+                    phase = .transition
+                } label: {
+                    Text("[ continue ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: [])
+                .padding(.top, 6)
+            }
+        }
     }
 
     // MARK: - Analytics Consent

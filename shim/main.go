@@ -138,11 +138,23 @@ func userChoosesSession(args []string) bool {
 
 // sessionPin is the session flags Port42 adds for this launch: the per-port pin, or nothing when there
 // is no pin or the person's own arguments already choose a session.
-func sessionPin(home, sid string, userArgs []string) []string {
+//
+// forkFrom is a session brought into Port42 (docs/plan-session-import.md). The first launch forks it
+// INTO the pin, so the copy has an id Port42 chose; every later launch finds the pin's transcript and
+// resumes it, never forking the original again (which would drop what was done in Port42).
+func sessionPin(home, sid, forkFrom string, userArgs []string) []string {
 	if sid == "" || userChoosesSession(userArgs) {
 		return nil
 	}
+	if forkFrom != "" && !transcriptExists(home, sid) {
+		return []string{"--resume", forkFrom, "--fork-session", "--session-id", sid}
+	}
 	return sessionIDArgs(home, sid)
+}
+
+func transcriptExists(home, id string) bool {
+	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", id+".jsonl"))
+	return len(matches) > 0
 }
 
 // pluginDirArgs names the app's skills plugin for claude, when the terminal says where it is and
@@ -194,7 +206,7 @@ func runClaude() {
 	// Unless the person chose a session themselves: `claude --resume X` typed into a Port42 terminal
 	// used to fail, because the pin added a second session flag claude refuses to combine with it.
 	home, _ := os.UserHomeDir()
-	pin := sessionPin(home, os.Getenv("PORT42_CLAUDE_SESSION_ID"), os.Args[1:])
+	pin := sessionPin(home, os.Getenv("PORT42_CLAUDE_SESSION_ID"), os.Getenv("PORT42_FORK_FROM"), os.Args[1:])
 	argv = append(argv, pin...)
 	// Resuming: run in the session's own directory, or claude cannot find it (see resumeDir).
 	if len(pin) == 2 && pin[0] == "--resume" {

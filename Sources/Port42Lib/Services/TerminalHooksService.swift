@@ -26,7 +26,9 @@ public enum TerminalHookEvent: Sendable, Equatable {
     case approvalRequired(tool: String, input: String, sessionId: String)
     case inputSubmitted(prompt: String)
     /// The CLI is up. `cli` names which one raised it ("claude", "codex"), when its hook says.
-    case sessionStarted(cli: String?)
+    /// `sessionId` is the CLI's own session id, when its hook says (a Codex brought into Port42 is
+    /// switched to resume it on later launches).
+    case sessionStarted(cli: String?, sessionId: String? = nil)
     case sessionEnded
 }
 
@@ -170,7 +172,7 @@ public actor TerminalHooksService {
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
         case "approvalRequired": return .approvalRequired(tool: w.tool ?? "", input: w.input ?? "", sessionId: w.sessionId ?? "")
         case "inputSubmitted": return .inputSubmitted(prompt: w.prompt ?? "")
-        case "sessionStarted": return .sessionStarted(cli: w.cli)
+        case "sessionStarted": return .sessionStarted(cli: w.cli, sessionId: w.sessionId)
         case "sessionEnded":   return .sessionEnded
         default:               return nil
         }

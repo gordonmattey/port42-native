@@ -16,6 +16,8 @@ struct QuickSwitcherItem: Identifiable {
         case closedPort(id: String, spaceId: String?)
         /// A hidden port, running with no tile: selecting it shows it (nautilus Phase 3.2).
         case hiddenPort(id: String)
+        /// Bring the Claude Code and Codex sessions running on this Mac in (docs/plan-session-import.md).
+        case bringInSessions
     }
 }
 
@@ -185,10 +187,14 @@ public struct QuickSwitcher: View {
         }
     }
 
+    private var actionItems: [QuickSwitcherItem] {
+        [QuickSwitcherItem(id: "action-bring-in", icon: "⇥", name: "bring in running sessions", kind: .bringInSessions)]
+    }
+
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         // Empty query: spaces, then hidden ports, then recently closed ports.
-        guard !raw.isEmpty else { return spaceItems + hiddenItems + Array(closed.prefix(10)) }
+        guard !raw.isEmpty else { return spaceItems + hiddenItems + Array(closed.prefix(10)) + actionItems }
 
         // @ prefix: search companions
         if raw.hasPrefix("@") {
@@ -206,7 +212,7 @@ public struct QuickSwitcher: View {
         }
 
         // No prefix: search all
-        let all = spaceItems + companionItems + hiddenItems + closed
+        let all = spaceItems + companionItems + hiddenItems + closed + actionItems
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -257,6 +263,10 @@ public struct QuickSwitcher: View {
             shell?.bringToFront(id)
         case .hiddenPort(let id):
             if let shell { shell.showHidden(id) } else { appState.portWindows.restore(id) }
+        case .bringInSessions:
+            isPresented = false
+            shell?.showImportSessions = true
+            return
         }
         isPresented = false
     }
@@ -281,6 +291,7 @@ public struct QuickSwitcher: View {
         case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
         case .closedPort, .hiddenPort: return Port42Theme.textSecondary
+        case .bringInSessions: return Port42Theme.accent
         }
     }
 
@@ -290,6 +301,7 @@ public struct QuickSwitcher: View {
         case .companion: return "🏊"
         case .closedPort: return "recently closed"
         case .hiddenPort: return "hidden"
+        case .bringInSessions: return "claude code · codex"
         }
     }
 }

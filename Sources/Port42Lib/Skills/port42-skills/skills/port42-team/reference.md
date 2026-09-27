@@ -70,3 +70,21 @@ Start an imagine team: from one line, a new space with its port (a placeholder u
         versions (integer): The version budget (default 10, at most 20).
 
     port42 imagine.start line=… versions=…
+
+## sessions.find
+
+_needs the terminal permission_
+
+The Claude Code and Codex sessions running on this Mac that Port42 did not start, each with its project, branch, title, last activity and the app it runs in, grouped into a space per project. What the first-run import and ⌘K 'bring in running sessions' offer.
+
+    port42 sessions.find
+
+## sessions.import
+
+_needs the terminal permission_
+
+Bring running sessions into Port42 as forks: each becomes a companion in its space whose terminal starts with a copy of the whole conversation; the original is not touched and should then be closed. Each item: {id, cli, cwd, space, name}.
+
+        sessions (array, required): The sessions to bring in: {id, cli (claude|codex), cwd, space, name}.
+
+    port42 sessions.import sessions=…

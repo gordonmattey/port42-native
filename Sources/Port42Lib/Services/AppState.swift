@@ -1225,6 +1225,15 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// After a first-run import: land in the first imported space, focused on its first session's
+    /// terminal, rather than Echo's (docs/plan-session-import.md).
+    func landOnImported(_ results: [SessionImportResult]) {
+        guard let first = results.first(where: { $0.portId != nil }),
+              let space = spaces.first(where: { $0.id == first.spaceId }) else { return }
+        selectSpace(space)
+        onboardingFocusPortId = first.portId
+    }
+
     /// End the setup phases and hand the first run to the SHELL (the `.swim` phase is retired).
     /// Order matters: `isOnboarding` must be set BEFORE the flip, so the shell sees it on its
     /// first pass. The flip's `didSet` runs `switchToSpace` → `ensureChatPort`, which is what
@@ -1276,10 +1285,13 @@ public final class AppState: ObservableObject {
 
     /// Make a space. The shell's New Space enters it (`select`); an API caller does not have to.
     @discardableResult
+    /// The name a space is stored under: trimmed, lowercased, spaces as dashes.
+    nonisolated static func spaceName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+
     public func createSpace(name: String, select: Bool = true) -> Space? {
-        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "-")
+        let cleaned = Self.spaceName(name)
         guard !cleaned.isEmpty else { return nil }
 
         var space = Space.create(name: cleaned)
@@ -1618,8 +1630,25 @@ public final class AppState: ObservableObject {
                                                            title: config.companionName,
                                                            reason: reason)
                                                    })
+        controller.onSessionId = { [weak self] sid in
+            self?.noteSessionId(sid, config: config, panelId: panel.id)
+        }
         terminalControllers[panel.id] = controller
         return controller
+    }
+
+    /// A Codex brought into Port42 forks its original on its first launch (`codex fork <id>`); once it
+    /// reports the session it forked into, every later launch resumes that one instead, or a restart
+    /// would fork the original again and drop what was done in Port42. Both the companion's command
+    /// (a respawn) and this terminal's stored command (a restore) switch. docs/plan-session-import.md.
+    func noteSessionId(_ sid: String, config: TerminalPortConfig, panelId: String) {
+        guard let id = config.companionId, var c = companions.first(where: { $0.id == id }),
+              let args = c.args, args.count == 2, args[0] == "fork", args[1] != sid else { return }
+        let fork = "codex fork \(args[1])"
+        c.args = ["resume", sid]
+        updateCompanion(c)
+        portWindows.rewriteTerminalStartup(id: panelId) { $0.replacingOccurrences(of: fork, with: "codex resume \(sid)") }
+        p42log("[Port42] imported codex '%@' forked into %@; later launches resume it", c.displayName, sid)
     }
 
     /// Tear down and drop a native terminal controller (window closed/minimized).
@@ -1965,7 +1994,8 @@ public final class AppState: ObservableObject {
         guard let portId = spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
                                                    spaceId: spaceId, title: name,
                                                    companionName: name, companionId: companion.id,
-                                                   systemPrompt: companion.systemPrompt) else {
+                                                   systemPrompt: companion.systemPrompt,
+                                                   env: companion.envVars ?? [:]) else {
             return
         }
         if companion.runsHidden { portWindows.applyPresentation("hidden", to: portId) }

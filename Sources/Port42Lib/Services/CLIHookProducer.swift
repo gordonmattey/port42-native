@@ -149,16 +149,25 @@ public struct CLIHookProducer: Sendable {
     /// stopped partway and codex never launched. Typing `codex "$(cat '<file>')"` is short and
     /// cannot break on anything the brief contains.
     public static func startupCommand(base: String, companionPrompt: String, briefFile: String? = nil) -> String {
+        let b = base.trimmingCharacters(in: .whitespaces)
         guard !companionPrompt.isEmpty,
               forCommand(base)?.name == "codex",
-              // Only when the caller has not already supplied a prompt of its own.
-              base.trimmingCharacters(in: .whitespaces) == "codex"
+              // Only when the caller has not already supplied a prompt of its own: bare `codex`, or a
+              // session brought into Port42 (`codex fork <id>`, later `codex resume <id>`), whose first
+              // turn has to be this briefing for its SessionStart to run at all.
+              b == "codex" || isSessionCommand(b)
         else { return base }
         if let briefFile {
-            return "codex \"$(cat '\(briefFile.replacingOccurrences(of: "'", with: "'\\''"))')\""
+            return "\(b) \"$(cat '\(briefFile.replacingOccurrences(of: "'", with: "'\\''"))')\""
         }
         let brief = codexBrief(companionPrompt)
-        return "codex '\(brief.replacingOccurrences(of: "'", with: "'\\''"))'"
+        return "\(b) '\(brief.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// `codex fork <id>` or `codex resume <id>`, and nothing more.
+    static func isSessionCommand(_ s: String) -> Bool {
+        let w = s.split(separator: " ")
+        return w.count == 3 && w[0] == "codex" && (w[1] == "fork" || w[1] == "resume") && !w[2].hasPrefix("-")
     }
 
     /// The briefing is Codex's first message, so it answered it: a "Ready" in the chat every time a
@@ -173,7 +182,9 @@ public struct CLIHookProducer: Sendable {
     /// Does this terminal start by briefing Codex? Then its first turn answers the briefing, and
     /// nobody asked it anything.
     public static func isBriefedStart(_ startupCommand: String) -> Bool {
-        let s = startupCommand.trimmingCharacters(in: .whitespaces)
+        var s = Substring(startupCommand.trimmingCharacters(in: .whitespaces))
+        let w = s.split(separator: " ", maxSplits: 3)
+        if w.count >= 4, w[0] == "codex", w[1] == "fork" || w[1] == "resume" { s = "codex " + w[3] }
         return s.hasPrefix("codex \"$(cat ") || s.hasPrefix("codex '")
     }
 
