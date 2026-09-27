@@ -90,8 +90,25 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
-    /// An imagine link that arrived during the first run, held until the person lands (ImagineLink).
-    var heldImagineLink: ImagineLinkRequest?
+    /// An imagine link that arrived before or during the first run, held until the person lands
+    /// (ImagineLink). On disk, not in memory: an install often opens, quits and reopens the app, and
+    /// the idea the person picked on the site must survive that (growth, 2026-09-27).
+    var heldImagineLink: ImagineLinkRequest? {
+        get {
+            guard let d = UserDefaults.standard.dictionary(forKey: "heldImagineLink"),
+                  let line = d["line"] as? String, !line.isEmpty else { return nil }
+            return ImagineLinkRequest(line: line, from: d["from"] as? String)
+        }
+        set {
+            if let newValue {
+                var d: [String: String] = ["line": newValue.line]
+                if let from = newValue.from { d["from"] = from }
+                UserDefaults.standard.set(d, forKey: "heldImagineLink")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "heldImagineLink")
+            }
+        }
+    }
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
@@ -1108,6 +1125,7 @@ public final class AppState: ObservableObject {
                    let text = try? String(contentsOf: url, encoding: .utf8) {
                     return text.replacingOccurrences(of: "{{USER}}", with: displayName)
                         .replacingOccurrences(of: "{{IMPORTED}}", with: AppState.echoImportedNote(imported))
+                        .replacingOccurrences(of: "{{CAME_FOR}}", with: AppState.echoCameForNote(heldImagineLink?.line))
                 }
                 return "You are echo, \(displayName)'s first companion in Port42. Welcome them, then suggest they ask you for a shader port."
             }()
@@ -1132,6 +1150,19 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
+    }
+
+    /// When the person arrived from the site with an idea (a held imagine link): echo leads with it
+    /// instead of the shader (growth, 2026-09-27). Empty when they did not.
+    nonisolated static func echoCameForNote(_ line: String?) -> String {
+        guard let line, !line.isEmpty else { return "" }
+        return """
+
+        they came to port42 to make this, picked on port42.ai before installing: "\(line)". after the \
+        welcome, do not suggest the shader. tell them their idea is waiting in the imagine box: zoom out \
+        (pinch out, or the zoom-out button at the top right) and the box opens with it; they press enter \
+        and a lead and two engineers build it in a space of its own. never start it yourself.
+        """
     }
 
     /// What echo tells the person about the sessions they brought in at setup, as part of its welcome

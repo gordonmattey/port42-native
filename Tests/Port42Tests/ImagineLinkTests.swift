@@ -44,4 +44,24 @@ struct ImagineLinkTests {
         #expect(shell.showImagine && shell.imagineLink == req && state.heldImagineLink == nil)
         #expect(try state.db.getRegularSpaces().count == spacesBefore, "a link started a team")
     }
+
+    @Test("a held idea survives a quit, and echo leads with it instead of the shader")
+    func heldAcrossLaunchesAndInEcho() throws {
+        defer { UserDefaults.standard.removeObject(forKey: "heldImagineLink") }
+        let first = AppState(db: try DatabaseService(inMemory: true))
+        first.heldImagineLink = ImagineLinkRequest(line: "a synth I play with my hands", from: "port42.ai/start")
+        let db = try DatabaseService(inMemory: true)
+        let second = AppState(db: db)                        // the app, reopened
+        #expect(second.heldImagineLink?.line == "a synth I play with my hands")
+        let user = AppUser.createForTesting(displayName: "Gordon")
+        try db.saveUser(user)
+        second.currentUser = user
+        second.completeSetup(displayName: "Gordon", cli: "claude")
+        let echo = try #require(second.companions.first { $0.displayName == "echo" })
+        let prompt = echo.systemPrompt ?? ""
+        #expect(prompt.contains("\"a synth I play with my hands\"") && prompt.contains("do not suggest the shader"))
+        #expect(!prompt.contains("{{CAME_FOR}}"))
+        second.heldImagineLink = nil
+        #expect(AppState.echoCameForNote(nil) == "")
+    }
 }
