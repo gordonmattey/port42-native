@@ -159,3 +159,25 @@ test('the chat drops down from the title bar, and opening it clears the unread c
   assert.ok(chat.classList.contains('open'));
   assert.equal(p.doc.getElementById('chat-count').hidden, true);
 });
+
+test('the closed chat is clipped out of sight, not parked over the title bar', () => {
+  assert.match(html, /#body \{[^}]*overflow: hidden/, 'the port area does not clip the closed chat');
+  assert.match(html, /#chat \{[^}]*visibility: hidden/, 'the closed chat is only moved, not hidden');
+});
+
+test('the chat is resized by dragging its bottom edge, and keeps its height next time', async () => {
+  const p = page();
+  await join(p);
+  const chat = p.doc.getElementById('chat');
+  Object.defineProperty(p.doc.getElementById('body'), 'clientHeight', { value: 800 });
+  chat.getBoundingClientRect = () => ({ height: 300 });
+  const at = (type, y) => new p.dom.window.MouseEvent(type, { clientY: y, bubbles: true });
+  p.doc.getElementById('chat-resize').dispatchEvent(at('pointerdown', 300));
+  p.dom.window.dispatchEvent(at('pointermove', 450));
+  assert.equal(chat.style.height, '450px');
+  p.dom.window.dispatchEvent(at('pointerup', 460));
+  assert.equal(chat.style.height, '460px');
+  assert.equal(p.storage.get('port42.guest.chatHeight'), '460', 'the height was not remembered');
+  p.dom.window.dispatchEvent(at('pointermove', 900));
+  assert.equal(chat.style.height, '460px', 'the chat kept resizing after the drag ended');
+});

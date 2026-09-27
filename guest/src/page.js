@@ -83,6 +83,28 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
 
   $(doc, 'gate').addEventListener('submit', (ev) => { ev.preventDefault(); join(); });
   // The chat drops down from the title bar over the port, as on a tile in Port42.
+  // Drag the chat's bottom edge to set its height, as in Port42; the height is remembered.
+  const CHAT_H = 'port42.guest.chatHeight';
+  const setChatHeight = (px) => {
+    const room = $(doc, 'body').clientHeight || 600;
+    const h = Math.round(Math.max(120, Math.min(px, room - 60)));
+    $(doc, 'chat').style.height = h + 'px';
+    return h;
+  };
+  const savedH = Number(read(storage, CHAT_H));
+  if (savedH > 0) setChatHeight(savedH);
+  $(doc, 'chat-resize').addEventListener('pointerdown', (down) => {
+    down.preventDefault();
+    const startY = down.clientY, startH = $(doc, 'chat').getBoundingClientRect().height || $(doc, 'chat').offsetHeight;
+    const move = (ev) => setChatHeight(startH + (ev.clientY - startY));
+    const up = (ev) => {
+      write(storage, CHAT_H, String(setChatHeight(startH + (ev.clientY - startY))));
+      win.removeEventListener('pointermove', move);
+      win.removeEventListener('pointerup', up);
+    };
+    win.addEventListener('pointermove', move);
+    win.addEventListener('pointerup', up);
+  });
   $(doc, 'chat-toggle').addEventListener('click', () => {
     const open = !$(doc, 'chat').classList.contains('open');
     $(doc, 'chat').classList.toggle('open', open);
