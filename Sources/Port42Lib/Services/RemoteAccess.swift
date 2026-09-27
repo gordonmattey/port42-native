@@ -29,6 +29,9 @@ public enum RemoteRight: String, CaseIterable, Equatable, Hashable {
     case edit
     /// The caller's chat posts wake the host's companions (@mentions and chat membership).
     case wakeAgents = "wake_agents"
+    /// Take a copy of the port (Gordon, 2026-09-27: option A). The sharer's leave, which Port42 honours
+    /// by offering Fork only when it is given. It cannot be enforced: `see` already delivers the page.
+    case fork
 }
 
 /// How a method is reachable from another machine.

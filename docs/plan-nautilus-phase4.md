@@ -548,7 +548,15 @@ the same for another space on this instance and for another instance:
 
 Decided: fork and move ship with the share dialog in 4.6b, and forking a port shared from another
 instance needs a right of its own (`fork`), granted in the invite like the others, not implied by
-`see`.
+`see`. It cannot be enforced (showing a port delivers its page), so it is the sharer's leave, which
+Port42 honours by offering Fork only when given (Gordon, option A: "we just don't make it easy").
+
+**Fork, built 2026-09-27.** "Fork: a copy" under "…" on your own web port, and "fork a copy" in the
+pill panel of someone else's when they allowed it ("allow a copy" in the Share box, off by default;
+a "copy" chip per person in the host's panel). The copy is a new web port of this instance in the
+current space, titled "… (copy)", with no grants of its own and no tie to the original. Gates:
+`ForkTests` (an independent copy; refused without leave, made with it, and never still theirs),
+calibrated by three breaks. Suite 1350 green.
 
 ### 4.6c Companions across machines: one chat for a shared port
 

@@ -155,6 +155,37 @@ extension AppState {
         }
     }
 
+    /// Fork a port into a new one of this instance's, in the current space: an independent copy with no
+    /// grants of its own, titled as a copy. A port someone shared is copied only when they allowed it
+    /// (`fork`); that is their leave, not a lock, since the page is already here.
+    @discardableResult
+    public func forkPort(_ id: String) async throws -> String {
+        let html: String, title: String, home: String?
+        if let row = mirroredRemote(id) {
+            guard row.rights.contains(.fork) else {
+                throw BridgeError(code: .notGranted, message: "\(row.hostName) did not allow a copy of this port")
+            }
+            guard let h = try await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
+                                                    args: ["id": row.portKey]) as? String else {
+                throw BridgeError(code: .noSurface, message: "\(row.hostName)'s port sent nothing to copy")
+            }
+            (html, title, home) = (h, row.title, portWindows.panels.first { $0.id == id }?.spaceId)
+        } else {
+            guard let panel = portWindows.panels.first(where: { $0.id == id || $0.udid == id }), AppState.shareable(panel) else {
+                throw BridgeError.notFound("port '\(id)'")
+            }
+            html = (try? db.fetchPortHtml(udid: panel.udid)).flatMap { $0 } ?? panel.html
+            (title, home) = (panel.title, panel.spaceId)
+        }
+        guard let space = currentSpace?.id ?? home else { throw BridgeError(code: .wrongState, message: "no space to fork into") }
+        let made = createPort(type: "web", title: "\(title) (copy)", html: html, command: nil, cwd: nil,
+                              systemPrompt: nil, spaceId: space, createdBy: nil, createdByName: nil)
+        guard let newId = made["id"] as? String else {
+            throw BridgeError.badArg(made["error"] as? String ?? "the copy could not be made")
+        }
+        return newId
+    }
+
     /// Leave a port someone shared: its tile closes here and this instance forgets it. The sharer's
     /// grant stays theirs to remove; a new invite brings it back.
     public func leaveRemotePort(tile: String) {

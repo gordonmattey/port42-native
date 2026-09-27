@@ -12,6 +12,7 @@ struct ShareBox: View {
     @State private var edit = false
     @State private var wake = true
     @State private var code = false
+    @State private var copy = false
     @State private var made: Made?
     @State private var error: String?
 
@@ -43,6 +44,7 @@ struct ShareBox: View {
                 option("use it", "click, type, drive it", $use)
                 option("edit it", "change the port itself", $edit)
                 option("remote wake", "their companions can wake yours in its chat", $wake)
+                option("allow a copy", "they can fork it into a port of their own", $copy)
                 option("require a code", "a six-digit code you send them another way", $code)
                 if let error { Text(error).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.error) }
                 Button(action: make) {
@@ -114,6 +116,7 @@ struct ShareBox: View {
         if use { rights.append("use") }
         if edit { rights.append("edit") }
         if wake { rights.append("wake_agents") }
+        if copy { rights.append("fork") }
         Task { @MainActor in
             do {
                 let out = try await appState.runBridgeMethod(

@@ -732,6 +732,13 @@ struct ShellTile: View {
                             showMore = false
                         },
                         onShare: shareablePort ? { showMore = false; shell.shareTarget = tile.panel?.udid } : nil,
+                        onFork: shareablePort ? {
+                            showMore = false
+                            let id = tile.panel?.id ?? tile.id
+                            Task { @MainActor in
+                                if let copy = try? await appState.forkPort(id) { shell.bringToFront(copy) }
+                            }
+                        } : nil,
                         onSetBackground: {
                             // MOVE the port to the background — a position change, not a clone. Its
                             // presentation flips to "background", so it drops out of the tile grid and
@@ -1425,6 +1432,8 @@ struct PortMorePopover: View {
     let onHide: () -> Void
     /// A web port of this instance can be shared (4.6b); nil hides the row.
     var onShare: (() -> Void)? = nil
+    /// A copy of this port, beside it (4.6b); nil hides the row.
+    var onFork: (() -> Void)? = nil
     let onSetBackground: () -> Void
 
     var body: some View {
@@ -1438,8 +1447,11 @@ struct PortMorePopover: View {
             // chrome), not something that belongs on a random port.
             if let onShare {
                 row("Share…", icon: "person.2", action: onShare)
-                Divider().opacity(0.4)
             }
+            if let onFork {
+                row("Fork: a copy", icon: "arrow.triangle.branch", action: onFork)
+            }
+            if onShare != nil || onFork != nil { Divider().opacity(0.4) }
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
         }

@@ -484,7 +484,7 @@
     "name" : "invite_accept"
   },
   {
-    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
     "input_schema" : {
       "properties" : {
         "expiresIn" : {
@@ -500,7 +500,7 @@
           "type" : "boolean"
         },
         "rights" : {
-          "description" : "see, use, edit, wake_agents. Default see, use and wake_agents.",
+          "description" : "see, use, edit, wake_agents, fork. Default see, use and wake_agents.",
           "items" : {
             "type" : "string"
           },

@@ -73,7 +73,7 @@ struct ShareHostPanel: View {
                     Text(person.name).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    ForEach([RemoteRight.use, .edit, .wakeAgents], id: \.self) { right in
+                    ForEach([RemoteRight.use, .edit, .wakeAgents, .fork], id: \.self) { right in
                         let on = person.rights.contains(right)
                         RightChip(label: ShareWords.right(right), on: on) {
                             appState.setRemoteRight(right, !on, peer: person.peer, port: portKey)
@@ -130,6 +130,15 @@ struct ShareGuestPanel: View {
                 }
             }
             Divider().opacity(0.4)
+            if row?.rights.contains(.fork) == true {
+                Button {
+                    Task { @MainActor in _ = try? await appState.forkPort(tileId); onDone() }
+                } label: {
+                    Text("fork a copy").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("A copy of this port on your machine, yours to change. The original stays theirs.")
+            }
             Button { appState.leaveRemotePort(tile: tileId); onDone() } label: {
                 Text("leave: close it here").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
             }
@@ -147,6 +156,7 @@ enum ShareWords {
         case .use: return "use"
         case .edit: return "edit"
         case .wakeAgents: return "wake"
+        case .fork: return "copy"
         }
     }
 
