@@ -146,7 +146,9 @@ if [ "$CONFIG" = "release" ]; then
     fi
 
     echo "$APP_VERSION" > "$DIR/VERSION"
-    echo "$APP_VERSION" > "$LAST_RELEASE_FILE"
+    # A NO_PUBLISH build is not a release, so it does not count as the last one: the next real release
+    # of this version must not be bumped past it.
+    [ "${NO_PUBLISH:-}" = "1" ] || echo "$APP_VERSION" > "$LAST_RELEASE_FILE"
     echo "[build] Releasing as v${APP_VERSION}"
 fi
 export APP_VERSION
@@ -493,6 +495,13 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
 
     # Staple
     xcrun stapler staple "$DMG" 2>&1 | tail -1
+
+    # NO_PUBLISH=1: a signed, notarized DMG to hand to someone, and nothing public (GM, 2026-09-27).
+    # Stops before the appcast, the push and the GitHub release, so no installed Port42 updates.
+    if [ "${NO_PUBLISH:-}" = "1" ]; then
+        echo "[build] NO_PUBLISH: signed and notarized DMG at $DMG (v${APP_VERSION}); not published"
+        exit 0
+    fi
 
     # Generate Sparkle appcast (temporary prefix, will be fixed below)
     GENERATE_APPCAST=$(ls /opt/homebrew/Caskroom/sparkle/*/bin/generate_appcast 2>/dev/null | head -1 || true)
