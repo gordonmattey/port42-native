@@ -370,10 +370,32 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Open defects (`defects-triage.md`) | Settled: terminal matched by name fixed (by id), companion per named terminal is by design (GM), blank page after a WebContent crash cleared (never observed), tool-result size fixed for `port.console` (levels). None left open for v1 |
 | Seen in the imagine runs | Settled: the startup-stuck check removed; messages typed as a turn ended were lost (#6), fixed and verified live |
 | Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
+| Voice input (GM, 2026-09-27: on the v1 list) | Built on `voice-input` by its own session (plan `docs/plan-voice-input.md` there): hold space to talk, transcribed on the Neural Engine (Parakeet via FluidAudio, a new package dependency), typed where the cursor is. Phase 1 done; 21 commits, 27 files |
 | Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; four decisions await GM |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
 | Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Publishing waits for the Phase 4 merge (GM, 2026-09-27): the repo is public and the relay's source is only on the unpushed Phase 4 branch. After the release reaches `main`: push `relay-v1.0.0` (the workflow publishes the image and binaries; GM grants `write:packages` once), make the image public, switch relay1 on Railway to `ghcr.io/gordonmattey/port42-relay:latest` (after Phase 4's sharing tests, which run through relay1), make the Railway template, and the port42.ai page (growth) |
+
+### Integration into nautilus (coordinated by the nautilus session, GM 2026-09-27)
+
+Four lines of work end in `nautilus`: `nautilus` itself, `nautilus-phase4` (sharing, relay, invites),
+`relay-dist` (relay packaging, cut from Phase 4) and `voice-input`. Order, each step only when the
+last is green:
+
+1. **`relay-dist` into `nautilus-phase4`.** New files only; Phase 4 merges it.
+2. **`nautilus-phase4` into `nautilus`,** when Phase 4 is done or at a checkpoint GM picks. Phase 4
+   merges the latest `nautilus` first and resolves its side; then nautilus merges it.
+3. **`voice-input` into `nautilus`,** after Phase 4 is in, so voice resolves once against the whole
+   tree. It merges `nautilus` first. It adds a package (FluidAudio), so the first build fetches it.
+4. **Pairing and scoped tokens** built on the integrated tree (migration v63), then the "…" menu
+   reorder.
+5. **Release build.**
+
+At every merge: the branch has merged `nautilus` in and resolved its own conflicts; `swift test` is
+green on the result; the generated files are regenerated, not hand-merged (the tool schema golden,
+`llms.txt`, skill references); migrations keep distinct numbers (Phase 4 v57 to v61, nautilus v62,
+pairing v63); the five scenarios pass on a dev instance. Overlapping files to watch: `AppState`,
+`ShellState`, `ShellDesktop`, `ShellView`, `PortWindowManager`, `BridgeMethods`.
 
 ### Final hit list (GM, 2026-09-26)
 
