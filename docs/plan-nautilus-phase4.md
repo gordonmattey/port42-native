@@ -522,13 +522,69 @@ Decided: fork and move ship with the share dialog in 4.6b, and forking a port sh
 instance needs a right of its own (`fork`), granted in the invite like the others, not implied by
 `see`.
 
-**4.6c, names across machines (Gordon, 2026-09-26).** A companion on another machine is shown with
-the name of the person there, the display name they gave in setup: `@wise-tern (Ada)`. When two
-machines would show the same name (one person on two machines, or two people with one name), each
-gains the first four characters of its peer id: `@wise-tern (gordon 56dv)`. Remote in Settings gets
-an optional "this machine's name", defaulting to the person's name, for someone who prefers
-"gordon laptop" to the id. The label is for people; a mention is routed by peer id and companion id,
-so a clash of labels never delivers to the wrong companion.
+### 4.6c Companions across machines: one chat for a shared port
+
+**The test this step exists for (Gordon, 2026-09-26):** a companion on Dev2 and a companion on Dev6
+build the shared shader together, talking in the port's chat to split and hand off the work, while
+Gordon watches both desktops. Everything below is what that needs, and nothing else.
+
+**Measured today.**
+- A port's chat lives on the instance that holds the port (`PortChat`, rows keyed by the port). Every
+  post publishes a `chat` event on the port's topic, so the tile's subscription on the other instance
+  already receives each one; the mirror drops them (`mirrorEvent` handles `state` and `push` only).
+- A remote caller can `chat.post` into a shared port's chat, and with `wake_agents` its post wakes the
+  host's companions (`postToChat`). The post is attributed to the instance as one principal
+  (`remote`), so the host cannot tell the person there from a companion there, and the routing rule
+  that stops two companions looping (a companion's post wakes only whom it names) does not apply to
+  it: a companion on the guest posting plainly would wake the whole chat on the host.
+- The tile on the guest has a chat of its own, keyed by the tile, which nobody on the host sees.
+- A guest companion reaches the port only by its `port42://<peer>/<port>` address; a call naming the
+  tile's local id is not forwarded (only the tile's own page is, `mirroredCall`).
+
+**Decisions.**
+- *One chat.* A shared port has one chat, on the host. The tile's chat on the guest shows it and posts
+  to it; nothing is stored twice.
+- *Names* (decided above). A companion or person on another instance is labelled with the person
+  there: `wise-tern (Ada)`, and `wise-tern (gordon 56dv)` when two instances would show the same
+  label. The mention is written with the existing escape rule (`@wise-tern%20(Ada)`), and the chat
+  already shows an escaped mention as the name, so no new syntax. Remote in Settings gets an optional
+  "this machine's name". A mention is delivered by peer id and companion id, never by label.
+- *Who posted.* A call from another instance says which actor there made it: the person, or a named
+  companion. The host believes the instance (Noise proved it) and records the actor as that
+  instance's claim: `fromId` `<peer>/<actor id>`, `fromKind` `human` or `companion`, the label above.
+  The loop rule then applies unchanged. The same actor names the driver in the host's driver chip.
+- *Wakes both ways.* The host's companions wake for a guest's post only with `wake_agents` (built).
+  The guest's companions wake for a mention in the host's chat only if the person on the guest has
+  turned on "their companions can wake mine" for that tile. Default off: a wake runs on this
+  machine's terminal and spends this person's model.
+
+**Steps, each its own commit with gates.**
+1. *The tile's chat is the host's.* On the guest, reading and posting in a mirrored tile's chat go to
+   the host (`chat.read`, `chat.post`), and the mirror applies each `chat` event to the tile's chat
+   live. Gate: a post on either side appears once on both, in order, and none is stored on the guest.
+2. *The actor crosses.* `remote_call` carries the actor (id, name, kind); the host attributes the
+   post to it and routes by its kind. Gate: a guest companion's plain post wakes nobody on the host;
+   a guest person's plain post wakes the chat's companions (with `wake_agents`); a claim of kind
+   `human` from an instance never makes it the host's own person.
+3. *Names and mentions.* Labels and the clash suffix; `whoami` and `companions.list` add the other
+   instance's participants in the shared chats this companion is in, as mentionable names. Gate: a
+   mention of a guest companion from the host reaches that companion and no other, including when two
+   companions share a label.
+4. *Guest wakes, and replies.* A mention in a mirrored chat wakes this instance's companion when the
+   tile allows it; its reply goes back to the tile's chat, so to the host. Gate: off by default; on,
+   one mention gives one wake and one reply in the host's chat.
+5. *A companion works on the tile by its id.* Any local call naming a mirrored tile goes to the host,
+   not only the tile page's own calls. Gate: `port.update` naming the tile edits the host's port with
+   `edit` and is refused `not_granted` without it.
+
+**Live, the magic test (new spaces on Dev2 and Dev6; Gordon watches).** The shader on Dev2 shared with
+`see`, `use`, `edit` and `wake_agents`; a companion on each instance; Gordon turns on wakes in Dev6's
+tile and asks both, in the tile's chat, to build the shader together. It passes when both companions
+post in the one chat, hand off by mention across machines, both edit the port (the driver chip and
+the token history name each), the chat is the same on both desktops, and the result renders (lit
+pixels, not only a clean console).
+
+Open: the one blocker is the default for "their companions can wake mine": off (recommended) or on.
 
 ### 4.7 The browser lane
 
