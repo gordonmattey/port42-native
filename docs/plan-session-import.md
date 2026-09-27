@@ -2,7 +2,7 @@
 
 Asked by GM on 2026-09-26: at first run, where the person picks the agent, offer to bring every
 running Claude Code and Codex session into Port42 in one click, choosing which sessions share a
-space. Draft for GM's review; nothing is built. Product idea; demand unvalidated.
+space. Approved by GM (2026-09-26); being built. Product idea; demand unvalidated.
 
 ## What exists
 
@@ -38,6 +38,36 @@ At the agent step, under the CLI choice:
   Port42. Their originals are still open and will fall behind: close them now," with the list of
   originals (project, branch, CLI) to close. Port42 does not close them itself.
 - The same list is a ⌘K action, "Bring in running sessions", for after first run.
+
+## The screen (agreed with GM, 2026-09-26)
+
+A step in the first-run setup terminal, right after the agent choice; no galaxy. The terminal widens
+for it (520 to about 760).
+
+```
+> looking for agents already running on this Mac…
+> found 5 sessions: 3 claude code, 2 codex
+
+  # port42-native                                    ✎
+    [x] claude   nautilus   "fix the gateway stall"      3m
+    [x] claude   phase4     "relay and invites"          1m
+  # kynee-release                                    ✎
+    [x] codex    main       "release notes"             12m
+  + new space  (drop a session here)
+  ▸ older (2)
+
+  port42 opens a copy of each, with the whole conversation.
+  your terminals aren't touched.
+
+  [ bring 3 in ↵ ]   skip
+```
+
+Drag a row onto a `#` heading to move it, onto `+ new space` to start one; ✎ renames. Sessions
+active in the last day are ticked; older ones are collapsed and unticked. No sessions: no step.
+After Enter each prints as it lands (`✓ port42-native  claude nautilus → @port42-native-nautilus`),
+then "close the originals now, they'll fall behind" with each original's terminal app and path, and
+`continue ↵` lands on the first imported space's desktop (Echo is still made). ⌘K "bring in running
+sessions" opens the same list in a command box.
 
 ## What a fork is
 
