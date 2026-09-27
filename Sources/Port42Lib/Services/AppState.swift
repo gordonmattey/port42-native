@@ -101,6 +101,8 @@ public final class AppState: ObservableObject {
     public let notifyBus = NotifyBus()
     /// What the shell shows of each port's chat (PortChat.swift).
     public let chats = PortChatStore()
+    /// Who is on each chat's message right now (received, working, waiting), shown under the chat.
+    public let presence = ChatPresenceStore()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
     /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
     /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
@@ -948,6 +950,7 @@ public final class AppState: ObservableObject {
         let name = companion.displayName
         let key = name.lowercased()
         ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        presence.received(name, in: replyChat ?? spaceId)
         companionWatches.turnStarted(companionName: name)
         if let controller = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) }),
            controller.isSurfaceBound {
@@ -1541,6 +1544,11 @@ public final class AppState: ObservableObject {
                                                            title: config.companionName,
                                                            reason: reason)
                                                    })
+        controller.onPresence = { [weak self] state in
+            guard let self else { return }
+            let name = self.currentName(of: config)
+            if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
+        }
         controller.onSessionId = { [weak self] sid in
             self?.noteSessionId(sid, config: config, panelId: panel.id)
         }

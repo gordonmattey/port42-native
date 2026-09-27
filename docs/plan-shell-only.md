@@ -405,7 +405,11 @@ Things that would be cool once the five scenarios hold.
 - **Presence in chat** (GM, 2026-09-26). When a message in a port's or the space's chat wakes an
   agent, the chat shows it: received, working, done (and waiting on the person, when its CLI says so).
   The signals exist (the terminal's "typing" state from a typed message to its turn's end, Claude's
-  submit confirmation, the needs-attention hook); the chat panel does not show them.
+  submit confirmation, the needs-attention hook). **Done (2026-09-26):** `ChatPresenceStore`, shown
+  under the transcript of the chat that asked ("@alpha is working (42s)"), fed by the terminal's
+  events, no timeout. Codex reports no submit, so it shows "has your message" until its turn ends; a
+  Claude that was waiting on a permission shows waiting until the turn ends (no hook reports the
+  approval).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
