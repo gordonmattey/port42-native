@@ -757,6 +757,17 @@ ports only.
    storage for port42.ai, so a refresh or a return visit is the same guest and needs no new invite.
    Clearing the site's data makes a new guest.
 
+**Decided (Gordon, 2026-09-27).** The invite page is managed in this repo and is one page for every
+Port42: the link names the Mac, the relay and the port, and the page is the same program for all of
+them, a guest-only Port42 in the browser with its own key. It is served from **`open.port42.ai`**,
+its own small Railway service built from this repo (a Go server that serves the page with its
+security headers), published with each release, so the page and the app come from one commit. A
+subdomain rather than a path on port42.ai: a browser guest's key is stored per origin, so on its own
+origin nothing else on the website can reach it, and it deploys without the website. Invite links
+become `https://open.port42.ai/#<coupon>`; port42.ai may link or redirect to it. The page offers
+**Open in Port42**, **Open here** and **Get Port42** (the release DMG). The rest of the four decisions
+above are as recommended.
+
 **Steps, each its own commit with gates.**
 1. *The guest runtime* (`guest/src`): the relay client (connect, signed `hello`, `open`, pings), a Noise
    IK initiator on `@noble` (X25519 from the Ed25519 key, ChaCha20-Poly1305, SHA-256, prologue
@@ -772,9 +783,11 @@ ports only.
    the host's port id; the chat beside it; every refusal said plainly. Gates: in Node with a DOM
    (jsdom): no network before a click, the fragment cleared, the key never inside the iframe; the
    shim's calls reach the runtime and nothing else.
-3. *Bundle and hygiene:* the esbuild bundle with its integrity hash; the page's Content-Security-Policy
-   (`connect-src` the relays only), `Referrer-Policy: no-referrer`, no third-party script. Gate: a test
-   that the committed bundle matches a fresh build and the page names its hash.
+3. *Bundle, server and hygiene:* the esbuild bundle with its integrity hash; `cmd/port42-open`, the
+   page's server, with its Content-Security-Policy (`connect-src` the relays only),
+   `Referrer-Policy: no-referrer` and no third-party script; `open.Dockerfile` for Railway; invite
+   links on `open.port42.ai`. Gates: the committed bundle matches a fresh build and the page names its
+   hash; the server sends every header.
 4. *The `/port` spike and its query-string token deleted* from the gateway. Gate: `/port` answers 404.
 
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
