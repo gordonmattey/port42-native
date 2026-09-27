@@ -12,6 +12,9 @@ enum ChatTranscript {
         let text: NSAttributedString
         /// Each message's range in `text`, in order.
         let ranges: [NSRange]
+        /// Each message's text alone (no name line), for copying.
+        let bodyRanges: [NSRange]
+        let senders: [String]
         let dates: [Date]
     }
 
@@ -30,6 +33,7 @@ enum ChatTranscript {
     static func build(_ entries: [PortChatEntry], me: String?, accent: NSColor, now: Date = Date()) -> Built {
         let out = NSMutableAttributedString()
         var ranges: [NSRange] = []
+        var bodyRanges: [NSRange] = []
         let body = NSFont.monospacedSystemFont(ofSize: bodySize, weight: .regular)
         let bold = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
         let theirs = NSColor(Port42Theme.textPrimary).withAlphaComponent(0.85)
@@ -59,6 +63,7 @@ enum ChatTranscript {
                 ]))
                 bodyGap = 2
             }
+            let bodyStart = out.length
             let lines = ChatRouting.displayText(e.text).components(separatedBy: "\n")
             for (j, line) in lines.enumerated() {
                 let last = i == entries.count - 1 && j == lines.count - 1
@@ -68,8 +73,26 @@ enum ChatTranscript {
                 ]))
             }
             ranges.append(NSRange(location: start, length: out.length - start))
+            bodyRanges.append(NSRange(location: bodyStart, length: out.length - bodyStart))
         }
-        return Built(text: out, ranges: ranges, dates: entries.map(\.at))
+        return Built(text: out, ranges: ranges, bodyRanges: bodyRanges,
+                     senders: entries.map { $0.fromName.isEmpty ? $0.fromId : $0.fromName }, dates: entries.map(\.at))
+    }
+
+    /// What a copy puts on the pasteboard when the selection spans messages (GM, 2026-09-27): each
+    /// message as "[time] name: text", the first and last cut where the selection starts and ends,
+    /// so the times and every sender (yours included, which the view does not show) come through.
+    /// nil within one message: that copies as plain text.
+    static func copyText(_ b: Built, selection: NSRange) -> String? {
+        guard selection.length > 0 else { return nil }
+        let s = b.text.string as NSString
+        var lines: [String] = []
+        for i in b.ranges.indices where NSIntersectionRange(b.ranges[i], selection).length > 0 {
+            let part = NSIntersectionRange(b.bodyRanges[i], selection)
+            let text = part.length > 0 ? s.substring(with: part).trimmingCharacters(in: .newlines) : ""
+            lines.append("[\(tooltip(b.dates[i]))] \(b.senders[i]): \(text)")
+        }
+        return lines.count > 1 ? lines.joined(separator: "\n") : nil
     }
 
     /// The message whose range holds character `index` (the last one past the end).
@@ -112,12 +135,21 @@ struct ChatTranscriptView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
-        let text = scroll.documentView as! NSTextView
+        let text = TranscriptTextView(frame: .zero)
+        text.minSize = .zero
+        text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        scroll.documentView = text
+        let coordinator = context.coordinator
+        text.copyText = { [weak coordinator] range in coordinator?.built.flatMap { ChatTranscript.copyText($0, selection: range) } }
         text.isEditable = false
         text.isSelectable = true
         text.drawsBackground = false
@@ -142,8 +174,7 @@ struct ChatTranscriptView: NSViewRepresentable {
         let ownLast = entries.last.map { ChatTranscript.isMine($0, me: me) } ?? false
         c.signature = signature
         let built = ChatTranscript.build(entries, me: me, accent: NSColor(accent))
-        c.ranges = built.ranges
-        c.dates = built.dates
+        c.built = built
         text.textStorage?.setAttributedString(built.text)
         if atBottom || ownLast {
             DispatchQueue.main.async { text.scrollToEndOfDocument(nil) }
@@ -156,8 +187,7 @@ struct ChatTranscriptView: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         weak var text: NSTextView?
-        var ranges: [NSRange] = []
-        var dates: [Date] = []
+        var built: ChatTranscript.Built?
         var signature = ""
         var onScroll: ((Date) -> Void)?
 
@@ -171,7 +201,19 @@ struct ChatTranscriptView: NSViewRepresentable {
             let top = CGPoint(x: 8, y: text.visibleRect.minY + 4 - text.textContainerInset.height)
             let glyph = lm.glyphIndex(for: top, in: tc)
             let char = lm.characterIndexForGlyph(at: glyph)
-            if let i = ChatTranscript.message(at: char, in: ranges), i < dates.count { onScroll?(dates[i]) }
+            guard let built else { return }
+            if let i = ChatTranscript.message(at: char, in: built.ranges), i < built.dates.count { onScroll?(built.dates[i]) }
         }
+    }
+}
+
+/// The transcript's text view: a copy across messages carries each one's time and sender.
+final class TranscriptTextView: NSTextView {
+    var copyText: ((NSRange) -> String?)?
+
+    override func copy(_ sender: Any?) {
+        guard let text = copyText?(selectedRange()) else { return super.copy(sender) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
