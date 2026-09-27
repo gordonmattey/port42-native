@@ -177,6 +177,7 @@ struct ShellLayoutTests {
         let w = ShellState.parkWidth(area.width)
         #expect(w == max(64, 1440 * 0.05))
         #expect(ShellState.parkZone(at: CGPoint(x: 700, y: 400), in: area) == nil)                    // middle
+        #expect(ShellState.parkZone(at: CGPoint(x: 700, y: -4), in: area) == .hide)                   // onto the top bar: hide
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 200), in: area) == .park)        // strip, high
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: area.height - 10), in: area) == .close)  // strip, low
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - w - 5, y: area.height - 10), in: area) == nil) // just left of strip

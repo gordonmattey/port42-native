@@ -760,17 +760,18 @@ public final class AppState: ObservableObject {
     private func loadInitialState() {
         do {
             currentUser = try db.getLocalUser()
-            isSetupComplete = currentUser != nil
-            // FIRST BOOT (no identity yet) goes straight to the BIOS — no lock screen, no
-            // dreamscape loop, no swim button. The lock screen belongs to a user who HAS an
-            // identity: a returning launch, a lock, a power off (each sets this itself).
-            if currentUser == nil { showDreamscape = false }
-            // A dev instance can skip the lock screen at launch, so a rebuild or a harness restart
-            // does not wait for a person to click in. Never in a release build.
-            if currentUser != nil, Self.devAutoUnlock() { showDreamscape = false }
             spaces = try db.getRegularSpaces()
             loadLastReadDates()   // restore ⌘K recency + unread-since-last-visit across restart (0.6)
             companions = try db.getAllAgents()
+            isSetupComplete = Self.setupFinished(hasUser: currentUser != nil, spaces: spaces.count,
+                                                 companions: companions.count)
+            // FIRST BOOT (no identity yet, or setup quit before it finished) goes straight to the
+            // BIOS — no lock screen, no dreamscape loop. The lock screen belongs to a user who HAS
+            // finished setup: a returning launch, a lock, a power off (each sets this itself).
+            if !isSetupComplete { showDreamscape = false }
+            // A dev instance can skip the lock screen at launch, so a rebuild or a harness restart
+            // does not wait for a person to click in. Never in a release build.
+            if isSetupComplete, Self.devAutoUnlock() { showDreamscape = false }
             if let userId = currentUser?.id {
             }
 
@@ -1224,6 +1225,14 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
+    }
+
+    /// Setup has FINISHED, not merely started: a person, and the space and companion setup ends by
+    /// making. The person is saved as soon as they type their name, so `currentUser != nil` alone sent
+    /// a setup quit halfway into an empty shell with a nameless placeholder space (GM, 2026-09-26).
+    /// A finished install always has a space: deleting the last one makes "general".
+    nonisolated static func setupFinished(hasUser: Bool, spaces: Int, companions: Int) -> Bool {
+        hasUser && (spaces > 0 || companions > 0)
     }
 
     /// After a first-run import: land in the first imported space, focused on its first session's

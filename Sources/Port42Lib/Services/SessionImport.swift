@@ -37,6 +37,8 @@ public enum SessionImport {
         /// The app the terminal runs in ("Terminal", "iTerm2", "Ghostty"), for "close the originals".
         public let app: String?
         public let tty: String?
+        /// Terminals running this same session (two panes resumed on one): it comes in once.
+        public var panes: Int = 1
     }
 
     /// A session log on disk.
@@ -118,15 +120,14 @@ public enum SessionImport {
 
     // MARK: - Session logs
 
-    /// Session logs changed in the last `days`, newest first. Claude: `~/.claude/projects/*/*.jsonl`,
+    /// Session logs, newest first, whatever their age (a session idle for weeks can still be running). Claude: `~/.claude/projects/*/*.jsonl`,
     /// the cwd read from the log itself (not the folder name, as teleport does). Codex:
     /// `~/.codex/sessions/**.jsonl`, the id and cwd from its first record.
     /// `cwds`, when given, limits Claude's folders to the ones named after those directories (Claude
     /// names a project folder after its path), so a Mac with years of sessions is not read in full:
     /// on GM's Mac, reading them all took 15 s.
-    static func logs(home: String, now: Date, days: Double = 7, cwds: Set<String>? = nil) -> [LogFile] {
+    static func logs(home: String, now: Date, cwds: Set<String>? = nil) -> [LogFile] {
         let fm = FileManager.default
-        let cutoff = now.addingTimeInterval(-days * 86400)
         var out: [LogFile] = []
         let claudeRoot = "\(home)/.claude/projects"
         let allDirs = (try? fm.contentsOfDirectory(atPath: claudeRoot)) ?? []
@@ -141,7 +142,7 @@ public enum SessionImport {
             let d = "\(claudeRoot)/\(dir)"
             for f in (try? fm.contentsOfDirectory(atPath: d)) ?? [] where f.hasSuffix(".jsonl") {
                 let path = "\(d)/\(f)"
-                guard let m = modified(path), m >= cutoff, let cwd = firstValue("cwd", in: path) else { continue }
+                guard let m = modified(path), let cwd = firstValue("cwd", in: path) else { continue }
                 out.append(LogFile(cli: .claude, sessionId: String(f.dropLast(6)), cwd: cwd, modified: m, path: path))
             }
         }
@@ -150,7 +151,7 @@ public enum SessionImport {
             while let rel = e.nextObject() as? String {
                 guard rel.hasSuffix(".jsonl") else { continue }
                 let path = "\(codexRoot)/\(rel)"
-                guard let m = modified(path), m >= cutoff,
+                guard let m = modified(path),
                       let line = firstLine(path), let data = line.data(using: .utf8),
                       let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let p = o["payload"] as? [String: Any],
@@ -288,7 +289,7 @@ public enum SessionImport {
         let byPid = Dictionary(procs.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
         let cwds = Set(procs.compactMap { p in cli(of: p, byPid: byPid) != nil ? p.cwd : nil })
         // No age limit: a session idle for weeks is still running, and its folders are few.
-        let logs = logs(home: home, now: now, days: 3650, cwds: cwds)
+        let logs = logs(home: home, now: now, cwds: cwds)
         var claimed = Set<String>()
         var out: [Candidate] = []
         let running = procs.compactMap { p -> (Proc, CLI)? in
@@ -305,7 +306,11 @@ public enum SessionImport {
             } else {
                 log = logs.first { $0.cli == c && !claimed.contains($0.sessionId) && realpath($0.cwd) == cwd }
             }
-            guard let l = log, !claimed.contains(l.sessionId) else { continue }
+            guard let l = log else { continue }
+            if claimed.contains(l.sessionId) {
+                if let i = out.firstIndex(where: { $0.sessionId == l.sessionId }) { out[i].panes += 1 }
+                continue
+            }
             claimed.insert(l.sessionId)
             out.append(Candidate(cli: c, pid: p.pid, cwd: cwd, project: project(cwd), branch: branch(cwd),
                                  sessionId: l.sessionId, title: title(of: l), lastActive: l.modified,

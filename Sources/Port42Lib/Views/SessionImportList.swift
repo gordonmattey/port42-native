@@ -17,6 +17,15 @@ struct SessionImportList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Text("\(selection.ticked.count) of \(candidates.count) selected")
+                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                Button("select all") { selection.ticked = Set(candidates.map(\.sessionId)) }
+                    .buttonStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(accent)
+                Button("select none") { selection.ticked = [] }
+                    .buttonStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+            }
             ForEach(selection.groups) { g in
                 let rows = g.sessions
                 if !rows.isEmpty {
@@ -89,6 +98,9 @@ struct SessionImportList: View {
                 .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 8)
+            if c.panes > 1 {
+                Text("open in \(c.panes) terminals").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+            }
             Text(Self.age(c.lastActive)).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
         }
         .padding(.leading, 18)

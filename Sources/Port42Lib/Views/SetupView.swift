@@ -23,7 +23,9 @@ public struct SetupView: View {
     @State private var importResults: [SessionImportResult] = []
     @State private var importError: String?
     @State private var chosenCLI = "claude"
-    enum ImportStage { case none, choosing, done }
+    /// Sessions come FIRST, then the agent, suggested from them (GM, 2026-09-26).
+    enum ImportStage { case none, finding, choosing, chosen, done }
+    @State private var pendingImports: [SessionImport.Request] = []
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
@@ -81,6 +83,8 @@ public struct SetupView: View {
             // and the namespace. The agent line reports a real result. Draft copy; GM owns the words.
             .init(text: "Mounting surface drivers...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
             .init(text: "Scanning for agents...", style: .post, delay: 0.7, suffix: " \(agentScanResult)", suffixDelay: 1.5),
+            // Filled in live: the scan starts when setup opens, so it is done by the time you pick.
+            .init(text: "Scanning for agent sessions...", style: .post, delay: 0.7, suffix: " {sessions}", suffixDelay: 1.5),
             .init(text: "Opening the port namespace...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome to Port42.", style: .header, delay: 0.6),
@@ -91,6 +95,13 @@ public struct SetupView: View {
     }
 
     /// The boot line's real result: which agent CLIs are on this Mac.
+    /// A boot line's suffix, with the session scan's result filled in as it lands.
+    private func liveSuffix(_ s: String) -> String {
+        guard s.contains("{sessions}") else { return s }
+        let result = importStage == .finding ? "…" : importCandidates.isEmpty ? "NONE" : "\(importCandidates.count) FOUND"
+        return s.replacingOccurrences(of: "{sessions}", with: result)
+    }
+
     private var agentScanResult: String {
         let found = ["claude", "codex"].filter { ClaudeCodeSetup.findBinary($0) != nil }
         return found.isEmpty ? "NONE YET" : found.map { $0 == "codex" ? "CODEX" : "CLAUDE CODE" }.joined(separator: ", ")
@@ -131,6 +142,9 @@ public struct SetupView: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 terminalVisible = true
             }
+            findSessions()      // at once: done by the time the boot lines reach it
+            // Resuming a setup quit halfway: the name typed then is already there.
+            if displayName.isEmpty, let known = appState.currentUser?.displayName { displayName = known }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 startBootSequence()
             }
@@ -149,8 +163,9 @@ public struct SetupView: View {
 
     private var setupTerminal: some View {
         setupTerminalContent
-            .frame(width: importStage == .none ? 520 : 780)
-            .animation(.easeOut(duration: 0.25), value: importStage)
+            // One width from the first screen (GM: a terminal does not change width); wide enough for
+            // the session list.
+            .frame(width: 780)
             .frame(maxHeight: 700)
             .background(Port42Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -252,11 +267,11 @@ public struct SetupView: View {
                         }
 
                         // The agent chooser (appears after analytics consent)
-                        if showAuthOptions && importStage == .none {
+                        if showAuthOptions && (importStage == .none || importStage == .chosen) {
                             agentChooserContent
                                 .id("auth")
                         }
-                        if importStage != .none {
+                        if showAuthOptions && [.finding, .choosing, .done].contains(importStage) {
                             importStepContent
                                 .id("import")
                         }
@@ -290,6 +305,12 @@ public struct SetupView: View {
                     if shown { findSessions() }
                     scrollToEnd(proxy: proxy)
                 }
+                // The session list opens at its top, not scrolled to the bottom of the terminal.
+                .onChange(of: importStage) { _, stage in
+                    if stage == .choosing || stage == .done {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("import", anchor: .top) }
+                    }
+                }
                 .onChange(of: claudeSetup.state) { _, newState in
                     if newState == .success {
                         cliScanTick += 1   // an install finished: offer what is now there
@@ -301,7 +322,7 @@ public struct SetupView: View {
         }
     }
 
-    // MARK: - The agent Echo runs on
+    // MARK: - The agent the first companion runs on
 
     /// The CLI agents on this machine, in the order offered. Echo runs on one of them. Port42 holds no
     /// model and reads no provider credential (D9): the agent signs in to its own account, in its own
@@ -330,9 +351,10 @@ public struct SetupView: View {
                 Spacer().frame(height: 4)
                 Text("Install one:").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else if found.count == 1 {
-                Text("Found \(agentLabel(found[0])).").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
+                Text("Found \(agentLabel(found[0])). Your first companion runs on it.")
+                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else {
-                Text("Found Claude Code and Codex. Pick the one Echo runs on:")
+                Text(agentSuggestionLine)
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             }
             Spacer().frame(height: 4)
@@ -340,7 +362,7 @@ public struct SetupView: View {
                 let install = option.hasPrefix("install:")
                 let cli = install ? String(option.dropFirst("install:".count)) : option
                 agentOptionButton(idx, label: install ? "install \(agentLabel(cli))" : agentLabel(cli),
-                                  hint: cli == "codex" ? "your ChatGPT account" : "your Claude subscription") {
+                                  hint: "") {
                     cliSelected = idx
                     submitAgentChoice()
                 }
@@ -392,13 +414,29 @@ public struct SetupView: View {
         }
         Analytics.shared.setupStep("agent_\(option)")
         chosenCLI = option
-        // Sessions already running on this Mac: offer to bring them in before finishing.
-        if !importCandidates.isEmpty && importStage == .none {
-            importSelection = SessionImport.Selection.initial(importCandidates)
-            importStage = .choosing
-            return
+        finishSetup(importing: pendingImports)
+    }
+
+    /// Which CLI the sessions being brought in use, to suggest for the first companion.
+    private var suggestedCLI: String? {
+        let clis = Set(pendingImports.map(\.cli.rawValue))
+        return clis.count == 1 ? clis.first : nil
+    }
+
+    private var agentSuggestionLine: String {
+        switch suggestedCLI {
+        case "claude": return "Your sessions are Claude Code, so your first companion runs on it too:"
+        case "codex": return "Your sessions are Codex, so your first companion runs on it too:"
+        default: return pendingImports.isEmpty ? "Found Claude Code and Codex. Pick the one your first companion runs on:"
+                                               : "You use both. Pick the one your first companion runs on:"
         }
-        finishSetup(importing: [])
+    }
+
+    /// The person's choice of sessions: held until the agent is chosen, then brought in.
+    private func chooseSessions(_ requests: [SessionImport.Request]) {
+        pendingImports = requests
+        importStage = .chosen
+        if let s = suggestedCLI, let i = agentOptions.firstIndex(of: s) { cliSelected = i }
     }
 
     /// Complete setup, bring the chosen sessions in, and either hand over or show what came in.
@@ -417,21 +455,28 @@ public struct SetupView: View {
 
     /// Find running sessions while the person is choosing the agent; it takes a moment.
     private func findSessions() {
+        guard importStage == .none else { return }
+        importStage = .finding
         Task.detached(priority: .userInitiated) {
             let found = SessionImport.find(procs: SessionImport.probe(), home: NSHomeDirectory())
-            await MainActor.run { importCandidates = found }
+            await MainActor.run {
+                importCandidates = found
+                importSelection = SessionImport.Selection.initial(found)
+                importStage = found.isEmpty ? .none : .choosing
+            }
         }
     }
 
     private var importStepContent: some View {
         let ticked = importSelection.requests(importCandidates).count
         return VStack(alignment: .leading, spacing: 10) {
-            if importStage == .choosing {
-                Text("> looking for agents already running on this Mac…")
+            if importStage == .finding {
+                Text("> scanning for agent sessions…")
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
+            } else if importStage == .choosing {
                 let claude = importCandidates.filter { $0.cli == .claude }.count
                 let codex = importCandidates.count - claude
-                Text("> found \(importCandidates.count) session\(importCandidates.count == 1 ? "" : "s"): " +
+                Text("> found \(importCandidates.count) agent session\(importCandidates.count == 1 ? "" : "s"): " +
                      [claude > 0 ? "\(claude) claude code" : nil, codex > 0 ? "\(codex) codex" : nil].compactMap { $0 }.joined(separator: ", "))
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
                 SessionImportList(candidates: importCandidates, selection: $importSelection)
@@ -439,13 +484,13 @@ public struct SetupView: View {
                 Text("port42 opens a copy of each, with the whole conversation.\nyour terminals aren't touched.")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                 HStack(spacing: 16) {
-                    Button { finishSetup(importing: importSelection.requests(importCandidates)) } label: {
+                    Button { chooseSessions(importSelection.requests(importCandidates)) } label: {
                         Text(ticked == 0 ? "[ continue ↵ ]" : "[ bring \(ticked) in ↵ ]")
                             .font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: [])
-                    Button { finishSetup(importing: []) } label: {
+                    Button { chooseSessions([]) } label: {
                         Text("skip").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
@@ -565,7 +610,7 @@ public struct SetupView: View {
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(lineColor(for: line.style))
                 if revealedSuffixes.contains(index) {
-                    Text(suffix)
+                    Text(liveSuffix(suffix))
                         .font(Port42Theme.monoBold(14))
                         .foregroundStyle(Port42Theme.textPrimary)
                         .transition(.opacity)
@@ -723,9 +768,11 @@ public struct SetupView: View {
         showNameInput = false
         Analytics.shared.setupStep("name_entered")
 
-        // Generate identity key pair and store in Keychain now,
-        // so the create sequence can show the real fingerprint
-        let user = AppUser.createLocal(displayName: name)
+        // Generate identity key pair and store in Keychain now, so the create sequence can show the
+        // real fingerprint. A setup quit halfway already made the person: keep them, renamed, rather
+        // than make a second.
+        var user = appState.currentUser ?? AppUser.createLocal(displayName: name)
+        user.displayName = name
         do {
             try appState.db.saveUser(user)
             appState.currentUser = user
