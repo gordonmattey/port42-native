@@ -55,6 +55,8 @@ extra spaces. A space with any modifier is untouched.
 
 ### Phase 2: capture and transcribe
 
+Detailed plan: [plan-voice-phase2.md](plan-voice-phase2.md).
+
 FluidAudio as a package dependency, Parakeet downloaded on first use, microphone capture between the
 threshold and key-up, transcription on release. Text is logged, not inserted.
 
