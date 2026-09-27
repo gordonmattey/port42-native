@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AVFoundation
+import FluidAudio
 @testable import Port42Lib
 
 // Phase 2 of voice input: the microphone and the model. The trigger is covered by VoiceTriggerTests.
@@ -78,6 +79,7 @@ private final class FakeSource: VoiceAudioSource {
         starts += 1; isRunning = true
     }
     func stop() -> [Float] { stops += 1; isRunning = false; return samples }
+    func snapshot() -> [Float] { samples }
 }
 
 private struct FakeTranscriber: VoiceTranscriber {
@@ -188,6 +190,36 @@ struct VoiceSessionTests {
         #expect(states.contains { if case .failed = $0 { return true }; return false })
     }
 
+    /// Partials are feedback while the hold is open. They are re-reads of the whole buffer so far, which
+    /// is why they need no second model and no sliding window.
+    @Test("the words so far arrive while the hold is still open")
+    func partialsWhileHolding() async {
+        let (s, source) = session()
+        source.samples = Array(repeating: 0.05, count: 20_000)     // over the half-second floor
+        var partials: [String] = []
+        s.onPartial = { partials.append($0) }
+
+        s.begin()
+        await s.runPartialOnce()
+        #expect(partials == ["hello there"], "no partial arrived while holding")
+
+        // And they stop at the release: a tick that lands after the hold reports nothing.
+        s.end()
+        await s.runPartialOnce()
+        #expect(partials.count == 1, "a partial arrived after the release")
+    }
+
+    @Test("a hold shorter than half a second of audio reports no partial")
+    func partialsNeedAudio() async {
+        let (s, source) = session()
+        source.samples = [0.1, 0.2]
+        var partials: [String] = []
+        s.onPartial = { partials.append($0) }
+        s.begin()
+        await s.runPartialOnce()
+        #expect(partials.isEmpty)
+    }
+
     @Test("the 480 MB download is off by default, so a hold cannot start one")
     func downloadIsOptIn() {
         #expect(UserDefaults.standard.bool(forKey: VoiceSession.downloadAllowedKey) == false,
@@ -215,5 +247,45 @@ struct MicrophoneTeardownGate {
             }
         }
         #expect(offenders.isEmpty, "installs a tap and never removes it: \(offenders)")
+    }
+}
+
+@Suite("What the model state says, and where the weights come from")
+struct VoiceModelStateTests {
+
+    /// GM, Dev7, 2026-09-26: the capsule read "speech model 50%" while nothing was downloading (the
+    /// weights were already complete on disk). FluidAudio reports listing, downloading and compiling on
+    /// one progress stream, so the three must not all read as a download.
+    @Test("compiling is loading, not downloading")
+    func phasesAreNotAllDownloads() {
+        #expect(VoiceModelState.from(.init(fractionCompleted: 0.5, phase: .compiling(modelName: "Encoder")))
+                == .loading(0.5))
+        #expect(VoiceModelState.from(.init(fractionCompleted: 0.5, phase: .downloading(completedFiles: 2, totalFiles: 4)))
+                == .downloading(0.5))
+        #expect(VoiceModelState.from(.init(fractionCompleted: 0, phase: .listing)) == .downloading(0))
+    }
+
+    @Test("only a real download says downloading")
+    func labels() {
+        #expect(VoiceModelState.ready.label == "listening")
+        #expect(VoiceModelState.downloading(0.42).label == "downloading speech model 42%")
+        #expect(VoiceModelState.loading(0.42).label == "loading speech model 42%")
+        #expect(VoiceModelState.loading(0).label == "loading speech model")
+        #expect(VoiceModelState.absent.label == "speech model not installed")
+        #expect(VoiceModelState.failed("no mic").label == "voice: no mic")
+        for state in [VoiceModelState.loading(0.5), .ready, .absent, .failed("x")] {
+            #expect(!state.label.contains("downloading"), "\(state) calls itself a download")
+        }
+    }
+
+    /// Bundled weights win, so a shipped app never reaches for the network, and the shared cache wins
+    /// over a second download of the same 461 MB.
+    @Test("where the weights come from, in order")
+    func sourceOrder() {
+        #expect(VoiceModelSource.resolve(bundled: true, cached: true, downloadAllowed: true) == .bundled)
+        #expect(VoiceModelSource.resolve(bundled: true, cached: false, downloadAllowed: false) == .bundled)
+        #expect(VoiceModelSource.resolve(bundled: false, cached: true, downloadAllowed: false) == .cache)
+        #expect(VoiceModelSource.resolve(bundled: false, cached: false, downloadAllowed: true) == .download)
+        #expect(VoiceModelSource.resolve(bundled: false, cached: false, downloadAllowed: false) == .unavailable)
     }
 }

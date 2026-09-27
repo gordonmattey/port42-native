@@ -1,17 +1,33 @@
 import SwiftUI
 
-/// The hold-to-talk indicator. It lives in the shell's overlay stack rather than in a port, so a port
-/// cannot draw a fake one and cannot hide the real one.
+/// The hold-to-talk indicator, at the bottom of the shell. Used when the words are going to something
+/// the shell itself owns; a port being dictated into gets the same pill over its own tile.
+///
+/// Either way the SHELL draws it, never the port, so a port cannot draw a fake one and cannot hide the
+/// real one.
 struct VoiceIndicator: View {
+    let accent: Color
+    let label: String
+    let live: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            VoicePill(accent: accent, label: label, live: live)
+                .padding(.bottom, 120)                    // clear of the dock
+        }
+    }
+}
+
+/// The pill itself, so the shell and a tile can show the same thing in two places.
+struct VoicePill: View {
     let accent: Color
     let label: String
     let live: Bool                  // true while the microphone is open
     @State private var pulse = false
 
     var body: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 8) {
+        HStack(spacing: 8) {
                 Circle()
                     .fill(live ? accent : Color.white.opacity(0.4))
                     .frame(width: 8, height: 8)
@@ -28,8 +44,6 @@ struct VoiceIndicator: View {
             .background(Color.black.opacity(0.75))
             .clipShape(Capsule())
             .overlay(Capsule().stroke(accent.opacity(live ? 0.5 : 0.25), lineWidth: 1))
-            .padding(.bottom, 120)                    // clear of the dock
-        }
         .onAppear { pulse = true }
     }
 }

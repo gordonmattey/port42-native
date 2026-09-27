@@ -45,6 +45,11 @@ public final class ShellState: ObservableObject {
     /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
     /// is what puts the text into the focused surface.
     @Published public var voiceNotice: String?
+    /// The words so far, while the hold is still open. Feedback only: the text is inserted on release.
+    @Published public var voicePartial: String?
+    /// The port being dictated into, so the indicator sits on that tile instead of over the desktop.
+    /// Nil means the words are going somewhere the shell itself owns, such as the chat input.
+    @Published public var voiceAnchorPortId: String?
     /// Bring running sessions in (⌘K, docs/plan-session-import.md).
     @Published public var showImportSessions: Bool = false
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.

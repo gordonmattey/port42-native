@@ -58,3 +58,8 @@ cli/cli
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Speech model weights for voice input: copied into the bundle by build.sh from the FluidAudio
+# cache, never committed (461 MB, CC BY 4.0).
+Resources/Models/
+*.mlmodelc/

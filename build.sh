@@ -383,6 +383,21 @@ cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
+# Speech model for voice input (hold space). The Core ML weights are ~461 MB, CC BY 4.0, and are NOT in
+# git: they are copied from this machine's FluidAudio cache, so a shipped app can dictate with no network
+# and no setup step. Release always bundles them; a dev build only with BUNDLE_MODEL=1, because 461 MB per
+# rebuild is a slow loop and a dev instance reads the same cache at runtime anyway.
+MODEL_SRC="$HOME/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3"
+if [ "$CONFIG" = "release" ] || [ "${BUNDLE_MODEL:-0}" = "1" ]; then
+    if [ -d "$MODEL_SRC/Encoder.mlmodelc" ]; then
+        mkdir -p "$RESOURCES/Models"
+        rsync -a --delete "$MODEL_SRC/" "$RESOURCES/Models/parakeet-tdt-0.6b-v3/"
+        echo "[build] Speech model bundled: $(du -sh "$RESOURCES/Models/parakeet-tdt-0.6b-v3" | cut -f1) (CC BY 4.0, nvidia/parakeet-tdt-0.6b-v3 via FluidInference)"
+    else
+        echo "[build] WARNING: no speech model in the FluidAudio cache ($MODEL_SRC) — this build ships without it, and voice input will ask to download"
+    fi
+fi
+
 # Auto-detect Developer ID signing identity if not explicitly set.
 if [ -z "${PORT42_SIGN_IDENTITY:-}" ]; then
     DETECTED_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | awk '{print $2}')

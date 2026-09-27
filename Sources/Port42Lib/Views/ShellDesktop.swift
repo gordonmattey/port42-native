@@ -577,6 +577,20 @@ struct ShellTile: View {
             .opacity(shell.cycleFlashId == tile.id ? 1 : 0)
             .animation(.easeOut(duration: 0.3), value: shell.cycleFlashId)
             .allowsHitTesting(false))
+        // Hold-to-talk, over the tile being dictated into: the words are about to land here, so the
+        // indicator belongs here and not in the middle of the desktop. Drawn by the shell, inside the
+        // unit, so a port can neither fake it nor hide it.
+        .overlay(alignment: .bottom) {
+            if shell.voiceAnchorPortId == tile.id,
+               shell.voiceCapturing || shell.voiceNotice != nil {
+                VoicePill(accent: unitAccent,
+                          label: shell.voicePartial ?? shell.voiceNotice ?? shell.voiceModel.label,
+                          live: shell.voiceCapturing)
+                    .padding(.bottom, 12)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
         // Focused/peeking units aren't corner-resizable — the handles come off.

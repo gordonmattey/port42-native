@@ -11,14 +11,20 @@ import AppKit
 private final class FakeInputClient: NSResponder, NSTextInputClient {
     var inserted: [String] = []
     var ranges: [NSRange] = []
+    var marked: [String] = []
+    var markCarets: [Int] = []
+    var unmarks = 0
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         inserted.append((string as? String) ?? (string as? NSAttributedString)?.string ?? "")
         ranges.append(replacementRange)
     }
     override func doCommand(by selector: Selector) {}
-    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {}
-    func unmarkText() {}
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        marked.append((string as? String) ?? (string as? NSAttributedString)?.string ?? "")
+        markCarets.append(selectedRange.location)
+    }
+    func unmarkText() { unmarks += 1 }
     func selectedRange() -> NSRange { NSRange(location: 0, length: 0) }
     func markedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
     func hasMarkedText() -> Bool { false }
@@ -60,6 +66,44 @@ struct VoiceInserterTests {
         let deaf = DeafResponder()
         #expect(deaf.responds(to: Selector(("insertText:"))), "AppKit changed: NSResponder no longer declares insertText:")
         #expect(VoiceInserter.insert("hi", into: deaf) == false)
+    }
+
+    /// Partials stream in the way an input method composes: each mark replaces the last, the caret sits
+    /// at the end of the words so far, and nothing is in the document until the commit.
+    @Test("the words so far are marked, not inserted, and each mark replaces the last")
+    func marksWhileHolding() {
+        let client = FakeInputClient()
+        #expect(VoiceInserter.mark("hello", into: client))
+        #expect(VoiceInserter.mark("hello there", into: client))
+        #expect(client.marked == ["hello", "hello there"])
+        #expect(client.markCarets == [5, 11], "the caret is not at the end of the marked text")
+        #expect(client.inserted.isEmpty, "a partial was committed to the document")
+    }
+
+    @Test("the release commits over the marked text")
+    func commitReplacesTheMark() {
+        let client = FakeInputClient()
+        VoiceInserter.mark("hello ther", into: client)
+        #expect(VoiceInserter.insert("hello there", into: client))
+        // NSNotFound means the marked range or the selection, which is what an input method commits over.
+        #expect(client.ranges.last?.location == NSNotFound)
+        #expect(client.inserted == ["hello there "])
+    }
+
+    @Test("a hold that produced nothing leaves no uncommitted text")
+    func unmarkOnSilence() {
+        let client = FakeInputClient()
+        VoiceInserter.mark("hel", into: client)
+        #expect(VoiceInserter.unmark(client))
+        #expect(client.unmarks == 1)
+        #expect(client.inserted.isEmpty)
+    }
+
+    @Test("an empty partial marks nothing")
+    func emptyPartial() {
+        let client = FakeInputClient()
+        #expect(VoiceInserter.mark("", into: client) == false)
+        #expect(client.marked.isEmpty)
     }
 
     @Test("nowhere to type is reported, not swallowed")

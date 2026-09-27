@@ -17,6 +17,8 @@ public protocol VoiceAudioSource: AnyObject {
     func start() throws
     /// Stop and return 16 kHz mono samples. Cannot throw: an engine left running is a live mic.
     func stop() -> [Float]
+    /// What has been heard so far, without stopping. This is what makes partials possible.
+    func snapshot() -> [Float]
     var isRunning: Bool { get }
 }
 
@@ -90,6 +92,13 @@ public final class VoiceCapture: VoiceAudioSource, @unchecked Sendable {
         guard let engine else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+    }
+
+    /// What has been heard so far. The capture keeps running: this is the buffer the partials are
+    /// transcribed from while the hold is still open.
+    public func snapshot() -> [Float] {
+        lock.lock(); defer { lock.unlock() }
+        return samples
     }
 
     /// Seconds of audio held, at the model's rate.

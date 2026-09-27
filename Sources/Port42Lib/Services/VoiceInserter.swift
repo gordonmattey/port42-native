@@ -19,8 +19,32 @@ public enum VoiceInserter {
         return last.isWhitespace ? text : text + " "
     }
 
+    /// Show the words so far inline, as uncommitted text, while the hold is still open.
+    ///
+    /// This is the mechanism an input method uses: marked text appears in the surface, each mark replaces
+    /// the last, and the text is either committed by `insertText` or dropped by `unmark`. So the words
+    /// stream into the field as they are heard while nothing is yet in the document, which is what makes
+    /// trailing off mid-sentence cost nothing.
+    @discardableResult
+    public static func mark(_ text: String, into responder: NSResponder?) -> Bool {
+        guard !text.isEmpty, let client = responder as? NSTextInputClient else { return false }
+        client.setMarkedText(text,
+                             selectedRange: NSRange(location: (text as NSString).length, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0))
+        return true
+    }
+
+    /// Drop uncommitted text, leaving the surface as it was. Used when a hold produced nothing.
+    @discardableResult
+    public static func unmark(_ responder: NSResponder?) -> Bool {
+        guard let client = responder as? NSTextInputClient else { return false }
+        client.unmarkText()
+        return true
+    }
+
     /// Insert `text` into `responder`. Returns false when there is nowhere to type, so the caller can
-    /// say so instead of dropping what was heard.
+    /// say so instead of dropping what was heard. Uncommitted text from `mark` is replaced, because
+    /// NSNotFound means "the marked range or the selection", which is what an input method commits over.
     @discardableResult
     public static func insert(_ text: String, into responder: NSResponder?) -> Bool {
         guard !text.isEmpty, let responder else { return false }
