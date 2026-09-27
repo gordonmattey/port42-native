@@ -189,3 +189,11 @@ that rides in every companion system prompt". Nothing reads it.
 
 **`llms-cli.txt` documents a CLI that is not shipped.** 538 tokens describing a Python CLI; the
 shipped one is Go. No consumer either.
+
+**Transcription audio leaves the machine by default.** `AudioBridge.swift:103` sets
+`requiresOnDeviceRecognition = false`, so `audio.capture` with `transcribe` (which defaults true,
+`:51`) sends audio to Apple's servers. Flipping the flag keeps it local, with no model to ship, no
+download and no new permission. Independent of any decision about a local speech model.
+
+**WhisperKit's default cache is `~/Documents/huggingface`.** Measured at 1.7 GB after two model
+downloads. Overridable via `downloadBase`. Relevant to anything that adopts it.

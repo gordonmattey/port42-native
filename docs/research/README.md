@@ -162,3 +162,24 @@ from other apps. And "hold space" does not survive the key path: `responderIsEdi
 webview, surface and text field, `shouldYieldKey` then yields every key, the one bypass requires
 Command by construction, and **no `.keyUp` or `.flagsChanged` monitor exists anywhere**, so "hold"
 has no end signal.
+
+## Local speech to text (2026-09-26)
+
+[local-speech-model.md](local-speech-model.md). Measured on an M1 Max.
+
+**Parakeet TDT 0.6B v3 on the Neural Engine, via FluidAudio.** SPM package at the macOS 14 floor,
+Apache-2.0 code over CC-BY-4.0 weights, 470 MB.
+
+The measurement that decides it: on a 37.5 second clip, **WhisperKit dropped the words straddling
+Whisper's 30 second boundary**, reproducibly, in two model sizes. Utterances of 30 to 40 seconds are
+the intended workload, so that is the whole regime rather than an edge case. Parakeet transcribed it
+complete in 0.61 seconds including load, at 117 MB peak, against 3.83 seconds and 266 MB for
+WhisperKit.
+
+Apple's `SpeechAnalyzer` and `SpeechTranscriber` are `@available(macOS 26.0)`, read off the SDK, so
+they are unavailable at the deployment floor.
+
+**Delivery is one path, not three.** `(window.firstResponder as? NSTextInputClient)?.insertText(...)`
+reaches the terminal, a web port and a text field alike, as human input. `WKWebView` conforms at
+runtime although its header never declares it, and a `TextField`'s first responder is the window's
+field editor rather than the field.
