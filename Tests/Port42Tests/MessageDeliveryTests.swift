@@ -41,6 +41,22 @@ struct MessageDeliveryTests {
         return (c, { writes }, { posted })
     }
 
+    @Test("a message that arrives just as a turn ends waits for the screen to go quiet, then goes in (issue #6)")
+    func heldAfterTurnUntilQuiet() async throws {
+        let (c, writes, _) = starting()
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        await c.waitUntilInputReady()
+        c.inject("[@gordon in #demo]: one")
+        #expect(writes().count == 1)
+        c.handleEvent(.turnComplete(text: "done one", exitCode: 0))
+        c.receiveTee("\u{1b}[2K redrawing the prompt")               // Claude is still drawing
+        c.inject("[@port42 in #demo]: two")
+        #expect(writes().count == 1, "a message was typed while the turn was still ending")
+        for _ in 0..<40 where writes().count < 2 { try await Task.sleep(nanoseconds: 50_000_000) }
+        #expect(writes().map(\.text) == ["[@gordon in #demo]: one", "[@port42 in #demo]: two"])
+        c.teardown()
+    }
+
     @Test("a briefed Codex's reply to its briefing is not posted; its next reply is; a Claude's first reply is")
     func briefingTurnIsPrivate() {
         let (codex, _, codexPosted) = starting(startup: "codex \"$(cat '/tmp/port42-briefs/x.txt')\"")

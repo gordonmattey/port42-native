@@ -74,6 +74,10 @@ struct CompanionWatchTests {
         let tok = x.w.state.portInput.token(for: x.udid)
         _ = try await call(x, "port.update", ["id": x.udid, "html": "<title>feed</title>v2", "token": tok])
         publish(x, "state")
+        // The turn ends after its events have landed, as it does for real (a turn ends seconds after
+        // its last write). Ending it on the same tick raced the bus's delivery: on a loaded machine the
+        // events arrived after the turn and read as someone else's, and this failed 3 times of many.
+        try await Task.sleep(nanoseconds: 500_000_000)
         x.w.state.companionWatches.turnEnded(companionName: "scout")
         try await settle()
         #expect(x.sent.isEmpty, "woke on its own edit: \(x.sent.map(\.1))")

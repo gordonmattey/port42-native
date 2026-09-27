@@ -276,6 +276,15 @@ final class GhosttyTerminalController {
                 log("  turnComplete NOT posted (skip=\(gate.lastSkipReason.isEmpty ? "not-armed" : gate.lastSkipReason))")
             }
             for c in out { deliver(c, via: "turnComplete") }
+            // NOT READY AGAIN UNTIL THE SCREEN IS QUIET (2026-09-26, issue #6). Claude reports the end of
+            // a turn from its Stop hook, which runs before it is back at its input box, and a message
+            // typed in that moment was lost: measured on Dev4, a watch wake typed 1.2 s after a turn
+            // ended never submitted, and three Enters found an empty box. So readiness is taken back
+            // here and returned the way it is at startup; a message that arrives meanwhile is held.
+            if hooksCapable && cliRunning && inputReady {
+                inputReady = false
+                becomeReadyWhenQuiet()
+            }
             // END OF TURN IS THE SIGNAL. A session in another space finished doing something and
             // stopped — that is the thing worth glancing at, and it needs no reading of the turn's
             // content to decide. The peek itself is already gated to other spaces and deduped, so
