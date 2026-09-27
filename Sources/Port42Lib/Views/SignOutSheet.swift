@@ -206,10 +206,10 @@ public struct SignOutSheet: View {
 
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("HOLD SPACE IN OTHER APPS").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                        Text("HOLD SPACE IN ANOTHER APP").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
                         Text(accessibilityGranted
-                             ? "dictate into any app. Accessibility is granted."
-                             : "dictate into any app. Needs Accessibility in System Settings, because seeing the space bar outside Port42 and typing into another app both require it.")
+                             ? "hold space in another app on your computer. Accessibility is granted."
+                             : "hold space in another app on your computer. Needs Accessibility in System Settings, because seeing the space bar outside Port42 and typing into another app both require it.")
                             .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -237,10 +237,10 @@ public struct SignOutSheet: View {
 
     private var voiceModelDescription: String {
         switch appState.voiceModelState {
-        case .ready:       return "Parakeet TDT v3, on this Mac. Shared by every Port42 here."
+        case .ready:       return "Parakeet TDT v3, on this Mac."
         case .downloading: return "Parakeet TDT v3, 461 MB, coming down now."
         case .loading:     return "Parakeet TDT v3, on this Mac, loading onto the Neural Engine."
-        case .absent:      return "Parakeet TDT v3, 461 MB. Not in the app: fetched once, then shared by every Port42 on this Mac. CC BY 4.0, from NVIDIA via FluidInference."
+        case .absent:      return "Parakeet TDT v3, 461 MB, fetched once. CC BY 4.0, from NVIDIA via FluidInference."
         case .failed(let why): return "Parakeet TDT v3 could not load: \(why)"
         }
     }
