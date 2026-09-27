@@ -99,4 +99,35 @@ struct ChatTranscriptTests {
         ChatTranscriptView.scrollToEnd(scroll)
         #expect(scroll.contentView.bounds.maxY >= text.bounds.maxY - 1, "not at the newest message")
     }
+
+    /// Updating in place must give exactly what a whole rebuild gives: the same text, the same ranges.
+    func check(_ steps: [[PortChatEntry]], inPlace expected: [Bool]) {
+        let storage = NSMutableAttributedString()
+        var layout = ChatTranscript.Layout()
+        var done: [Bool] = []
+        for list in steps {
+            done.append(ChatTranscript.update(storage, &layout, to: list, me: "me", accent: .green))
+            let whole = ChatTranscript.build(list, me: "me", accent: .green)
+            #expect(storage.string == whole.text.string)
+            #expect(layout.ranges == whole.ranges)
+            #expect(layout.bodyRanges == whole.bodyRanges)
+        }
+        #expect(done == expected)
+    }
+
+    @Test("new messages are appended in place, and the result is what a rebuild gives")
+    func appendInPlace() {
+        let a = [e(1, "a", "alpha", "one"), e(2, "a", "alpha", "two", at: 10)]
+        let b = a + [e(3, "a", "alpha", "three", at: 20)]           // groups with the last
+        let c = b + [e(4, "me", "gordon", "mine", at: 30), e(5, "b", "beta", "x\ny", at: 40)]
+        check([a, b, c], inPlace: [false, true, true])
+    }
+
+    @Test("past what a chat keeps, the oldest are cut in place; a cut inside a sender's run rebuilds")
+    func trimInPlace() {
+        let a = [e(1, "a", "alpha", "one"), e(2, "b", "beta", "two", at: 400), e(3, "b", "beta", "three", at: 410)]
+        let dropFirst = Array(a.dropFirst()) + [e(4, "me", "gordon", "four", at: 420)]   // cut at a sender change
+        let cutRun = Array(dropFirst.dropFirst()) + [e(5, "a", "alpha", "five", at: 430)] // cuts inside beta's run
+        check([a, dropFirst, cutRun], inPlace: [false, true, false])
+    }
 }

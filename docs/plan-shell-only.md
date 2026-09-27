@@ -392,6 +392,7 @@ them; an item leaves only when it is done and verified.
 | 10 | Opening a port's chat crashed the app (Dev5, 2026-09-27) | Done (`53515ac`), confirmed by GM: TextKit 1, and the scroll moves the clip view; a test reproduces the crash on the old code |
 | 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
 | 12 | Checking a port put up to ~400 KB of log into an agent's context (`port.console` returned the last 100 lines of up to 4,000 characters) | Done: `level=count` gives only the error and warning counts; the default (`problems`) the errors and warnings themselves (last 20, each cut to 1,000 characters); `level=all` the whole log, for debugging. A terminal defaults to its last 50 lines. The ports skill and the /imagine roles check the count first and read errors only if there are any |
+| 13 | Opening port chats lagged and slowed the machine (prod, #port42-app: the biggest chat 257 messages, ~280 KB) | Done on nautilus, not yet on prod: the old transcript was one SwiftUI Text of the whole chat, laid out again on every change. The AppKit transcript (item 9) opens 300 messages of ~1,000 characters in about 0.1 to 0.25 s, and a new message is appended in place (0.5 ms in a full 200-message chat) instead of a rebuild; both timed in tests. Reaches prod with the daily-driver install |
 
 ## Future roadmap
 
