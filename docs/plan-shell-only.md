@@ -361,7 +361,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Item | Status |
 |---|---|
 | Phases 0, 1, 2, 3, 5 | Done; five scenarios pass on Dev3/Dev4 |
-| Phase 4 (sharing, invites) | In progress on `nautilus-phase4` (the phase-four agent); merge when done |
+| Phase 4 (sharing, invites) | In progress on `nautilus-phase4` (0716d25, 1336 tests green, 2026-09-26): 4.6b tile, per-port share asks, 4.6c done; remaining 4.6b screens (GM choosing the chrome design), 4.7 browser lane, 4.8 harness scenario 4. Stable at a checkpoint, so it can merge back before the screens (GM's call). Its migrations run to v61; nautilus's next is v62 |
 | `/imagine` (`plan-imagine.md`) | Done: a bootstrap (space, port, three companions, brief), budget of 10 versions; verified live on Dev4 |
 | Merge `fixes-gemini-ngrok-floor` | Done (`5020941`): `3c9bec5` dead ngrok references (the four `ngrok-skip-browser-warning` headers in `gateway/main.go` stay, they emit a real header), `83c500d` macOS floor 14.0 everywhere, `be9251b` the managed instruction block outranks pre-marker Port42 instructions (the `auth_required` in `~/.gemini/GEMINI.md`) |
 | macOS 14 floor on Sonoma hardware | Not verified; GM has decided 14 ships |
