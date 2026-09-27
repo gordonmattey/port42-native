@@ -85,9 +85,6 @@ public final class Analytics {
     /// App launched or user swam in from lock screen. One per session.
     public func appOpened() { track("app_opened") }
 
-    /// App quit or user signed out.
-    public func appClosed() { track("app_closed") }
-
     /// App gained focus (throttled to 1/min to avoid Cmd-Tab spam).
     private func appFocused() {
         let now = Date()
@@ -119,8 +116,6 @@ public final class Analytics {
 
     // MARK: - Messages
 
-    public func messageSent() { track("message_sent") }
-
     // MARK: - Companions
 
     public func companionCreated() { track("companion_created") }
@@ -136,28 +131,10 @@ public final class Analytics {
     /// Companion generated an inline port in chat.
     public func portCreated() { track("port_created") }
 
-    /// User popped a port out into a floating window.
-    public func portPoppedOut() { track("port_popped_out") }
-
-    /// User docked a port to the side panel.
-    public func portDocked() { track("port_docked") }
-
-    /// User undocked/floated a port.
-    public func portUndocked() { track("port_undocked") }
-
     /// User closed a port.
     public func portClosed() { track("port_closed") }
 
-    /// Companion updated an existing port.
-    public func portUpdated() { track("port_updated") }
-
     // MARK: - Multiplayer
-
-    /// User created and shared an invite link.
-    public func inviteSent() { track("invite_sent") }
-
-    /// User joined via an invite link.
-    public func inviteJoined() { track("invite_joined") }
 
 
 

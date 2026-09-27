@@ -1463,11 +1463,6 @@ public final class DatabaseService {
         return space
     }
 
-    /// READ-path id resolver: the companion's direct-space id, or nil if no DM exists yet.
-    public func directSpaceId(companionId: String) throws -> String? {
-        try findDirectSpace(companionId: companionId)?.id
-    }
-
     /// WRITE-path id resolver: ensure the companion's DM exists, return its id. nil if agent is gone.
     public func getOrCreateDirectSpaceId(companionId: String) throws -> String? {
         guard let agent = try getAgent(id: companionId) else { return nil }
@@ -1609,16 +1604,6 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM port_storage")
             try db.execute(sql: "DELETE FROM port_panels")
             try db.execute(sql: "DELETE FROM port_versions")
-        }
-    }
-
-    /// Find an existing DM space for a specific remote user, or nil if none exists.
-    public func getDMSpace(friendId: String) throws -> Space? {
-        try dbQueue.read { db in
-            try Space.fetchOne(db, sql: """
-                SELECT * FROM spaces
-                WHERE type = 'dm' AND id = ?
-                """, arguments: ["dm-\(friendId)"])
         }
     }
 
@@ -1775,12 +1760,6 @@ public final class DatabaseService {
     public func savePortPanel(_ panel: PersistedPortPanel) throws {
         try dbQueue.write { db in
             try panel.save(db)
-        }
-    }
-
-    public func deletePortPanel(_ id: String) throws {
-        try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM port_panels WHERE id = ?", arguments: [id])
         }
     }
 

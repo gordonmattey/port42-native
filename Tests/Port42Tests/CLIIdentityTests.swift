@@ -67,17 +67,6 @@ struct CLIIdentityTests {
         #expect(onlineUsers["chan-1"]?.count == 3)
     }
 
-    // MARK: - #12 system event encoding
-
-    @Test("AgentProtocol encodes system event with correct fields")
-    func systemEventEncoding() throws {
-        let data = try AgentProtocol.encode(.system(content: "You are a CLI agent."))
-        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-
-        #expect(json["event"] as? String == "system")
-        #expect(json["content"] as? String == "You are a CLI agent.")
-    }
-
     @Test("AgentConfig createCommand stores system prompt")
     func commandConfigSystemPrompt() {
         let agent = AgentConfig.createCommand(

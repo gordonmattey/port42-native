@@ -19,7 +19,6 @@ public final class CameraBridge: NSObject, PortOwnedResource {
     /// frame handler's weak ref nilling out, so a dying owner's teardown can still match and stop
     /// the stream it started, keyed on the port id rather than the instance.
     var ownerPortId: String?
-    private var streamScale: CGFloat = 0.5
     private let delegateQueue = DispatchQueue(label: "com.port42.camera", qos: .userInitiated)
 
     /// Thread-safe state shared with the delegate callback.

@@ -1210,6 +1210,21 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return .object(["id": .string(space.id), "name": .string(space.name)])
     }
 
+    r["space.delete"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Delete a space: its own ports and terminals close, then the space and its chat go. A port adopted into another space stays there. Cannot be undone. The same as Delete in the galaxy.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["space_id": ["type": "string", "description": "The space to delete (from space_list)."]],
+            "required": ["space_id"],
+        ]) { _, args in
+        let id = try args.requireString("space_id")
+        guard let space = appState.spaces.first(where: { $0.id == id }) else {
+            throw BridgeError.notFound("space '\(id)'")
+        }
+        appState.deleteSpace(space)
+        return .object(["deleted": .string(id), "name": .string(space.name)])
+    }
+
     r["space.switchTo"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
         description: "Switch the app's current space by id.") { _, args in
         let id = try args.requireString("space_id")

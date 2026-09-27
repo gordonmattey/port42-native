@@ -157,7 +157,24 @@ public struct CLIHookProducer: Sendable {
         if let briefFile {
             return "codex \"$(cat '\(briefFile.replacingOccurrences(of: "'", with: "'\\''"))')\""
         }
-        return "codex '\(companionPrompt.replacingOccurrences(of: "'", with: "'\\''"))'"
+        let brief = codexBrief(companionPrompt)
+        return "codex '\(brief.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// The briefing is Codex's first message, so it answered it: a "Ready" in the chat every time a
+    /// Codex companion started, a turn for anyone that reply @mentioned, and on Dev4 a team led off
+    /// into a terminal chat by it (2026-09-26). So the briefing says it is not a request, and the app
+    /// does not post the reply to it (`isBriefedStart`, `CompanionPostGate.skipTurns`).
+    public static let codexBriefPreamble = "This is your briefing, not a message to answer. Reply with only OK. " +
+        "Do not post, call chat.post or @mention anyone until a message addressed to you arrives.\n\n"
+
+    public static func codexBrief(_ companionPrompt: String) -> String { codexBriefPreamble + companionPrompt }
+
+    /// Does this terminal start by briefing Codex? Then its first turn answers the briefing, and
+    /// nobody asked it anything.
+    public static func isBriefedStart(_ startupCommand: String) -> Bool {
+        let s = startupCommand.trimmingCharacters(in: .whitespaces)
+        return s.hasPrefix("codex \"$(cat ") || s.hasPrefix("codex '")
     }
 
     /// Write a codex briefing to a private file for `startupCommand(briefFile:)`. nil if it fails,
@@ -167,7 +184,7 @@ public struct CLIHookProducer: Sendable {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         let path = (dir as NSString).appendingPathComponent(UUID().uuidString + ".txt")
-        guard FileManager.default.createFile(atPath: path, contents: Data(prompt.utf8),
+        guard FileManager.default.createFile(atPath: path, contents: Data(codexBrief(prompt).utf8),
                                              attributes: [.posixPermissions: 0o600]) else { return nil }
         return path
     }

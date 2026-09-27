@@ -100,14 +100,6 @@ public struct PortPanel: Identifiable {
         return ["terminal"] + stored
     }
 
-    /// Extract version from HTML <meta name="version" content="..."> tag, returns nil if absent.
-    static func extractVersion(from html: String) -> String? {
-        guard let metaRange = html.range(of: #"<meta\s+name="version"\s+content=""#, options: .regularExpression) else { return nil }
-        let after = html[metaRange.upperBound...]
-        guard let end = after.range(of: "\"") else { return nil }
-        let v = String(after[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? nil : v
-    }
 }
 
 // MARK: - Port Window Manager
@@ -334,13 +326,6 @@ public final class PortWindowManager: ObservableObject {
         appState.buildTerminalSurface(for: panel, config: config)
     }
 
-    /// Persist permissions for a bridge after a grant, so they survive restart.
-    public func persistPermissions(for bridge: PortBridge) {
-        if let panel = panels.first(where: { $0.bridge === bridge }) {
-            persistPanel(panel.id)
-        }
-    }
-
     /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
         guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }
@@ -351,76 +336,6 @@ public final class PortWindowManager: ObservableObject {
         } catch {
             p42log("[Port42] Failed to persist port panel: %@", error.localizedDescription)
         }
-    }
-
-    /// Pop a port out from inline into a floating panel.
-    @discardableResult
-    public func popOut(html: String, bridge: PortBridge, spaceId: String?, createdBy: String?, messageId: String?, title: String? = nil, portType: String = "web", in bounds: CGSize) -> String {
-        // Check for existing panel from the same message and update it
-        if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
-            let existingId = panels[idx].id
-            let existingUdid = panels[idx].udid
-            let wasBackground = panels[idx].isBackground
-            panels[idx] = PortPanel(
-                id: existingId,
-                udid: existingUdid,
-                html: html,
-                bridge: bridge,
-                spaceId: spaceId,
-                createdBy: createdBy,
-                messageId: messageId,
-                userTitle: title ?? panels[idx].userTitle,
-                storedCapabilities: panels[idx].storedCapabilities,
-                size: panels[idx].size,
-                positions: panels[idx].positions,
-                isAlwaysOnTop: panels[idx].isAlwaysOnTop,
-                isBackground: wasBackground,
-                portType: panels[idx].portType
-            )
-            // Recreate webview with new content — skipped for native terminal ports,
-            // which host a Ghostty surface (no WKWebView).
-            if panels[idx].portType != "terminal" {
-                destroyWebView(existingId)
-                createPortWebView(for: panels[idx])
-            }
-            // If backgrounded, restore it since new content was created
-            if wasBackground { panels[idx].isBackground = false }
-            persistPanel(existingId)
-            bringToFront(existingId)
-            return existingId
-        }
-
-        // One default size for every port type (GM 2026-08-03), so a pop-out is the same tile a
-        // spawn is. This used to be 40% of the SCREEN, which is not even the desktop's coordinate
-        // space, so a pop-out on a large display arrived larger than the work area.
-        let w = ShellPlacement.defaultTileSize.width
-        let h = ShellPlacement.defaultTileSize.height
-
-        let newUdid = UUID().uuidString
-        var panel = PortPanel(
-            id: newUdid,
-            udid: newUdid,
-            html: html,
-            bridge: bridge,
-            spaceId: spaceId,
-            createdBy: createdBy,
-            messageId: messageId,
-            userTitle: title,
-            size: CGSize(width: w, height: h)
-        )
-        panel.portType = portType
-        panel.presentation = "tiled"                      // pop-out lands on the desktop
-        panel.position = nil                              // arrange places it
-        panels.append(panel)
-
-        // Native terminal ports host a Ghostty surface, not a WKWebView.
-        if portType != "terminal" {
-            createPortWebView(for: panel)
-        }
-        persistPanel(panel.id)
-        portCreated.send((id: panel.id, spaceId: spaceId, title: panel.title))
-        Analytics.shared.portPoppedOut()
-        return newUdid
     }
 
     /// SHELL — S2.2: register a desktop TILE. A tiled port is a registry-owned webview composited on
@@ -624,11 +539,6 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
-    /// Close a panel (the shell's ✕ affordances confirm by gesture, not a dialog).
-    public func closeWithConfirmation(_ id: String) {
-        close(id)
-    }
-
     /// Close a panel by ID.
     public func close(_ id: String) {
         if let panel = panels.first(where: { $0.id == id }) {
@@ -739,12 +649,6 @@ public final class PortWindowManager: ObservableObject {
         guard let idx = panels.firstIndex(where: { $0.udid == id || $0.id == id }) else { return }
         panels[idx].storedCapabilities = capabilities
         persistPanel(panels[idx].id)
-    }
-
-    /// Toggle always-on-top for a panel (kept as a stored flag; the shell's z-sort may use it).
-    public func toggleAlwaysOnTop(_ id: String) {
-        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
-        panels[idx].isAlwaysOnTop.toggle()
     }
 
     /// Hide a port (off the desktop and out of the rail, still running). The unit unmounts; the live
@@ -1648,37 +1552,6 @@ final class PortBrowserURLObserver: NSObject {
 }
 
 // MARK: - Reusable WebView Host
-
-/// NSViewRepresentable that reparents an existing WKWebView into a container.
-/// The WKWebView is NOT recreated, just moved between view hierarchies.
-struct PortWebViewHost: NSViewRepresentable {
-    let webView: WKWebView
-    let bridge: PortBridge
-
-    func makeNSView(context: Context) -> NSView {
-        let container = PortWebViewContainer()
-        container.bridge = bridge
-        webView.removeFromSuperview()
-        // INLINE host: the chat owns the wheel. Set on every mount because the same webview
-        // re-parents between here and a desktop tile, which sets it back.
-        (webView as? FileDropWebView)?.forwardsScrollToParent = true
-        container.addSubview(webView)
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: container.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        // File drops are handled by FileDropWebView itself (Step 5c) — see PortView.swift.
-        // (The old unregisterDraggedTypes()/container approach made the webview refuse drops.)
-        return container
-    }
-
-    func updateNSView(_ container: NSView, context: Context) {
-        // Don't reclaim the webview if it moved to another container (dock/undock reparenting)
-    }
-}
 
 struct WindowRefAccessor: NSViewRepresentable {
     let callback: (NSWindow?) -> Void

@@ -41,6 +41,50 @@ struct MessageDeliveryTests {
         return (c, { writes }, { posted })
     }
 
+    @Test("a message that arrives just as a turn ends waits for the screen to go quiet, then goes in (issue #6)")
+    func heldAfterTurnUntilQuiet() async throws {
+        let (c, writes, _) = starting()
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        await c.waitUntilInputReady()
+        c.inject("[@gordon in #demo]: one")
+        #expect(writes().count == 1)
+        c.handleEvent(.turnComplete(text: "done one", exitCode: 0))
+        c.receiveTee("\u{1b}[2K redrawing the prompt")               // Claude is still drawing
+        c.inject("[@port42 in #demo]: two")
+        #expect(writes().count == 1, "a message was typed while the turn was still ending")
+        for _ in 0..<40 where writes().count < 2 { try await Task.sleep(nanoseconds: 50_000_000) }
+        #expect(writes().map(\.text) == ["[@gordon in #demo]: one", "[@port42 in #demo]: two"])
+        c.teardown()
+    }
+
+    @Test("a briefed Codex's reply to its briefing is not posted; its next reply is; a Claude's first reply is")
+    func briefingTurnIsPrivate() {
+        let (codex, _, codexPosted) = starting(startup: "codex \"$(cat '/tmp/port42-briefs/x.txt')\"")
+        codex.handleEvent(.sessionStarted(cli: "codex"))
+        codex.handleEvent(.turnComplete(text: "OK", exitCode: 0))
+        #expect(codexPosted().isEmpty, "the reply to the briefing was posted")
+        codex.handleEvent(.turnComplete(text: "built v2", exitCode: 0))
+        #expect(codexPosted() == ["built v2"])
+        codex.teardown()
+        let (claude, _, claudePosted) = starting(startup: "claude")
+        claude.handleEvent(.sessionStarted(cli: "claude"))
+        claude.handleEvent(.turnComplete(text: "hello", exitCode: 0))
+        #expect(claudePosted() == ["hello"])
+        claude.teardown()
+    }
+
+    @Test("the Codex briefing says it is not a request, typed or read from its file")
+    func codexBriefPreamble() throws {
+        let typed = CLIHookProducer.startupCommand(base: "codex", companionPrompt: "You are scout.")
+        #expect(typed.contains("This is your briefing, not a message to answer") && typed.hasSuffix("You are scout.'"))
+        let file = try #require(CLIHookProducer.writeBrief("You are scout."))
+        let body = try String(contentsOfFile: file, encoding: .utf8)
+        #expect(body == CLIHookProducer.codexBriefPreamble + "You are scout.")
+        #expect(CLIHookProducer.isBriefedStart(CLIHookProducer.startupCommand(base: "codex", companionPrompt: "x", briefFile: file)))
+        #expect(!CLIHookProducer.isBriefedStart("codex") && !CLIHookProducer.isBriefedStart("claude"))
+        try? FileManager.default.removeItem(atPath: file)
+    }
+
     @Test("a message sent while the CLI is starting waits for SessionStart, then goes in order and gets its reply posted")
     func heldUntilRunning() async {
         let (c, writes, posted) = starting()

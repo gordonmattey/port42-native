@@ -49,7 +49,6 @@ public final class Port42AuthStore {
     }
 
     private static let secretPrefix = "secret-"
-    private static let secretMetaPrefix = "secret-meta-"
 
     /// Save a named secret to Keychain.
     public func saveSecret(name: String, type: SecretType, value: String) {
@@ -172,10 +171,6 @@ public final class Port42AuthStore {
 
     public func savePeerSeed(_ value: String, instance: String) {
         saveKeychainValue(value, account: peerSeedAccount(instance))
-    }
-
-    public func deleteGatewayRootSecret(instance: String) {
-        deleteKeychainValue(account: rootSecretAccount(instance))
     }
 
     // MARK: - Private

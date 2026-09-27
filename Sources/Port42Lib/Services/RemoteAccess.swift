@@ -128,6 +128,7 @@ public enum RemoteAccess {
         "space.current": .never,
         "space.list": .never,
         "space.create": .never,
+        "space.delete": .never,
         "space.switchTo": .never,
         "space.setWorkingDirectory": .never,
         "companions.list": .never,

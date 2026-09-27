@@ -150,22 +150,20 @@ public struct ShellView: View {
             // Quick Switcher (⌘K) — fuzzy jump across spaces/companions, migrated from the
             // classic app as a shell overlay. The scrim dismisses; selection lands at .space.
             if shell.showQuickSwitcher {
-                ZStack(alignment: .top) {
-                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.showQuickSwitcher = false }
+                ZStack {
+                    CommandBackdrop { shell.showQuickSwitcher = false }
                     QuickSwitcher(isPresented: $shell.showQuickSwitcher, shell: shell)
                         .environmentObject(appState)
-                        .padding(.top, 120)
+                        .offset(y: -40)                          // centered, a little above the middle
                 }.zIndex(215)
             }
 
             // Quick imagine (⌘I): one line starts a team in a new space.
             if shell.showImagine {
-                ZStack(alignment: .top) {
-                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.showImagine = false }
+                ZStack {
+                    CommandBackdrop { shell.showImagine = false }
                     ImagineBox(isPresented: $shell.showImagine, appState: appState)
-                        .padding(.top, 120)
+                        .offset(y: -40)
                 }.zIndex(216)
             }
 
@@ -312,19 +310,6 @@ public struct ShellView: View {
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
         if shell.showImagine { shell.showImagine = false; return true }
         return false
-    }
-
-    /// A classic sheet hosted as a shell overlay: scrim dismisses, card floats on top.
-    @ViewBuilder
-    private func shellSheetOverlay<Content: View>(isPresented: Binding<Bool>,
-                                                  @ViewBuilder content: () -> Content) -> some View {
-        ZStack {
-            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
-                .onTapGesture { isPresented.wrappedValue = false }
-            content()
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.6), radius: 40)
-        }.zIndex(225)
     }
 
     /// Set up the shell window when the UI appears — the reliable site (the window exists by now,

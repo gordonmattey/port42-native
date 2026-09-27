@@ -7,18 +7,15 @@ public enum Port42Theme {
     /// The shell overlay-card fill — a slightly blue-tinted near-black. One source of truth so every
     /// floating card (settings box, new-companion, Settings/Usage overlays) reads identically.
     public static let shellCard = Color(red: 0.06, green: 0.07, blue: 0.09)
-    public static let bgSidebar = Color(hex: 0x0A0A0A)
     public static let bgInput = Color(hex: 0x1A1A1A)
     public static let bgHover = Color(hex: 0x1A1A1A)
 
     // Accent
     public static let accent = Color(hex: 0x00FF41)
-    public static let accentDim = Color(hex: 0x00FF41).opacity(0.3)
 
     // Text
     public static let textPrimary = Color(hex: 0xE0E0E0)
     public static let textSecondary = Color(hex: 0x888888)
-    public static let textAgent = Color(hex: 0x00D4AA)
 
     // Agent color palette for per-agent variation
     public static let agentColors: [Color] = [
@@ -41,7 +38,6 @@ public enum Port42Theme {
 
     // Borders
     public static let border = Color(hex: 0x333333)
-    public static let borderActive = Color(hex: 0x00FF41)
 
     // Status
     public static let error = Color(hex: 0xFF4444)
@@ -49,8 +45,6 @@ public enum Port42Theme {
 
     // Font
     public static let monoFont = Font.system(.body, design: .monospaced)
-    public static let monoFontSmall = Font.system(.caption, design: .monospaced)
-    public static let monoFontLarge = Font.system(.title3, design: .monospaced).bold()
 
     public static func mono(_ size: CGFloat) -> Font {
         .system(size: size, design: .monospaced)

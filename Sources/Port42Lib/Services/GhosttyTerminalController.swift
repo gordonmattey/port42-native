@@ -9,6 +9,9 @@ struct CompanionPostGate {
     let hooksCapable: Bool
     /// Armed by an injected space message; consumed by the next turnComplete.
     private(set) var armed = false
+    /// Turns whose reply is not posted: a Codex companion's first turn answers its briefing, which
+    /// nobody sent (`CLIHookProducer.isBriefedStart`).
+    var skipTurns = 0
     private var recentlyPosted: [String] = []
 
     init(hooksCapable: Bool) { self.hooksCapable = hooksCapable }
@@ -22,7 +25,12 @@ struct CompanionPostGate {
     /// (`ChatRouting.replyDestination`): the chat that asked, else the terminal's own chat, which
     /// is the session's transcript. `armed` is kept for the log.
     mutating func onTurnComplete(_ text: String) -> [String] {
-        emit(text)
+        if skipTurns > 0 {
+            skipTurns -= 1
+            lastSkipReason = "the reply to its briefing"
+            return []
+        }
+        return emit(text)
     }
 
     /// tee `<p42>` tag: FALLBACK for non-hooks tools only. A tag is a deliberate post, so it is
@@ -190,6 +198,7 @@ final class GhosttyTerminalController {
         self.onNeedsAttention = onNeedsAttention
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
+        if CLIHookProducer.isBriefedStart(config.startupCommand) { gate.skipTurns = 1 }
 
         self.session = TerminalSessionBootstrap.make(
             sessionId: panelId,
@@ -267,6 +276,15 @@ final class GhosttyTerminalController {
                 log("  turnComplete NOT posted (skip=\(gate.lastSkipReason.isEmpty ? "not-armed" : gate.lastSkipReason))")
             }
             for c in out { deliver(c, via: "turnComplete") }
+            // NOT READY AGAIN UNTIL THE SCREEN IS QUIET (2026-09-26, issue #6). Claude reports the end of
+            // a turn from its Stop hook, which runs before it is back at its input box, and a message
+            // typed in that moment was lost: measured on Dev4, a watch wake typed 1.2 s after a turn
+            // ended never submitted, and three Enters found an empty box. So readiness is taken back
+            // here and returned the way it is at startup; a message that arrives meanwhile is held.
+            if hooksCapable && cliRunning && inputReady {
+                inputReady = false
+                becomeReadyWhenQuiet()
+            }
             // END OF TURN IS THE SIGNAL. A session in another space finished doing something and
             // stopped — that is the thing worth glancing at, and it needs no reading of the turn's
             // content to decide. The peek itself is already gated to other spaces and deduped, so

@@ -220,13 +220,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._tokenCallback(\(callId), \"\(escaped)\")") { _, _ in }
     }
 
-    /// Resolve a deferred call with a string result.
-    @MainActor
-    public func resolveCall(_ callId: Int, _ result: String) {
-        let escaped = escapeJSString(result)
-        webView?.evaluateJavaScript("port42._resolve(\(callId), \"\(escaped)\")") { _, _ in }
-    }
-
     /// Reject a deferred call with an error message.
     @MainActor
     public func rejectCall(_ callId: Int, _ error: String) {
@@ -260,32 +253,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))") { _, _ in }
     }
 
-    /// Manual per-port AI pause (the pause.circle button in the port's chrome). Distinct from
-    /// park/background: the port stays on the desktop and keeps animating (a shader's rAF loop is
-    /// GPU, not AI) — only its model calls are blocked. GM: "pause the ai but keep the shader going."
-    @Published public var aiPaused: Bool = false
-
-    /// True when model calls must be refused: parked, backgrounded, or manually AI-paused. Off-screen
-    /// ports can't burn the subscription while nobody's looking; the manual pause lets a visible port
-    /// keep running without reaching the model.
-    @MainActor
-    var isSuspended: Bool {
-        if aiPaused { return true }
-        guard let state = self.state,
-              let panel = state.portWindows.panels.first(where: { $0.bridge === self }) else { return false }
-        // Re-keyed to presentation visibility (backlog 1.1, decision 1): an off-desktop or galaxy-hidden
-        // tile also stops billing the model, from the ONE computation shared with 0.3. This gates NEW
-        // model calls only; in-flight streams are still cancelled solely on the park/background
-        // transition (suspendAI), so glancing at the galaxy does not kill a running generation. Falls
-        // back to the panel-mode keying when no shell is wired (headless / tests).
-        if let shell = state.shell { return !shell.isVisible(panel) }
-        return panel.isBackground || panel.presentation == "parked"
-    }
-
     /// Cancel every in-flight AI stream — called when the port is parked/backgrounded so a running
-    /// generation stops immediately, not just the next one. Gating new calls (the `isSuspended` guard
-    /// in the registry stream methods) stops the loop; this stops the current spend. Cancelling the
-    /// Task trips runBridgeStream's cancel handler (backend.cancel + core-owned settlement).
+    /// generation stops immediately. Cancelling the Task trips runBridgeStream's cancel handler
+    /// (backend.cancel + core-owned settlement).
     @MainActor
     public func suspendAI() {
         for (id, task) in streamTasks where !subscriptionCallIds.contains(id) {
