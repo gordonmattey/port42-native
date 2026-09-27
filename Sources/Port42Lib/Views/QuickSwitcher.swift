@@ -56,8 +56,13 @@ public struct QuickSwitcher: View {
                     .tint(Port42Theme.accent)
                     .focused($isFocused)
                     .onSubmit { selectCurrent() }
-                    .onChange(of: query) { _, _ in
+                    .onChange(of: query) { _, q in
                         selectedIndex = 0
+                        // An invite link pasted here opens the accept box (4.6b).
+                        if let link = InviteCoupon.inviteLink(in: q), let shell {
+                            isPresented = false
+                            shell.pendingInvite = link
+                        }
                     }
                     .onKeyPress(.upArrow) {
                         selectedIndex = max(0, selectedIndex - 1)

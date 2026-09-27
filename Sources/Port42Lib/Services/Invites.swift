@@ -38,6 +38,14 @@ public struct InviteCoupon: Codable, Equatable {
     public var link: String { Self.pageURL + "#" + encoded }
 
     /// The coupon in an invite link (its fragment), or a bare coupon.
+    /// The invite link in some text (a pasted line, a clicked URL): the web page's link or Port42's own
+    /// `port42://invite#…`, carrying a coupon that decodes. nil for anything else.
+    public static func inviteLink(in text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix(pageURL + "#") || t.hasPrefix("port42://invite#"), fromLink(t) != nil else { return nil }
+        return t
+    }
+
     public static func fromLink(_ link: String) -> InviteCoupon? {
         decode(link.split(separator: "#", maxSplits: 1).last.map(String.init) ?? link)
     }

@@ -527,6 +527,15 @@ rights or invite change, so a render never reads the database. Gates: `SharePill
 pill follows an invite, a join, a right, stop sharing and a withdrawal; a tile says whose and leaving
 forgets it), calibrated by five breaks. Suite 1339 green.
 
+**Accepting, built 2026-09-27.** An invite link, clicked (`port42://invite#…`, through the existing
+deep-link door) or pasted into ⌘K (the web page's link or Port42's own), opens the accept box: whose
+port, what it lets you do, remote wake (on by default), the code field when the invite needs one, and
+"open it", which accepts as the person and brings the tile forward. Nothing is joined unasked. The
+scheme clash between instances on one Mac is a dev-only problem (a Mac has one Port42); a test hands a
+link to one instance with `open -a Port42Dev6.app 'port42://invite#…'`. Gate: `SharePillTests`
+(a link is recognised clicked or pasted, with spaces around it; another site's link, a broken coupon
+and an ordinary search are not), calibrated.
+
 **Share, move, fork (Gordon, 2026-09-26).** One port, three verbs,
 the same for another space on this instance and for another instance:
 

@@ -175,6 +175,15 @@ public struct ShellView: View {
                 }.zIndex(217)
             }
 
+            // Accept an invite to someone's port (4.6b): clicked or pasted into ⌘K.
+            if shell.pendingInvite != nil {
+                ZStack {
+                    CommandBackdrop { shell.pendingInvite = nil }
+                    AcceptBox(link: $shell.pendingInvite, appState: appState, shell: shell)
+                        .offset(y: -30)
+                }.zIndex(219)
+            }
+
             // Share one port with someone on another machine (nautilus Phase 4, 4.6b).
             if shell.shareTarget != nil {
                 ZStack {
@@ -341,6 +350,7 @@ public struct ShellView: View {
         if shell.showImagine { shell.showImagine = false; return true }
         if shell.showImportSessions { shell.showImportSessions = false; return true }
         if shell.shareTarget != nil { shell.shareTarget = nil; return true }
+        if shell.pendingInvite != nil { shell.pendingInvite = nil; return true }
         return false
     }
 

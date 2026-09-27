@@ -282,6 +282,11 @@ public struct TransitionRoot: View {
     /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "port42" else { return }
+        // An invite to one port (4.6b): the accept box asks the person, nothing is joined unasked.
+        if let link = InviteCoupon.inviteLink(in: url.absoluteString) {
+            appState.shell?.pendingInvite = link
+            return
+        }
         p42log("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }

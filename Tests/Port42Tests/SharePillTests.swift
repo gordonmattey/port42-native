@@ -47,6 +47,18 @@ struct SharePillTests {
         #expect(w.state.sharePill(tile: tile, key: w.p) == nil, "a withdrawn invite still shows")
     }
 
+    @Test("an invite link is recognised whether clicked or pasted, and nothing else is")
+    func recognisesInviteLinks() throws {
+        let link = RemotePortTests().invite()
+        let fragment = try #require(link.split(separator: "#", maxSplits: 1).last.map(String.init))
+        #expect(InviteCoupon.inviteLink(in: link) == link)
+        #expect(InviteCoupon.inviteLink(in: "  \(link)\n") == link, "a pasted link with spaces around it was missed")
+        #expect(InviteCoupon.inviteLink(in: "port42://invite#\(fragment)") == "port42://invite#\(fragment)")
+        #expect(InviteCoupon.inviteLink(in: "https://example.com/invite.html#\(fragment)") == nil, "another site's link was taken as an invite")
+        #expect(InviteCoupon.inviteLink(in: InviteCoupon.pageURL + "#not-a-coupon") == nil)
+        #expect(InviteCoupon.inviteLink(in: "chart") == nil, "an ordinary ⌘K search was taken as an invite")
+    }
+
     @Test("a tile of someone else's port says whose; leaving closes it and forgets the port here")
     func theirsAndLeaving() async throws {
         let rt = RemoteTileTests()
