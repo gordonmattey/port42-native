@@ -47,6 +47,10 @@ it runs real agent teams.
    avatars on the chat's bar.
 8. **Long chats.** Open a long chat: it opens without a stall, and new messages arrive without one.
 9. **Dock.** The dock has no Chat button; Terminal and Browser are there.
+10. **Typed into a terminal.** Type straight into echo's terminal: your message appears in echo's port
+    chat as you, echo's reply under it, and presence shows echo working meanwhile. It is not typed into
+    the terminal a second time.
+11. **⌘G.** Goes to the galaxy; ⌘G again comes back to the space.
 
 ## C. Ports
 

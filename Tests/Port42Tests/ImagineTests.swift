@@ -188,6 +188,9 @@ struct ImagineTests {
     func chord() {
         #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: false, option: false, control: false) == .imagine)
         #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: true, option: false, control: false) == nil)
+        // ⌘G: the galaxy (GM, 2026-09-27).
+        #expect(ShellState.shellGlobalChord(keyCode: 5, characters: "g", command: true, shift: false, option: false, control: false) == .galaxy)
+        #expect(ShellState.shellGlobalChord(keyCode: 5, characters: "g", command: false, shift: false, option: false, control: false) == nil)
     }
 
     @Test("the box reads a bare line or a whole /imagine command with the chat's parser")

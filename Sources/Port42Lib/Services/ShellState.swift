@@ -800,6 +800,7 @@ public final class ShellState: ObservableObject {
         case jumpSpace(Int)     // ⌘1…9 — Nth working space (0-based)
         case quickSwitcher      // ⌘K — the switcher must open from anywhere
         case imagine            // ⌘I — the quick imagine box, from anywhere
+        case galaxy             // ⌘G — the galaxy, and back to the space (GM, 2026-09-27)
     }
 
     /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
@@ -817,6 +818,7 @@ public final class ShellState: ObservableObject {
         guard !shift else { return nil }
         if ch == "k" { return .quickSwitcher }
         if ch == "i" { return .imagine }
+        if ch == "g" { return .galaxy }
         if let n = Int(ch), (1...9).contains(n) { return .jumpSpace(n - 1) }
         return nil
     }
