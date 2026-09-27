@@ -73,6 +73,10 @@
   button { font: inherit; color: var(--accent); background: transparent; border: 1px solid var(--accent);
            border-radius: 8px; padding: 7px 16px; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
+  .big { font-size: 15px; text-align: center; margin: 4px 0 12px; }
+  .keys { text-align: center; margin: 0 0 16px; }
+  kbd { display: inline-block; min-width: 34px; padding: 6px 10px; margin: 0 3px; border: 1px solid var(--edge);
+        border-radius: 7px; color: var(--accent); background: var(--input); font: inherit; font-size: 16px; }
   .error { color: var(--bad); min-height: 1.2em; margin-top: 8px; font-size: 11px; }
   @media (max-width: 720px) { body { padding: 0; } .tile { border-radius: 0; border: 0; }
     #bar .chip.get { display: none; } #chat { height: 60%; } }
@@ -93,12 +97,12 @@
 
   <div id="body">
     <section id="paste" class="card" hidden>
-      <p>Someone shared a port with you? Paste the link they sent.</p>
+      <p class="big">Paste the link someone sent you</p>
+      <p class="keys"><kbd>⌘</kbd><kbd>V</kbd></p>
       <form id="paste-form">
-        <input id="paste-input" placeholder="https://tele.port42.ai/#…" autocomplete="off" spellcheck="false">
-        <div class="buttons"><button type="submit">Open</button></div>
-        <p id="paste-error" class="error"></p>
+        <input id="paste-input" placeholder="or paste it here" autocomplete="off" spellcheck="false">
       </form>
+      <p id="paste-error" class="error"></p>
     </section>
 
     <section id="port" hidden>
@@ -125,6 +129,6 @@
   </div>
 </div>
 
-<script type="module" src="dist/port42-guest.js" integrity="sha384-Eljo7acTQF2RgSzNenEh0RVMmyo5qS8j3PJFM3EyOaWOak36fiL0n+rb1tQRac53"></script>
+<script type="module" src="dist/port42-guest.js" integrity="sha384-HJTpYBQ9lSDOevWGxkVfmhI8IZBZSdMSciK2RKwxwDAjPkdyK/FH6PBwbQ8cgKDD"></script>
 </body>
 </html>

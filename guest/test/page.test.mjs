@@ -81,9 +81,11 @@ test('the home page takes a pasted invite link, whole or as its fragment, and no
   let connects = 0;
   start({ win: dom.window, doc, storage: null, connect: async () => { connects++; } });
   assert.equal(doc.getElementById('paste').hidden, false, 'the home page does not ask for a link');
+  // A paste anywhere on the page, as ⌘V gives it.
   const submit = (text) => {
-    doc.getElementById('paste-input').value = text;
-    doc.getElementById('paste-form').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+    const ev = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+    ev.clipboardData = { getData: () => text };
+    doc.body.dispatchEvent(ev);
   };
   submit('hello');
   assert.match(doc.getElementById('paste-error').textContent, /not an invite/);

@@ -24,14 +24,21 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   const chatSeen = { at: 0, last: 0 };
   $(doc, 'get-app').href = DOWNLOAD;
 
-  // Home: paste the invite link someone sent. A clicked link skips it.
-  $(doc, 'paste-form').addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    const text = $(doc, 'paste-input').value.trim();
+  // Home: paste the invite link someone sent, anywhere on the page, and it opens (Gordon: no field to
+  // click, no button). A clicked link skips this.
+  const openPasted = (text) => {
+    text = (text ?? '').trim();
+    if (!text) return;
     if (!invite(text.includes('#') ? text.slice(text.indexOf('#') + 1) : text)) {
       $(doc, 'paste-error').textContent = 'That is not an invite link Port42 can read.';
     }
+  };
+  doc.addEventListener('paste', (ev) => {
+    if (coupon || $(doc, 'paste').hidden) return;
+    ev.preventDefault();
+    openPasted(ev.clipboardData?.getData('text') ?? '');
   });
+  $(doc, 'paste-form').addEventListener('submit', (ev) => { ev.preventDefault(); openPasted($(doc, 'paste-input').value); });
 
   function invite(frag) {
     const c = decodeCoupon(frag);
