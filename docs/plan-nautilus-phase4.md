@@ -824,6 +824,10 @@ above are as recommended.
    bundle is a fresh build and the page names its hash), calibrated by five breaks.
 4. *The `/port` spike and its query-string token deleted* from the gateway. Gate: `/port` answers 404.
 
+   **Built 2026-09-27.** `guestpage.go` and the `/port` route are deleted; the gateway's routes are
+   `newMux` (`/ws`, `/call`, `/health`, `/`). Harness scenario 4's local half no longer fetches it.
+   Gate: `TestTheOldPortRouteIsGone`, calibrated.
+
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
 Chrome on this Mac, then on a phone on cellular. The port renders, a click there moves it on Dev2 and
 on a Dev6 tile of the same port, a push from Dev2 arrives in the browser, a refresh is the same guest,

@@ -217,9 +217,7 @@ def scenario3_watch(c):
 
 # ---------------------------------------------------------------------------------------------- 4
 async def _scenario4(c):
-    import urllib.request
     p = made(c.call("port.create", {"type": "web", "title": "harness: s4 share", "html": page("<h1>here</h1>")}))
-    served = urllib.request.urlopen(f"{c.base}/port?id={p['id']}", timeout=5).status
     async with WSGuest(c) as g:
         sub = await g.subscribe(p["id"])
         await asyncio.sleep(0.5)
@@ -232,11 +230,11 @@ async def _scenario4(c):
         retry = await g.call("port.update", {"id": p["id"], "token": (stale or {}).get("current", ""),
                                              "html": page("<h1>written by the guest</h1>")})
     landed = "written by the guest" in (c.call("port.getHtml", {"id": p["id"]}) or "")
-    ok = (served == 200 and refused_sub is None and live and (stale or {}).get("code") == "stale_write"
+    ok = (refused_sub is None and live and (stale or {}).get("code") == "stale_write"
           and isinstance(retry, dict) and retry.get("ok") and landed)
     sub_note = f"subscribe REFUSED {refused_sub.get('code')}" if refused_sub else f"{len(live)} live state event(s)"
     record(4, "Share a thing (local half)", ok,
-           f"guest page HTTP {served}; credential given once at identify; {sub_note}; guest stale write: "
+           f"credential given once at identify; {sub_note}; guest stale write: "
            f"{(stale or {}).get('code')}; retry: {'landed' if landed else (retry or {}).get('code', retry)}")
 
 

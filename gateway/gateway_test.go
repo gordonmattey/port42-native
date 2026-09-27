@@ -327,3 +327,20 @@ func TestTheHostIsNotRateLimited(t *testing.T) {
 		}
 	}
 }
+
+// The old browser-guest spike (`/port`, with its query-string token) is gone: a browser guest comes
+// through a relay from the invite page now (nautilus Phase 4, 4.7).
+func TestTheOldPortRouteIsGone(t *testing.T) {
+	srv := httptest.NewServer(newMux(NewGateway()))
+	defer srv.Close()
+	for path, want := range map[string]int{"/port": 404, "/port?id=x&token=y": 404, "/health": 200, "/": 200} {
+		r, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		if r.StatusCode != want {
+			t.Errorf("%s: %d, want %d", path, r.StatusCode, want)
+		}
+	}
+}

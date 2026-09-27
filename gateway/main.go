@@ -40,31 +40,7 @@ func main() {
 
 	gw := NewGateway()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", gw.HandleWebSocket)
-	mux.HandleFunc("/call", gw.HandleHTTPCall)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("ngrok-skip-browser-warning", "true")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
-	// The browser guest (spike, docs/plan-web-port-sharing.md). Served from the gateway so it is
-	// SAME-ORIGIN: `/call` has no CORS headers, and adding them would let any site you visit attempt
-	// calls against your local gateway. This needs none.
-	mux.HandleFunc("/port", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("ngrok-skip-browser-warning", "true")
-		fmt.Fprint(w, guestPage)
-	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("ngrok-skip-browser-warning", "true")
-		fmt.Fprint(w, rootPage)
-	})
+	mux := newMux(gw)
 
 	srv := &http.Server{
 		Addr:    *addr,
@@ -218,3 +194,28 @@ const rootPage = `<!DOCTYPE html>
 </body>
 </html>
 `
+
+// newMux is the gateway's routes: the WebSocket door, `/call`, `/health` and the root page. The old
+// `/port` browser-guest spike and its query-string token are gone (nautilus Phase 4, 4.7): a browser
+// guest now comes through a relay, from the invite page (guest/, open.port42.ai).
+func newMux(gw *Gateway) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", gw.HandleWebSocket)
+	mux.HandleFunc("/call", gw.HandleHTTPCall)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ngrok-skip-browser-warning", "true")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("ngrok-skip-browser-warning", "true")
+		fmt.Fprint(w, rootPage)
+	})
+
+	return mux
+}
