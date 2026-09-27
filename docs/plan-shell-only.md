@@ -421,6 +421,7 @@ them; an item leaves only when it is done and verified.
 | 13 | Opening port chats lagged and slowed the machine (prod, #port42-app: the biggest chat 257 messages, ~280 KB) | Done on nautilus, not yet on prod: the old transcript was one SwiftUI Text of the whole chat, laid out again on every change. The AppKit transcript (item 9) opens 300 messages of ~1,000 characters in about 0.1 to 0.25 s, and a new message is appended in place (0.5 ms in a full 200-message chat) instead of a rebuild; both timed in tests. Reaches prod with the daily-driver install |
 | 14 | The first-run breakout is back (GM, 2026-09-27): the aquarium video on the first zoom-out of echo's terminal grows from the port to full screen, plays and fades into the space; any zoom while it plays skips it | Done: restored on a bare player layer (the old AVPlayerView deadlocked the main thread). Its video had been deleted from the working tree with no trace, since every `.mp4` is gitignored; restored from the installed app, and a test fails when the source file is missing. It grows with the zoom-out under it, same spring, at once (GM: quicker). Confirmed by GM on Dev5. Open: none of the app's videos are in git (see below) |
 | 15 | `port42://imagine?line=…&from=…` (growth, for port42.ai's "Imagine this" and its getting-started page, 2026-09-27) | Done (`360a7a8` and after): opens the imagine box filled in and never starts a team (any web page can fire it); the idea is cut to 300 characters and cleaned. Arriving before or during a first run, it is held on disk through quits and opens after the person lands on their desktop, and echo's welcome leads with it instead of the shader. Open for GM: an analytics event for an imagine started from a site line; the Elements generator in the app (growth's two routes); "What will you imagine?" in the ⌘I box |
+| 16 | A browser port whose page cannot be reached showed its chrome and nothing else (GM, v1 daily driver, 2026-09-27: the local site servers had stopped with the upgrade) | Done: it shows "Can't reach <host>", the reason, what to do (for a server on this Mac: start it again) and Retry, under the failing URL so the address bar keeps it. The origin gate names it as its one exception. In the next build, not in the installed 1.0.0 |
 
 ## Future roadmap
 
@@ -555,6 +556,10 @@ Things that would be cool once the five scenarios hold.
   briefs); `imagine.start` and the deep link take an optional crew; the choice is an explicit crew, then
   the recipe's crew, then engineers, with no model call to pick; the ⌘I box shows the three crew chips,
   changeable before Enter; cost unchanged. The site lists crews as coming soon.
+- **Pick the model, not type it** (GM, 2026-09-27). Choosing a companion's model means knowing the
+  CLI's flag and typing it into its arguments. Offer the models each CLI can run (Claude Code's and
+  Codex's own lists) as a choice when making or editing a companion, and at first run, and write the
+  flag for the person.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

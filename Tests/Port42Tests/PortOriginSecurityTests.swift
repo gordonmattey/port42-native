@@ -75,6 +75,11 @@ struct PortOriginSecurityTests {
                 guard !t.hasPrefix("//") else { continue }
                 // Spikes/probes load with baseURL: nil deliberately — they get no bridge either.
                 if t.contains("baseURL: nil") { continue }
+                // The one named exception: a browser port's "can't reach" page (2026-09-27). It is not
+                // a port document; it is shown under the URL that failed, so the address bar keeps it
+                // and Retry loads it again, as Safari does. The bridge answers only the port origin, so
+                // this page gets none, and its text is fixed and escaped (BrowserErrorPageTests).
+                if t.contains("Self.errorPage(") { continue }
                 loaders += 1
                 #expect(t.contains("port42.local") || url.lastPathComponent.contains("Probe"),
                         "\(url.lastPathComponent) loads a port document off-origin: \(t)")
