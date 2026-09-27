@@ -110,9 +110,14 @@ struct PortChatPanel: View {
                     .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(spacing: 6) {
-                TextField("say something", text: $draft)
+                // Vertical, so a long message wraps instead of scrolling off the right edge. Typing
+                // always had this; dictation made it obvious, because a spoken sentence is longer than a
+                // typed one and the words kept arriving at the end of the first line. Return still sends
+                // (onSubmit), the same as ImagineBox.
+                TextField("say something", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1...6)
                     .focused($inputFocused)
                     .onSubmit(send)
                     // Tab completes the @name being typed to the first suggestion.
