@@ -829,6 +829,14 @@ above are as recommended.
    `newMux` (`/ws`, `/call`, `/health`, `/`). Harness scenario 4's local half no longer fetches it.
    Gate: `TestTheOldPortRouteIsGone`, calibrated.
 
+   **The page is the port (Gordon, 2026-09-27).** A link opens straight to the port under a header
+   ("port42 · Gordon's chart", Open in Port42, Get Port42), with one card over it to join: the name
+   (remembered), the code when needed, and Open. The first join takes that one click, because a link
+   previewer that runs the page's script would otherwise spend a one-time invite; a browser that has
+   joined this port before opens it at once, which a previewer, with no key, cannot. Found live: the
+   port panel's own `display` beat the `hidden` attribute and covered the page; `[hidden]` now wins,
+   with a gate. Gates in `page.test.mjs` (ten), calibrated.
+
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
 Chrome on this Mac, then on a phone on cellular. The port renders, a click there moves it on Dev2 and
 on a Dev6 tile of the same port, a push from Dev2 arrives in the browser, a refresh is the same guest,
@@ -843,6 +851,11 @@ x86 and ARM and for macOS on each release, (3) a "Deploy on Railway" template fr
 pastes `wss://<it>/v1` into Settings, (4) a short page on running one. Taken by the nautilus
 session (Gordon), on branch `relay-dist` cut from this branch, new files only. Also decided for v1,
 after this branch merges: pairing (`port42 pair`, approved in the app) and scoped tokens.
+
+**Proposed (Gordon, 2026-09-27), not decided: an invite that works N times.** A count set when
+sharing, 1 by default, so one posted link can serve a limited group ("the first 50"); each person who
+opens it is their own guest, and the pill's panel shows "12 of 50 used". A link that works many
+times can be forwarded, which is its purpose; one-use stays the default.
 
 ### 4.8 Scenario 4 in the harness
 

@@ -1,11 +1,14 @@
 // The invite page (tele.port42.ai): one page for every Port42. The link's fragment names the Mac, the
-// relay and the port; the page is a guest-only Port42 in the browser. It does nothing on load but read
-// the invite: no network call before the person clicks.
+// relay and the port; the page is a guest-only Port42 in the browser, and the port is the page
+// (Gordon). Joining takes one click the first time: a link previewer that runs the page's script would
+// otherwise spend the one-time invite. A browser that has joined this port before opens it at once.
 
 import { decodeCoupon, rightsSentence, isMove, expired } from './coupon.js';
 import { Guest, explain } from './guest.js';
 
 export const DOWNLOAD = 'https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg';
+const JOINED_KEY = 'port42.guest.joined';
+const NAME_KEY = 'port42.guest.name';
 
 const $ = (doc, id) => doc.getElementById(id);
 
@@ -14,10 +17,11 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   const raw = win.location.hash.replace(/^#/, '');
   // The coupon leaves the address bar at once, so it is not left in history or shared by a screenshot.
   try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
-  let coupon = null, fragment = '';
+  let coupon = null, guest = null;
+  const frameState = { html: null, loads: 0 };
+  $(doc, 'get-app').href = DOWNLOAD;
 
-  // The home page: paste the invite link someone sent. A clicked link skips it.
-  $(doc, 'get-app-home').href = DOWNLOAD;
+  // Home: paste the invite link someone sent. A clicked link skips it.
   $(doc, 'paste-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const text = $(doc, 'paste-input').value.trim();
@@ -29,48 +33,51 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   function invite(frag) {
     const c = decodeCoupon(frag);
     if (!c) return false;
-    coupon = c; fragment = frag;
-    introduce();
+    coupon = c;
+    present(frag);
     return true;
   }
 
-  function introduce() {
-  $(doc, 'who').textContent = isMove(coupon)
-    ? `${coupon.hostName} is giving you '${coupon.portTitle}'.`
-    : `${coupon.hostName} shared '${coupon.portTitle}' with you.`;
-  $(doc, 'what').textContent = isMove(coupon)
-    ? 'It opens in Port42 as yours, and closes on their Mac. A move needs Port42.'
-    : `You can ${rightsSentence(coupon.rights)} it.`;
-  if (coupon.exp) $(doc, 'when').textContent = `This invite works until ${new Date(coupon.exp * 1000).toLocaleString()}.`;
-  $(doc, 'open-app').href = 'port42://invite#' + fragment;
-  $(doc, 'get-app').href = DOWNLOAD;
-  if (expired(coupon)) { $(doc, 'intro-note').textContent = 'This invite has expired. Ask for a new one.'; }
-  $(doc, 'open-here').hidden = isMove(coupon);
-  $(doc, 'code-row').hidden = !coupon.code;
-  show(doc, 'intro');
+  /// The port, with its header and, until joined, the card that joins it.
+  function present(frag) {
+    $(doc, 'title').textContent = `${coupon.hostName}'s ${coupon.portTitle}`;
+    $(doc, 'open-app').href = 'port42://invite#' + frag;
+    $(doc, 'open-app').hidden = false;
+    $(doc, 'who').textContent = isMove(coupon)
+      ? `${coupon.hostName} is giving you '${coupon.portTitle}'.`
+      : `${coupon.hostName} shared '${coupon.portTitle}' with you.`;
+    $(doc, 'what').textContent = isMove(coupon)
+      ? 'It opens in Port42 as yours, and closes on their Mac. Open it in Port42.'
+      : `You can ${rightsSentence(coupon.rights)} it.`;
+    if (coupon.exp) $(doc, 'when').textContent = `This invite works until ${new Date(coupon.exp * 1000).toLocaleString()}.`;
+    if (expired(coupon)) $(doc, 'join-error').textContent = 'This invite has expired. Ask for a new one.';
+    $(doc, 'code-row').hidden = !coupon.code;
+    $(doc, 'join-button').hidden = isMove(coupon);
+    $(doc, 'name').hidden = isMove(coupon);
+    $(doc, 'name').value = read(storage, NAME_KEY) ?? '';
+    show(doc, 'port');
+    // Back again: this browser has joined this port before, so it opens without asking.
+    if (!isMove(coupon) && joinedBefore(storage, coupon)) join();
   }
 
-  if (raw && !invite(raw)) $(doc, 'paste-error').textContent = 'That link is not an invite Port42 can read. Paste it again, whole.';
-  if (!coupon) show(doc, 'paste');
-
-  let guest = null;
-  const frameState = { html: null, loads: 0 };
-  $(doc, 'open-here').addEventListener('click', () => show(doc, 'join'));
-  $(doc, 'join-form').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
+  async function join() {
     const name = $(doc, 'name').value.trim();
     const code = $(doc, 'code').value.trim();
     $(doc, 'join-error').textContent = '';
     $(doc, 'join-button').disabled = true;
-    guest = new Guest({ coupon, storage, connect, ui: ui(doc, coupon, () => guest, frameState) });
+    guest = new Guest({ coupon, storage, connect, ui: ui(doc, () => guest, frameState) });
     try {
       await guest.join({ name, code });
-      show(doc, 'port');
+      write(storage, NAME_KEY, name);
+      rememberJoined(storage, coupon);
+      $(doc, 'gate').hidden = true;
     } catch (e) {
       $(doc, 'join-error').textContent = explain(e.code, coupon.hostName);
       $(doc, 'join-button').disabled = false;
     }
-  });
+  }
+
+  $(doc, 'gate').addEventListener('submit', (ev) => { ev.preventDefault(); join(); });
   $(doc, 'chat-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const input = $(doc, 'chat-input');
@@ -99,10 +106,13 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
       frame.contentWindow.postMessage({ port42: 'result', id: m.id, error }, '*');
     }
   });
+
+  if (raw && !invite(raw)) $(doc, 'paste-error').textContent = 'That link is not an invite Port42 can read. Paste it again, whole.';
+  if (!coupon) show(doc, 'paste');
   return { coupon: () => coupon, guest: () => guest, frameState };
 }
 
-function ui(doc, coupon, guest, frameState) {
+function ui(doc, guest, frameState) {
   return {
     // A fresh frame for each version of the page: it loads frame.html, says it is ready, and is sent
     // the page (see the message handler above).
@@ -135,8 +145,20 @@ function ui(doc, coupon, guest, frameState) {
 }
 
 function show(doc, section) {
-  for (const s of ['paste', 'intro', 'join', 'port']) $(doc, s).hidden = s !== section;
+  for (const s of ['paste', 'port']) $(doc, s).hidden = s !== section;
 }
+
+const portKey = (c) => `${c.host}/${c.port}`;
+function joinedBefore(storage, c) {
+  try { return JSON.parse(read(storage, JOINED_KEY) ?? '[]').includes(portKey(c)); } catch { return false; }
+}
+function rememberJoined(storage, c) {
+  let list = [];
+  try { list = JSON.parse(read(storage, JOINED_KEY) ?? '[]'); } catch {}
+  if (!list.includes(portKey(c))) write(storage, JOINED_KEY, JSON.stringify([...list, portKey(c)].slice(-200)));
+}
+function read(storage, k) { try { return storage?.getItem(k) ?? null; } catch { return null; } }
+function write(storage, k, v) { try { storage?.setItem(k, v); } catch {} }
 
 function safeStorage(win) {
   try { return win.localStorage; } catch { return null; }

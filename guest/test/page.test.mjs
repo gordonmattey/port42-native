@@ -12,7 +12,7 @@ const coupon = { v: 1, host: 'a'.repeat(52), relays: ['wss://relay.test/v1'], po
                  nonce: 'nonce-1', exp: Math.floor(Date.now() / 1000) + 600, hostName: 'Gordon', portTitle: 'chart', code: false };
 const fragment = (c) => Buffer.from(JSON.stringify(c)).toString('base64url');
 
-function page(c = coupon, extra = '') {
+function page(c = coupon, extra = '', seeded = []) {
   const dom = new JSDOM(html, { url: 'https://tele.port42.ai/' + extra + '#' + (c ? fragment(c) : 'not-a-coupon'),
                                  pretendToBeVisual: true });
   const calls = [];
@@ -29,7 +29,7 @@ function page(c = coupon, extra = '') {
     close() {},
   };
   const connect = async () => { connects++; return session; };
-  const storage = new Map();
+  const storage = new Map(seeded);
   const store = { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v) };
   const app = start({ win: dom.window, doc: dom.window.document, storage: store, connect });
   return { dom, doc: dom.window.document, calls, session, storage, app, connects: () => connects };
@@ -37,13 +37,22 @@ function page(c = coupon, extra = '') {
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
-test('before a click it reads the invite, clears it from the address bar, and connects to nothing', () => {
+
+const join = async (p, name = 'Ada') => {
+  p.doc.getElementById('name').value = name;
+  p.doc.getElementById('gate').dispatchEvent(new p.dom.window.Event('submit', { cancelable: true }));
+  await settle();
+};
+
+test('a link opens straight to the port, with one card to join it; nothing connects before the click', () => {
   const p = page();
   assert.equal(p.connects(), 0, 'the page connected before the person chose');
   assert.equal(p.dom.window.location.hash, '', 'the invite stayed in the address bar');
+  assert.equal(p.doc.getElementById('port').hidden, false, 'the port is not the page');
+  assert.equal(p.doc.getElementById('gate').hidden, false);
+  assert.match(p.doc.getElementById('title').textContent, /Gordon's chart/);
   assert.match(p.doc.getElementById('who').textContent, /Gordon shared 'chart' with you/);
   assert.match(p.doc.getElementById('what').textContent, /see and use/);
-  assert.equal(p.doc.getElementById('intro').hidden, false);
   assert.match(p.doc.getElementById('open-app').href, /^port42:\/\/invite#/);
   assert.match(p.doc.getElementById('get-app').href, /Port42\.dmg$/);
 });
@@ -67,31 +76,40 @@ test('the home page takes a pasted invite link, whole or as its fragment, and no
   };
   submit('hello');
   assert.match(doc.getElementById('paste-error').textContent, /not an invite/);
-  assert.equal(doc.getElementById('intro').hidden, true);
+  assert.equal(doc.getElementById('port').hidden, true);
   submit('  https://tele.port42.ai/#' + fragment(coupon) + '\n');
-  assert.equal(doc.getElementById('intro').hidden, false, 'a pasted link was not opened');
+  assert.equal(doc.getElementById('port').hidden, false, 'a pasted link was not opened');
   assert.match(doc.getElementById('who').textContent, /Gordon shared 'chart'/);
   assert.equal(connects, 0, 'pasting a link connected before the person chose');
 });
 
 test('joining redeems the invite as the name given, then shows the port in a frame that holds no key', async () => {
   const p = page();
-  p.doc.getElementById('open-here').click();
-  p.doc.getElementById('name').value = 'Ada';
-  p.doc.getElementById('join-form').dispatchEvent(new p.dom.window.Event('submit', { cancelable: true }));
-  await settle();
+  await join(p);
   assert.equal(p.connects(), 1);
   assert.deepEqual(p.calls[0], { method: 'invite.redeem', args: { nonce: 'nonce-1', name: 'Ada' } });
-  assert.equal(p.doc.getElementById('port').hidden, false);
+  assert.equal(p.doc.getElementById('gate').hidden, true, 'the card stayed over the port');
   const frame = p.doc.getElementById('frame');
   assert.ok(!frame.getAttribute('sandbox').includes('allow-same-origin'), 'the frame can reach the page\'s storage');
   assert.match(frame.getAttribute('src'), /^frame\.html/, 'the port is not loaded in its own document');
   const sent = p.app.frameState.html;
   assert.match(sent, /<p>the port<\/p>/);
-  assert.match(sent, /port42\.self|self: Object\.freeze/, 'the frame has no window.port42');
+  assert.match(sent, /self: Object\.freeze/, 'the frame has no window.port42');
   const seed = p.storage.get('port42.guest.seed');
   assert.ok(seed && !sent.includes(seed), 'the guest\'s key is inside the frame');
   assert.match(p.doc.getElementById('chat-list').textContent, /Gordon hi/);
+});
+
+test('a browser that joined this port before opens it at once, with its name remembered', async () => {
+  const first = page();
+  await join(first, 'Ada');
+  const again = page(coupon, '', [...first.storage.entries()]);
+  await settle();
+  assert.equal(again.connects(), 1, 'a returning guest was asked again');
+  assert.equal(again.calls[0].args.name, 'Ada');
+  assert.equal(again.doc.getElementById('gate').hidden, true);
+  const stranger = page();
+  assert.equal(stranger.connects(), 0, 'a new browser joined without a click');
 });
 
 test('the frame\'s calls go to the host named as the registry names them; unknown ones are refused', async () => {
@@ -105,10 +123,7 @@ test('the frame\'s calls go to the host named as the registry names them; unknow
 
 test('when the host goes away the port dims, the chat stops, and it says why', async () => {
   const p = page();
-  p.doc.getElementById('open-here').click();
-  p.doc.getElementById('name').value = 'Ada';
-  p.doc.getElementById('join-form').dispatchEvent(new p.dom.window.Event('submit', { cancelable: true }));
-  await settle();
+  await join(p);
   p.app.guest().retryMs = 60_000;
   p.session.onEnd(new Refusal('host_offline', 'gone'));
   assert.ok(p.doc.body.classList.contains('offline'));
@@ -117,13 +132,15 @@ test('when the host goes away the port dims, the chat stops, and it says why', a
   p.app.guest().stop();
 });
 
-test('an invite refused by the host is explained, and the person can try again', async () => {
+test('an invite refused by the host is explained on the card, and the person can try again', async () => {
   const p = page();
   p.session.call = (m) => m === 'invite.redeem' ? Promise.reject(Object.assign(new Refusal('invite_invalid', 'used'), { reason: 'used' })) : Promise.resolve();
-  p.doc.getElementById('open-here').click();
-  p.doc.getElementById('name').value = 'Ada';
-  p.doc.getElementById('join-form').dispatchEvent(new p.dom.window.Event('submit', { cancelable: true }));
-  await settle();
+  await join(p);
   assert.match(p.doc.getElementById('join-error').textContent, /already been used/);
   assert.equal(p.doc.getElementById('join-button').disabled, false);
+  assert.equal(p.doc.getElementById('gate').hidden, false);
+});
+
+test('a hidden section stays hidden whatever its own display rule says', () => {
+  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important/, 'the page lets a section\'s own display beat hidden');
 });
