@@ -372,8 +372,9 @@ last is green:
 **Status (2026-09-27):** steps 1 to 3 done. Phase 4 merged `relay-dist` (`cdcb853`) and nautilus
 fast-forwarded to it; voice merged in `3387174` (conflicts in `.gitignore`, `ShellState`, `build.sh`
 and Settings, where the AI tab stays gone and a Voice tab joins). 1458 Swift tests and the Go suite
-green (the guest's tests need `npm install` in `guest/`). The scenario runs and the companion
-post-and-mention check are still to do on a dev instance. The DNS test PASSED (Phase 4, 2026-09-27,
+green (the guest's tests need `npm install` in `guest/`). The five scenarios pass on the merged build
+(Dev5, 2026-09-27; scenario 1 after the harness mentioned the companion by its real name, `375c553`).
+The companion post-and-mention check is still to do. The DNS test PASSED (Phase 4, 2026-09-27,
 `1f45faa`): `tele.port42.ai` is live (a DNS-only CNAME with Railway's `_railway-verify.tele` TXT, since
 Railway cannot verify through Cloudflare's proxy), a valid Let's Encrypt certificate, the page and
 frame CSPs correct live, the served bundle matching the committed one, and GM joined a Dev2 invite
