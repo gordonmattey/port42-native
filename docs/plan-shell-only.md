@@ -367,9 +367,10 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | macOS 14 floor on Sonoma hardware | Not verified; GM has decided 14 ships |
 | Update feed | Never hand-edit `dist/appcast.xml`; `generate_appcast` regenerates it from the built bundle |
 | The call stall after a NaN (`2afbe1c`) and the lock screen video freeze (`bfb1053`) | Fixed, with tests |
-| Open defects (`defects-triage.md`) | To decide which ship in v1: terminal matched to companion by name, companion inflation, no cap on tool results, blank page after a WebContent crash |
-| Seen in the /imagine runs | The startup-stuck check is removed; still to watch: messages typed into a starting Claude not submitted (seen once) |
-| Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
+| Open defects (`defects-triage.md`) | Settled: terminal matched by name fixed (by id), companion per named terminal is by design (GM), blank page after a WebContent crash cleared (never observed), tool-result size fixed for `port.console` (levels). None left open for v1 |
+| Seen in the imagine runs | Settled: the startup-stuck check removed; messages typed as a turn ended were lost (#6), fixed and verified live |
+| Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
+| Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; four decisions await GM |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
 | Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Publishing waits for the Phase 4 merge (GM, 2026-09-27): the repo is public and the relay's source is only on the unpushed Phase 4 branch. After the release reaches `main`: push `relay-v1.0.0` (the workflow publishes the image and binaries; GM grants `write:packages` once), make the image public, switch relay1 on Railway to `ghcr.io/gordonmattey/port42-relay:latest` (after Phase 4's sharing tests, which run through relay1), make the Railway template, and the port42.ai page (growth) |
