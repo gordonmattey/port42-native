@@ -48,8 +48,16 @@ public final class VoiceGlobalTrigger {
     public func install() -> Bool {
         guard tap == nil, Self.allowed else { return false }
 
+        guard VoicePermissions.accessibilityGranted() else {
+            p42log("[Port42] voice: accessibility not granted, not listening in other apps")
+            return false
+        }
         let thread = Thread { [weak self] in
-            guard let self, self.createTap() else { return }
+            guard let self else { return }
+            guard self.createTap() else {
+                p42log("[Port42] voice: could not create the key tap (accessibility granted but refused)")
+                return
+            }
             self.runLoop = CFRunLoopGetCurrent()
             while !Thread.current.isCancelled, self.tap != nil {
                 CFRunLoopRunInMode(.defaultMode, 0.5, false)

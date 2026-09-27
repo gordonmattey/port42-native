@@ -361,6 +361,29 @@ public final class AppState: ObservableObject {
     public private(set) var voiceInOtherApps: VoiceGlobalTrigger?
     /// The hot mic while another app has the keyboard, since our own window may not be on screen.
     public let voiceHUD = VoiceHUD()
+    private var accessibilityTimer: Timer?
+    private var activationObserver: NSObjectProtocol?
+
+    /// Accessibility is granted in System Settings, minutes after the app asked, and an app that only looks
+    /// at launch appears broken until it is restarted (GM, Dev7, 2026-09-27: holding space "just adds a
+    /// string of spaces"). So the grant is re-checked on a slow timer and whenever the app is activated.
+    private func watchForAccessibility() {
+        let recheck = { [weak self] in
+            guard let self, self.voiceInOtherApps == nil,
+                  UserDefaults.standard.bool(forKey: VoiceGlobalTrigger.enabledKey) else { return }
+            self.installVoiceInOtherApps()
+        }
+        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            Task { @MainActor in recheck() }
+        }
+        // By name rather than by symbol: AppState does not import AppKit, and the Windows work wants it to
+        // stay that way.
+        let didBecomeActive = NSNotification.Name("NSApplicationDidBecomeActiveNotification")
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: didBecomeActive, object: nil, queue: .main) { _ in
+                Task { @MainActor in recheck() }
+            }
+    }
 
     /// Start or stop listening for the space bar outside Port42. Safe to call repeatedly: it reflects the
     /// setting and the Accessibility grant as they are now.
@@ -381,8 +404,10 @@ public final class AppState: ObservableObject {
                     self?.voice.end()
                     self?.voiceHUD.hide()
                 })
-            trigger.install()
+            guard trigger.install() else { return }      // not granted yet; the watcher tries again
             voiceInOtherApps = trigger
+            accessibilityTimer?.invalidate()
+            accessibilityTimer = nil
         } else {
             voiceInOtherApps?.uninstall()
             voiceInOtherApps = nil
@@ -417,6 +442,7 @@ public final class AppState: ObservableObject {
         voice.prepareModel()
         voice.refreshModelState()
         installVoiceInOtherApps()
+        watchForAccessibility()
         // Restore persisted port panels after a brief delay so the window is ready,
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
