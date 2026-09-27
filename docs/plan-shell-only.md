@@ -372,6 +372,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
+| Relay you can run yourself (GM, 2026-09-27) | Phase 4 builds it; Settings already takes relay addresses. To add: (1) a Docker image, (2) binaries for Linux (x86, ARM) and macOS on the release, (3) a "Deploy on Railway" template, (4) a page on running one. Asked of Phase 4 |
 
 ### Final hit list (GM, 2026-09-26)
 
@@ -428,7 +429,15 @@ Things that would be cool once the five scenarios hold.
   undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
   where the hooks live without writing into the user's project or global config. Findings in
   `plan-nautilus-phase3.md` (3.7).
-- **Hosted (SaaS) agents as companions** (GM, 2026-09-26). Agents that run as a service rather than
+- **Pairing** (GM, 2026-09-27). `port42 pair` from any terminal or app: it asks Port42 for access,
+  the app shows who is asking, the person accepts, and that process gets its own credential (the
+  registry already has a `paired` kind; the verb was dropped earlier). Pairing agents across spaces
+  is sharing (Phase 4). Decision pending: v1 or after.
+- **Scoped tokens** (GM, 2026-09-27). A credential today can do anything its permissions allow,
+  anywhere. Scope it to the galaxy (everything), one space, or one port; pairing and sharing grant a
+  scope. Decision pending: v1 or after.
+- **Hosted (SaaS) agents as companions** (GM, 2026-09-26; again 2026-09-27: GM had them working on
+  Railway before). Agents that run as a service rather than
   a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
   GM wants them back. Product idea; demand unvalidated.
 - **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
