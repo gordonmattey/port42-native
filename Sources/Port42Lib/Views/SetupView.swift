@@ -351,7 +351,7 @@ public struct SetupView: View {
                 Spacer().frame(height: 4)
                 Text("Install one:").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else if found.count == 1 {
-                Text("Found \(agentLabel(found[0])). Your first companion runs on it.")
+                Text("Found \(agentLabel(found[0])). Your first companion, echo, runs on it.")
                     .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else {
                 Text(agentSuggestionLine)
@@ -423,13 +423,10 @@ public struct SetupView: View {
         return clis.count == 1 ? clis.first : nil
     }
 
+    /// The question is always the same; the sessions brought in only decide which answer is
+    /// preselected (GM, 2026-09-26).
     private var agentSuggestionLine: String {
-        switch suggestedCLI {
-        case "claude": return "Your sessions are Claude Code, so your first companion runs on it too:"
-        case "codex": return "Your sessions are Codex, so your first companion runs on it too:"
-        default: return pendingImports.isEmpty ? "Found Claude Code and Codex. Pick the one your first companion runs on:"
-                                               : "You use both. Pick the one your first companion runs on:"
-        }
+        "Your first companion is called echo. Pick what it runs on:"
     }
 
     /// The person's choice of sessions: held until the agent is chosen, then brought in.
