@@ -66,7 +66,7 @@ Drag a row onto a `#` heading to move it, onto `+ new space` to start one; ✎ r
 active in the last day are ticked; older ones are collapsed and unticked. No sessions: no step.
 After Enter each prints as it lands (`✓ port42-native  claude nautilus → @port42-native-nautilus`),
 then "close the originals now, they'll fall behind" with each original's terminal app and path, and
-`continue ↵` lands on the first imported space's desktop (Echo is still made). ⌘K "bring in running
+`continue ↵` lands on echo in genesis, as a first run always does (GM, 2026-09-26); the imported sessions wait in their spaces. ⌘K "bring in running
 sessions" opens the same list in a command box.
 
 ## What a fork is

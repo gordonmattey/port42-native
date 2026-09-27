@@ -494,8 +494,8 @@ public struct SetupView: View {
                 }
             } else {
                 SessionImportDone(results: importResults, candidates: importCandidates)
+                // First run always lands on echo in genesis (GM); the imported sessions wait in their spaces.
                 Button {
-                    appState.landOnImported(importResults)
                     phase = .transition
                 } label: {
                     Text("[ continue ↵ ]").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.accent)
