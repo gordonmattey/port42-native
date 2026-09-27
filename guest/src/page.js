@@ -19,6 +19,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
   let coupon = null, guest = null;
   const frameState = { html: null, loads: 0 };
+  const chatSeen = { at: 0, last: 0 };
   $(doc, 'get-app').href = DOWNLOAD;
 
   // Home: paste the invite link someone sent. A clicked link skips it.
@@ -40,7 +41,9 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
 
   /// The port, with its header and, until joined, the card that joins it.
   function present(frag) {
-    $(doc, 'title').textContent = `${coupon.hostName}'s ${coupon.portTitle}`;
+    $(doc, 'title').textContent = coupon.portTitle;
+    $(doc, 'pill').textContent = `${coupon.hostName}'s`;
+    $(doc, 'pill').hidden = false;
     $(doc, 'open-app').href = 'port42://invite#' + frag;
     $(doc, 'open-app').hidden = false;
     $(doc, 'who').textContent = isMove(coupon)
@@ -65,12 +68,13 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
     const code = $(doc, 'code').value.trim();
     $(doc, 'join-error').textContent = '';
     $(doc, 'join-button').disabled = true;
-    guest = new Guest({ coupon, storage, connect, ui: ui(doc, () => guest, frameState) });
+    guest = new Guest({ coupon, storage, connect, ui: ui(doc, () => guest, frameState, chatSeen) });
     try {
       await guest.join({ name, code });
       write(storage, NAME_KEY, name);
       rememberJoined(storage, coupon);
       $(doc, 'gate').hidden = true;
+      $(doc, 'chat-toggle').hidden = false;
     } catch (e) {
       $(doc, 'join-error').textContent = explain(e.code, coupon.hostName);
       $(doc, 'join-button').disabled = false;
@@ -78,6 +82,13 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   }
 
   $(doc, 'gate').addEventListener('submit', (ev) => { ev.preventDefault(); join(); });
+  // The chat drops down from the title bar over the port, as on a tile in Port42.
+  $(doc, 'chat-toggle').addEventListener('click', () => {
+    const open = !$(doc, 'chat').classList.contains('open');
+    $(doc, 'chat').classList.toggle('open', open);
+    $(doc, 'chat-toggle').classList.toggle('open', open);
+    if (open) { chatSeen.at = chatSeen.last; $(doc, 'chat-count').hidden = true; $(doc, 'chat-input').focus(); }
+  });
   $(doc, 'chat-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const input = $(doc, 'chat-input');
@@ -112,7 +123,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
   return { coupon: () => coupon, guest: () => guest, frameState };
 }
 
-function ui(doc, guest, frameState) {
+function ui(doc, guest, frameState, chatSeen) {
   return {
     // A fresh frame for each version of the page: it loads frame.html, says it is ready, and is sent
     // the page (see the message handler above).
@@ -122,18 +133,55 @@ function ui(doc, guest, frameState) {
     },
     onData(detail) { $(doc, 'frame').contentWindow?.postMessage({ port42: 'data', detail }, '*'); },
     onEvent(kind, payload) { $(doc, 'frame').contentWindow?.postMessage({ port42: 'event', kind, payload }, '*'); },
+    // As PortChatPanel: yours on the right, others on the left under their name, a run of one
+    // person's messages grouped; Port42's own lines quiet.
     onChat(entries) {
       const list = $(doc, 'chat-list');
+      const me = guest()?.me?.id;
       list.textContent = '';
+      if (!entries.length) {
+        const empty = doc.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'No messages yet. What you say here belongs to this port.';
+        list.append(empty);
+      }
+      let run = null, runFrom = null;
       for (const e of entries.slice(-100)) {
-        const row = doc.createElement('div');
-        row.className = 'entry';
-        const who = doc.createElement('b');
-        who.textContent = e.from?.name ?? '';
-        row.append(who, doc.createTextNode(' ' + (e.text ?? '')));
-        list.append(row);
+        const from = e.from?.id ?? '';
+        if (!run || from !== runFrom) {
+          run = doc.createElement('div');
+          const mine = me && (from === me || from.startsWith(me + '/'));
+          run.className = 'run' + (mine ? ' mine' : '') + (e.from?.kind === 'system' ? ' system' : '');
+          if (!mine && e.from?.kind !== 'system') {
+            const who = doc.createElement('div');
+            who.className = 'who';
+            who.textContent = e.from?.name ?? '';
+            run.append(who);
+          }
+          list.append(run); runFrom = from;
+        }
+        const msg = doc.createElement('div');
+        msg.className = 'msg';
+        msg.textContent = e.text ?? '';
+        run.append(msg);
       }
       list.scrollTop = list.scrollHeight;
+      // Who is here, and what has not been read, on the chat button.
+      const people = [...new Map(entries.filter((e) => e.from?.kind !== 'system').map((e) => [e.from?.id, e.from?.name])).values()].slice(-3);
+      const strip = $(doc, 'chat-people');
+      strip.textContent = '';
+      for (const name of people) {
+        const a = doc.createElement('span');
+        a.className = 'avatar';
+        a.style.background = `hsl(${[...(name ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 70% 60%)`;
+        a.textContent = (name ?? '?').slice(0, 1).toUpperCase();
+        strip.append(a);
+      }
+      chatSeen.last = entries.at(-1)?.seq ?? 0;
+      if ($(doc, 'chat').classList.contains('open')) chatSeen.at = chatSeen.last;
+      const unread = entries.filter((e) => e.seq > chatSeen.at && e.from?.kind !== 'system').length;
+      $(doc, 'chat-count').textContent = String(unread);
+      $(doc, 'chat-count').hidden = unread === 0;
     },
     onState({ online, message, final }) {
       doc.body.classList.toggle('offline', !online);

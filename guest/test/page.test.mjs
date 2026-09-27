@@ -50,7 +50,8 @@ test('a link opens straight to the port, with one card to join it; nothing conne
   assert.equal(p.dom.window.location.hash, '', 'the invite stayed in the address bar');
   assert.equal(p.doc.getElementById('port').hidden, false, 'the port is not the page');
   assert.equal(p.doc.getElementById('gate').hidden, false);
-  assert.match(p.doc.getElementById('title').textContent, /Gordon's chart/);
+  assert.equal(p.doc.getElementById('title').textContent, 'chart');
+  assert.equal(p.doc.getElementById('pill').textContent, "Gordon's", 'the pill does not say whose it is');
   assert.match(p.doc.getElementById('who').textContent, /Gordon shared 'chart' with you/);
   assert.match(p.doc.getElementById('what').textContent, /see and use/);
   assert.match(p.doc.getElementById('open-app').href, /^port42:\/\/invite#/);
@@ -97,7 +98,11 @@ test('joining redeems the invite as the name given, then shows the port in a fra
   assert.match(sent, /self: Object\.freeze/, 'the frame has no window.port42');
   const seed = p.storage.get('port42.guest.seed');
   assert.ok(seed && !sent.includes(seed), 'the guest\'s key is inside the frame');
-  assert.match(p.doc.getElementById('chat-list').textContent, /Gordon hi/);
+  const run = p.doc.querySelector('#chat-list .run');
+  assert.equal(run.querySelector('.who').textContent, 'Gordon');
+  assert.equal(run.querySelector('.msg').textContent, 'hi');
+  assert.equal(p.doc.getElementById('chat-toggle').hidden, false, 'no way to open the chat');
+  assert.equal(p.doc.getElementById('chat-count').textContent, '1', 'the unread count is wrong');
 });
 
 test('a browser that joined this port before opens it at once, with its name remembered', async () => {
@@ -143,4 +148,14 @@ test('an invite refused by the host is explained on the card, and the person can
 
 test('a hidden section stays hidden whatever its own display rule says', () => {
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important/, 'the page lets a section\'s own display beat hidden');
+});
+
+test('the chat drops down from the title bar, and opening it clears the unread count', async () => {
+  const p = page();
+  await join(p);
+  const chat = p.doc.getElementById('chat');
+  assert.ok(!chat.classList.contains('open'));
+  p.doc.getElementById('chat-toggle').click();
+  assert.ok(chat.classList.contains('open'));
+  assert.equal(p.doc.getElementById('chat-count').hidden, true);
 });
