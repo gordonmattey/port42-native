@@ -372,7 +372,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
-| Relay you can run yourself (GM, 2026-09-27) | Phase 4 builds it; Settings already takes relay addresses. To add: (1) a Docker image, (2) binaries for Linux (x86, ARM) and macOS on the release, (3) a "Deploy on Railway" template, (4) a page on running one. Asked of Phase 4 |
+| Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Needs GM: push a `relay-v*` tag, make the Railway template in Railway, the port42.ai page (growth) |
 
 ### Final hit list (GM, 2026-09-26)
 
