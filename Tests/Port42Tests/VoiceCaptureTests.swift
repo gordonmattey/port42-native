@@ -392,23 +392,23 @@ struct VoiceDownloadDecisionTests {
     /// and a download for a feature not everyone uses is exactly what shipping them was rejected for.
     @Test("a launch never downloads")
     func launchDoesNotDownload() {
-        #expect(!VoiceSession.shouldDownload(askedByAHold: false, weightsOnDisk: false, allowed: true))
+        #expect(!VoiceSession.shouldDownload(askedByPerson: false, weightsOnDisk: false, allowed: true))
     }
 
     @Test("a hold downloads when there is nothing on disk")
     func holdDownloads() {
-        #expect(VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: false, allowed: true))
+        #expect(VoiceSession.shouldDownload(askedByPerson: true, weightsOnDisk: false, allowed: true))
     }
 
     @Test("weights already on disk are loaded, never re-fetched")
     func onDiskIsNeverRefetched() {
-        #expect(!VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: true, allowed: true))
-        #expect(!VoiceSession.shouldDownload(askedByAHold: false, weightsOnDisk: true, allowed: false))
+        #expect(!VoiceSession.shouldDownload(askedByPerson: true, weightsOnDisk: true, allowed: true))
+        #expect(!VoiceSession.shouldDownload(askedByPerson: false, weightsOnDisk: true, allowed: false))
     }
 
     @Test("a refusal holds even against a hold")
     func refusalWins() {
-        #expect(!VoiceSession.shouldDownload(askedByAHold: true, weightsOnDisk: false, allowed: false))
+        #expect(!VoiceSession.shouldDownload(askedByPerson: true, weightsOnDisk: false, allowed: false))
     }
 }
 

@@ -66,10 +66,11 @@ public final class VoiceSession {
     }
 
     /// Whether this call may fetch 461 MB. Launch may not: the app loads weights that are already there and
-    /// otherwise waits, because nobody has asked for dictation yet. A hold may, and that hold IS the asking.
-    nonisolated static func shouldDownload(askedByAHold: Bool, weightsOnDisk: Bool, allowed: Bool) -> Bool {
+    /// otherwise waits, because nobody has asked for dictation yet. A hold may, and so may the Download button
+    /// in Settings: both are the person asking.
+    nonisolated static func shouldDownload(askedByPerson: Bool, weightsOnDisk: Bool, allowed: Bool) -> Bool {
         guard !weightsOnDisk else { return false }
-        return askedByAHold && allowed
+        return askedByPerson && allowed
     }
 
     public init(source: VoiceAudioSource,
@@ -123,7 +124,7 @@ public final class VoiceSession {
         // model lands. Only a model that is absent or failed stops it.
         switch model {
         case .ready, .loading, .downloading: break
-        case .absent, .failed: prepareModel(askedByAHold: true); return
+        case .absent, .failed: prepareModel(askedByPerson: true); return
         }
 
         do {
@@ -180,15 +181,15 @@ public final class VoiceSession {
         onPartial?(text)
     }
 
-    /// Load the model. At launch this only loads weights that are already on disk; a hold is what may fetch
-    /// them, because the app does not ship them and nobody has asked for dictation until then.
-    public func prepareModel(askedByAHold: Bool = false) {
+    /// Load the model. At launch this only loads weights that are already on disk; a hold, or the Download
+    /// button in Settings, is what may fetch them, because the app does not ship them.
+    public func prepareModel(askedByPerson: Bool = false) {
         if case .downloading = model { return }
         if case .loading = model { return }
         if model == .ready { return }
         guard let fluid = transcriber as? FluidVoiceTranscriber else { return }
         let onDisk = FluidVoiceTranscriber.weightsOnDisk
-        let allowed = Self.shouldDownload(askedByAHold: askedByAHold, weightsOnDisk: onDisk,
+        let allowed = Self.shouldDownload(askedByPerson: askedByPerson, weightsOnDisk: onDisk,
                                           allowed: Self.downloadAllowed())
         guard allowed || onDisk else { setModel(.absent); return }
 

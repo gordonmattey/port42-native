@@ -363,8 +363,23 @@ public final class AppState: ObservableObject {
     public private(set) var voiceInOtherApps: VoiceGlobalTrigger?
     /// The hot mic while another app has the keyboard, since our own window may not be on screen.
     public let voiceHUD = VoiceHUD()
+    private var voiceStarted = false
     private var accessibilityTimer: Timer?
     private var activationObserver: NSObjectProtocol?
+
+    /// Start voice input: load a speech model that is already on disk, and listen for the space bar in other
+    /// apps if that is switched on. Called by the app at launch, NOT from `init`: a test suite builds hundreds of
+    /// AppStates, and doing this in each of them doubled the suite's runtime (37s to 79s, measured) and made a
+    /// timing-sensitive test flake. Idempotent.
+    public func startVoice() {
+        guard !voiceStarted else { return }
+        voiceStarted = true
+        voice.onModelState = { [weak self] state in self?.voiceModelState = state }
+        voice.prepareModel()                 // loads what is on disk; a launch never downloads
+        voice.refreshModelState()
+        installVoiceInOtherApps()
+        watchForAccessibility()
+    }
 
     /// Accessibility is granted in System Settings, minutes after the app asked, and an app that only looks
     /// at launch appears broken until it is restarted (GM, Dev7, 2026-09-27: holding space "just adds a
@@ -443,11 +458,7 @@ public final class AppState: ObservableObject {
         // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
         // loading now rather than when someone first holds space: loading takes seconds, and the first hold
         // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
-        voice.onModelState = { [weak self] state in self?.voiceModelState = state }
-        voice.prepareModel()
-        voice.refreshModelState()
-        installVoiceInOtherApps()
-        watchForAccessibility()
+
         // Restore persisted port panels after a brief delay so the window is ready,
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

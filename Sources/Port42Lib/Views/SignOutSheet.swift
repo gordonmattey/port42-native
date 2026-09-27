@@ -11,10 +11,12 @@ public struct SignOutSheet: View {
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
     @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
     @AppStorage(ShellMode.takeoverKey) private var fullscreenTakeover = false
+    @AppStorage(VoiceGlobalTrigger.enabledKey) private var voiceInOtherApps = false
+    @State private var accessibilityGranted = false
 
 
 
-    enum SettingsTab: String, CaseIterable { case ai = "AI", grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
+    enum SettingsTab: String, CaseIterable { case ai = "AI", grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", voice = "Voice", updates = "Updates" }
     @State private var tab: SettingsTab = .ai
     /// Bumped on revoke. The grant store is not `@Published` (it is read on every gated dispatch and
     /// publishing it would redraw the world per permission check), so the manager re-reads on demand.
@@ -65,6 +67,7 @@ public struct SignOutSheet: View {
                     secretsSection
                     remoteAccessSection
                     displaySection
+                    voiceSection
                     if tab == .updates { updatesSection }
                 }
                 .padding(.horizontal, 24).padding(.vertical, 12)
@@ -177,6 +180,86 @@ public struct SignOutSheet: View {
                         .onChange(of: fullscreenTakeover) { _, _ in applyTakeoverSetting() }
                 }
             }
+        }
+    }
+
+    /// Voice input: hold space to dictate. The speech model is not in the app (461 MB), so this is where someone
+    /// who has not found hold-to-talk can fetch it deliberately, and where dictating into other apps is turned on.
+    @ViewBuilder
+    private var voiceSection: some View {
+        if tab == .voice {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Hold the space bar and speak; release and the words are typed where you were typing. Nothing leaves this Mac: the speech model runs on the Neural Engine.")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SPEECH MODEL").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                        Text(voiceModelDescription)
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    voiceModelButton
+                }
+
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("HOLD SPACE IN OTHER APPS").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                        Text(accessibilityGranted
+                             ? "dictate into any app. Accessibility is granted."
+                             : "dictate into any app. Needs Accessibility in System Settings, because seeing the space bar outside Port42 and typing into another app both require it.")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $voiceInOtherApps).labelsHidden().toggleStyle(.switch).tint(accent)
+                        .onChange(of: voiceInOtherApps) { _, on in
+                            if on, !accessibilityGranted { VoicePermissions.promptAccessibility() }
+                            appState.installVoiceInOtherApps()
+                            accessibilityGranted = VoicePermissions.accessibilityGranted()
+                        }
+                }
+
+                if voiceInOtherApps && !accessibilityGranted {
+                    Button("Open Accessibility settings") {
+                        VoicePermissions.promptAccessibility()
+                        accessibilityGranted = VoicePermissions.accessibilityGranted()
+                    }
+                    .buttonStyle(.plain)
+                    .font(Port42Theme.mono(10)).foregroundStyle(accent)
+                }
+            }
+            .onAppear { accessibilityGranted = VoicePermissions.accessibilityGranted() }
+        }
+    }
+
+    private var voiceModelDescription: String {
+        switch appState.voiceModelState {
+        case .ready:       return "Parakeet TDT v3, on this Mac. Shared by every Port42 here."
+        case .downloading: return "Parakeet TDT v3, 461 MB, coming down now."
+        case .loading:     return "Parakeet TDT v3, on this Mac, loading onto the Neural Engine."
+        case .absent:      return "Parakeet TDT v3, 461 MB. Not in the app: fetched once, then shared by every Port42 on this Mac. CC BY 4.0, from NVIDIA via FluidInference."
+        case .failed(let why): return "Parakeet TDT v3 could not load: \(why)"
+        }
+    }
+
+    @ViewBuilder
+    private var voiceModelButton: some View {
+        switch appState.voiceModelState {
+        case .ready:
+            Text("installed").font(Port42Theme.mono(10)).foregroundStyle(accent)
+        case .downloading(let done):
+            Text("\(Int(done * 100))%").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+        case .loading:
+            Text("loading").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+        case .absent, .failed:
+            Button("Download") { appState.voice.prepareModel(askedByPerson: true) }
+                .buttonStyle(.plain)
+                .font(Port42Theme.monoBold(10)).foregroundStyle(accent)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .overlay(Capsule().stroke(accent.opacity(0.5), lineWidth: 1))
         }
     }
 
