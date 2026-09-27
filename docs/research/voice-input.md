@@ -444,3 +444,31 @@ expensive: at 48 kHz it pushes about 47 events per second, each a 5,464-characte
    until §5's recommendation against it is overruled.
 7. **The cross-port `port.exec` escalation into `audio.capture`.** Same status as the audit spec's T6:
    the code path says it works, it was not executed.
+
+## The trigger: hold space, insert and retract (GM, 2026-09-26)
+
+**Correction to this note.** It recorded that "hold space does not survive the key path" and listed
+three reasons: `shouldYieldKey` yields every key when an editor is focused, `shellGlobalChord`
+requires Command by construction, and no `.keyUp` monitor exists. All three are accurate descriptions
+of Port42's current code and none is a platform constraint. macOS delivers key-up, and a local
+monitor discards an event by returning nil. GM has already built this trigger on Windows.
+
+**The mechanism is duration.** Space at typing speed is roughly 80 to 120 ms down. Held past a
+threshold near 200 ms it is intent, not a character.
+
+Three ways to handle the first 200 ms, decided:
+
+- **Delay delivery.** Withhold the space until the threshold resolves. Correct, and it puts 200 ms of
+  lag on every space typed. Rejected.
+- **Insert and retract.** Chosen. Insert the space normally so typing is untouched; if the key is
+  still down at the threshold, send a backspace and begin capture. One character appears and vanishes.
+- **Key repeat.** Free, but the repeat delay is a user preference and can exceed a second, by which
+  point several spaces have been typed.
+
+**Scope.** Inside Port42 a local monitor sees key-down and key-up and can discard the event, so this
+needs no new permission. Reaching other apps needs the Accessibility tap, for the reason already
+recorded: a global monitor observes a key and cannot prevent its delivery.
+
+**To verify before building.** Whether the retract is invisible in a Ghostty surface or flickers. A
+terminal is where a stray character costs most, and it is also the surface most likely to be
+dictated into.
