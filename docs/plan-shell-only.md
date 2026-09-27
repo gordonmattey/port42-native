@@ -496,15 +496,19 @@ Things that would be cool once the five scenarios hold.
 - **Review the port's "…" menu: agreed order (GM, 2026-09-27), held until after the release.**
   Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
   Share… · Fork, then Refresh · History… for web ports. No "Copy port id" (GM: no need found).
-- **A port's status at small sizes** (GM, 2026-09-27). Below a size, a port stops being a shrunken
-  window and shows what it is doing: its task, where it is at, its branch. A peek shows the same, and
-  hidden is size zero. Tiers: full, compact (title bar and one status line), status card (and peeks),
-  hidden. Status is declared or known, never scraped from the page (`docs/research/port-shape.md` on
-  `research`: measuring content makes the layout chase it): for a companion terminal, its presence
-  state, what it was last asked, its git branch and changes, its last reply line; for a web port, what
-  the page or its agent declares through a new call, else its error count and last chat line; agents
-  keep their own line current ("3 of 5 phases done"). Answers the research note's open question, what
-  a port shows below its minimum useful size. v1 or after: GM to say.
+- **A port shares its state, for the shapes where it is not drawn** (GM, 2026-09-27). Below a size a
+  port should show what it is doing, not a shrunken window; a peek the same; hidden is size zero. Two
+  layers. Where the port is drawn, it decides by drawing itself differently: a web port already gets its
+  size from the `presentation` event and can switch to a compact view like a responsive site (skill
+  guidance; Port42 draws the compact view for terminals). Where it is not drawn (a peek, the rail,
+  hidden, the galaxy, ⌘K), it declares: a new call, `port42.state.set([{label, value}, …])` from a page
+  or `port42 port.state` from an agent, an ordered list of anything ("doing: building the join card",
+  "progress: 3 of 5", "fps: 60"). Port42 adds what it already knows, marked as its own: error and
+  warning counts, unread chat, presence (working, waiting), a terminal's git branch. Who decides: the
+  port (or its agent) what its state is and its order; Port42 where it shows and how much fits; the
+  person the size. Other agents can read it (a lead sees its engineers without asking) and ⌘K can
+  search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
+  on `research`). v1 or after: GM to say (recommended: straight after v1).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
