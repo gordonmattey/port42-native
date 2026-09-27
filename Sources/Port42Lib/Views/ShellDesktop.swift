@@ -1224,8 +1224,8 @@ struct ShellDock: View {
                 addCompanionButton
             }
             dockAligned { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40) }
-            HStack(spacing: 10) {                                   // — PORTS —
-                portButton("bubble.left.and.bubble.right", "Chat") { openChat() }
+            // — PORTS — (no Chat button: the space's chat opens from its bar at the top, GM 2026-09-27)
+            HStack(spacing: 10) {
                 portButton("terminal", "Terminal") { spawnTerminal() }
                 portButton("globe", "Browser") { spawnBrowser() }
             }
@@ -1292,11 +1292,6 @@ struct ShellDock: View {
     static func avatarColor(_ id: String) -> Color {
         let h = id.utf8.reduce(0) { $0 &+ Int($1) }
         return ShellState.palette[h % ShellState.palette.count]
-    }
-
-    /// Chat: the space's own chat, dropped down from the top bar.
-    private func openChat() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { shell.spaceChatOpen.toggle() }
     }
 
     /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
