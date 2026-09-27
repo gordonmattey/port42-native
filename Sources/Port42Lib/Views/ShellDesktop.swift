@@ -1427,6 +1427,15 @@ struct PortMorePopover: View {
     let pin: PortPin
     let onPin: (PortPin) -> Void
     let onSetBackground: () -> Void
+    @State private var pinOpen = false
+
+    private var pinTitle: String {
+        switch pin {
+        case .none: return "Pin"
+        case .space: return "Pinned in this space"
+        case .everywhere: return "Pinned in every space"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1439,26 +1448,47 @@ struct PortMorePopover: View {
             // chrome), not something that belongs on a random port.
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
-            Divider().opacity(0.4)
-            // A second click on the pinned choice unpins.
-            row(pin == .space ? "✓ Pinned in this space" : "Pin in this space", icon: "pin",
-                action: { onPin(pin == .space ? .none : .space) })
-            row(pin == .everywhere ? "✓ Pinned in every space" : "Pin in every space", icon: "pin.circle",
-                action: { onPin(pin == .everywhere ? .none : .everywhere) })
+            // One "Pin" option with its choices under it (GM, 2026-09-27). A popover has no
+            // submenus, so the row opens its choices in place.
+            row(pinTitle, icon: pin == .none ? "pin" : "pin.fill", trailing: pinOpen ? "▾" : "▸") {
+                withAnimation(.easeOut(duration: 0.15)) { pinOpen.toggle() }
+            }
+            if pinOpen {
+                subRow("In this space", on: pin == .space) { onPin(.space) }
+                subRow("In every space", on: pin == .everywhere) { onPin(.everywhere) }
+                if pin != .none { subRow("Unpin", on: false) { onPin(.none) } }
+            }
         }
         .padding(.vertical, 4)
         .frame(width: 200)
         .background(Port42Theme.bgPrimary)
     }
 
-    private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, icon: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 10)).foregroundStyle(accent).frame(width: 16)
                 Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                 Spacer(minLength: 0)
+                if let trailing {
+                    Text(trailing).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A choice under an opened row, indented, with a check on the current one.
+    private func subRow(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(on ? "✓" : "").font(Port42Theme.mono(10)).foregroundStyle(accent).frame(width: 16)
+                Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 28).padding(.trailing, 10).padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

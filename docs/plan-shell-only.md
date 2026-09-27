@@ -456,7 +456,7 @@ Things that would be cool once the five scenarios hold.
   windows went); "Pin in every space" shows it on every desktop, above the others, at one position
   (migration `v62-port-pinned-everywhere`). Paint order is a rank, so a tile never climbs over the
   shell's own layers. A pin mark shows in the title bar; `port.manage` takes pin, pinEverywhere,
-  unpin. Today the two rows sit at the end of the "…" menu; they move into the placement group
+  unpin. Today "Pin" is one row whose choices open under it (in this space, in every space, unpin), at the end of the "…" menu; it moves into the placement group
   with the menu review below, after the release (Phase 4 is changing the same menu).
 - **Review the port's "…" menu: agreed order (GM, 2026-09-27), held until after the release.**
   Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
