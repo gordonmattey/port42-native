@@ -834,6 +834,15 @@ Chrome on this Mac, then on a phone on cellular. The port renders, a click there
 on a Dev6 tile of the same port, a push from Dev2 arrives in the browser, a refresh is the same guest,
 and the host's chat shows the browser guest by name.
 
+### 4.9 A relay anyone can run (asked for v1, Gordon via nautilus, 2026-09-27)
+
+Settings already takes relay addresses; this makes running one a click. (1) A Docker image of
+`cmd/port42-relay` (for example `ghcr.io/gordonmattey/port42-relay`), (2) static binaries for Linux
+x86 and ARM and for macOS on each release, (3) a "Deploy on Railway" template from this repo and
+`relay.Dockerfile`, so someone with no ops experience gets a `*.up.railway.app` address with TLS and
+pastes `wss://<it>/v1` into Settings, (4) a short page on running one. To plan in detail before
+building, after the browser lane's live test.
+
 ### 4.8 Scenario 4 in the harness
 
 The harness's scenario 4 becomes the master plan's test: a browser on another machine renders the
