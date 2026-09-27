@@ -440,7 +440,14 @@ Things that would be cool once the five scenarios hold.
   ports.
 - **Computer use.** An agent that sees the screen and acts on it in one loop.
 - **Multi-display.** Spaces placed across monitors.
-- **More agents as equal first-run paths**, such as Gemini and Antigravity.
+- **Support all the CLIs** (GM, 2026-09-27; was "more agents as equal first-run paths"). Every coding
+  agent CLI as a first-class companion, not only Claude Code and Codex: Gemini CLI, Antigravity,
+  Cursor's agent, OpenCode, Aider, Goose, Amp, Copilot CLI and whatever comes next. "Supported" means
+  what Claude and Codex have today: a briefing it reads, the reply read at the end of a turn, a submit
+  confirmation, a needs-you and a turn-failed signal (presence), its sessions found and forked for
+  import, the port42 skills where it loads skills, and a place in first run. Per CLI, the hook system
+  decides how much of that is possible; a CLI with no hooks gets a thinner tier (reply from its
+  output, no presence), said plainly. One adapter per CLI behind the existing hook vocabulary.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
   (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
