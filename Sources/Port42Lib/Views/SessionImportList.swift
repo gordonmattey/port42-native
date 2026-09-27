@@ -17,6 +17,11 @@ struct SessionImportList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // What the groups are, said outright (GM, 2026-09-26: nothing on the screen said they were
+            // spaces).
+            Text(Self.groupingNote(spaces: selection.groups.filter { !$0.sessions.isEmpty }.count))
+                .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 14) {
                 Text("\(selection.ticked.count) of \(candidates.count) selected")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
@@ -108,6 +113,12 @@ struct SessionImportList: View {
         .contentShape(Rectangle())
         .draggable(c.sessionId)
         .opacity(on ? 1 : 0.6)
+    }
+
+    static func groupingNote(spaces: Int) -> String {
+        let n = spaces == 1 ? "one space" : "\(spaces) spaces"
+        return "port42 grouped them into \(n) for you, one per project. each # is a space: the sessions in it "
+             + "land there together. drag a session to another space or onto + new space, ✎ renames one."
     }
 
     static func age(_ d: Date, now: Date = Date()) -> String {
