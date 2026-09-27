@@ -130,7 +130,7 @@ Sessions on another machine, sessions of other CLIs, and moving (quitting the or
   `codex resume <new id>`. A companion's saved environment now reaches its terminal.
 - **Screens:** the step in the setup terminal (widened to 780) after the agent choice, with the grouped
   list, drag between groups and onto "new space", rename, the fork note, then what came in and the
-  originals to close, landing on the first imported session; the ⌘K action "bring in running sessions"
+  originals to close, landing on echo in genesis; the ⌘K action "bring in running sessions"
   with the same list in a command box.
 - **Not yet:** window titles through AppleScript (matched on tty) for the close list; a live import.
 
