@@ -122,6 +122,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// a working bridge and now will not. No caller does that.
     public func attach(to config: WKWebViewConfiguration, foreignSite: Bool = false) {
         guard !foreignSite else { return }
+        // The page's own port id, before anything else runs: `port42.self.id`. A page that pushes to
+        // itself uses this, never an id written into its source or a lookup by title, so a fork or a
+        // move (a new id) keeps talking to itself (Gordon, 2026-09-27).
+        if let script = Self.selfScript(messageId) {
+            config.userContentController.addUserScript(
+                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         // Inject the port42 JS namespace
         let bridgeScript = WKUserScript(
             source: PortBridge.bridgeJS,
@@ -130,6 +137,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         )
         config.userContentController.addUserScript(bridgeScript)
         config.userContentController.add(self, name: "port42")
+    }
+
+    /// `window.__port42Self`, read by `port42.self`. nil for a bridge that names no port.
+    static func selfScript(_ id: String?) -> String? {
+        guard let id, let literal = SafeJSON.string(id, options: [.fragmentsAllowed]) else { return nil }
+        return "window.__port42Self = Object.freeze({ id: \(literal) });"
     }
 
     /// Set the webview reference for callbacks
@@ -630,6 +643,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 }});
             }
             var impl = {
+                // This page's own port: its id, for pushing or writing to itself (see selfScript).
+                self: window.__port42Self || Object.freeze({ id: null }),
                 _resolve: function(callId, data) {
                     const p = _pending[callId];
                     if (p) { delete _pending[callId]; delete _tokenCallbacks[callId]; p.resolve(data); }

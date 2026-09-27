@@ -334,9 +334,16 @@ BRIDGE API REFERENCE:
     or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
     before your webview is dropped, so you re-mount clean rather than blank.
 
+  port42.self.id
+    This page's own port id, ready before your script runs. Use it whenever the page acts on
+    itself: port42.port.push(port42.self.id, data, token), port.patch, port.publish targets.
+    Never write a port id into the page and never find yourself by title: a fork or a move gives
+    the port a new id and a new title, and a page that names its old one keeps driving the old one.
+
   port42.port.info()
     Returns: {messageId, createdBy, spaceId}
     Get metadata about this port (which message spawned it, which companion created it).
+    messageId is port42.self.id.
 
   port42.port.setTitle(title)
     Set this port's display name. Overrides the <title> tag. Use for dynamic titles

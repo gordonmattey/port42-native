@@ -40,7 +40,7 @@ public struct MirrorStatus: Equatable {
 extension AppState {
 
     /// Methods a mirrored tile answers for itself: they are about this desktop, not the port.
-    static let mirrorLocalMethods: Set<String> = ["presentation"]
+    static let mirrorLocalMethods: Set<String> = ["presentation", "port.info"]
 
     /// How long a mirror waits before trying again after its connection drops.
     static var mirrorRetry: TimeInterval = 5

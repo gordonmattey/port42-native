@@ -567,6 +567,14 @@ no right is granted, since nothing stays to reach; a second redeem is refused. T
 Gates: `ForkTests` (the hand-over, and taking it), calibrated by three breaks. Suite 1352 green.
 4.6b is complete.
 
+**Found by Gordon, fixed 2026-09-27: a fork kept driving the original.** The demo page had its own
+port id written into its source to push to itself, so its copy pushed to the original (the
+original's chrome named the copy as its driver). A page had no ready way to know its own id: only
+`port.info()`, which nothing taught for this. Every page is now handed its own id before its script
+runs, `port42.self.id`, and the manual tells authors to use it and never a written-in id or a lookup
+by title. `port.info` on a copy of someone else's port answers from the copy, like `port42.self`.
+No rewriting of old pages (Gordon: this release can break them). Gate: `PortSelfTests`, calibrated.
+
 ### 4.6c Companions across machines: one chat for a shared port
 
 **The test this step exists for (Gordon, 2026-09-26):** a companion on Dev2 and a companion on Dev6
