@@ -442,6 +442,15 @@ Things that would be cool once the five scenarios hold.
   events, no timeout. Codex reports no submit, so it shows "has your message" until its turn ends; a
   Claude that was waiting on a permission shows waiting until the turn ends (no hook reports the
   approval).
+- **Presence shows why an agent cannot reply** (GM, 2026-09-27). When a CLI's turn fails (an API
+  error, a dropped connection), the chat that asked shows only what the CLI's hooks report: on
+  intermittent wifi, Claude's notice surfaced as "@name is waiting for your input", not the error
+  itself. Surface the error in the presence line (and the chat) when the CLI reports one. Claude
+  first; Codex to check.
+- **Pinning ports** (GM, 2026-09-27). Pin a port in its space (it keeps its place and stays up), and
+  pin a port across spaces (it shows in every space).
+- **Review the port's "…" menu** (GM, 2026-09-27). The order of every item, and what belongs
+  together: for example, Move could include "set as background".
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
