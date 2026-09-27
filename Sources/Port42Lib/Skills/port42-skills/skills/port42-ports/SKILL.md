@@ -61,10 +61,18 @@ survive a reload goes in `port42.storage`, and subscriptions are re-made on load
 
 ## Check it works before you say it is done
 
-    port42 port.console id=<id>
+    port42 port.console id=<id> level=count
     port42 port.getDom id=<id>
 
-Read the console for errors and the DOM for the controls you added, then say what you checked.
+The count says whether the port logged errors or warnings. Only if it did, read them and fix them:
+
+    port42 port.console id=<id>
+
+The whole log, every level, is for debugging:
+
+    port42 port.console id=<id> level=all
+
+Check the DOM for the controls you added, then say what you checked.
 
 ## Hidden ports
 

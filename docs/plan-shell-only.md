@@ -391,6 +391,7 @@ them; an item leaves only when it is done and verified.
 | 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Done (`053f38b`), confirmed by GM: no bubbles; one AppKit text, so a drag copies across messages, with each message's time and sender; runs from one sender grouped; hover for a message's time; the time of the top message shown while scrolling |
 | 10 | Opening a port's chat crashed the app (Dev5, 2026-09-27) | Done (`53515ac`), confirmed by GM: TextKit 1, and the scroll moves the clip view; a test reproduces the crash on the old code |
 | 11 | A companion's own chat posts and its replies read as two senders (they did not group) | Done (`6caf2b7`): a post through a companion's terminal credential is recorded as the companion. Messages stored before keep the old sender |
+| 12 | Checking a port put up to ~400 KB of log into an agent's context (`port.console` returned the last 100 lines of up to 4,000 characters) | Done: `level=count` gives only the error and warning counts; the default (`problems`) the errors and warnings themselves (last 20, each cut to 1,000 characters); `level=all` the whole log, for debugging. A terminal defaults to its last 50 lines. The ports skill and the /imagine roles check the count first and read errors only if there are any |
 
 ## Future roadmap
 
