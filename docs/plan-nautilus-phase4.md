@@ -905,7 +905,8 @@ both joined, clicks and chat crossed between them and Dev2. Found:
    session.
 
 Order: shared storage, sharing with the chat and clickable ids, the desktop, the companion
-instructions; then 4.8.
+instructions; then 4.8. Shared storage is built. Sharing with the chat and clickable ids moved to the
+later list in `plan-shell-only.md` (Gordon, 2026-09-27).
 
 **Found live, fixed 2026-09-27: an instance's identity was replaced when the Keychain could not be
 read.** Dev6's tiles of Dev2's ports stopped syncing after sleeps and restarts, and never recovered:

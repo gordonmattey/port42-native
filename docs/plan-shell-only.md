@@ -531,6 +531,13 @@ Things that would be cool once the five scenarios hold.
   same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
   Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
   (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
+- **Share with the people in the chat, and clickable port ids** (GM, 2026-09-27; decided in Phase
+  4.7b, not built). Found live: a browser guest asked ember for a shader, ember made a new port and
+  posted its id, and the guest could not see it. A port id in a chat becomes a link: it focuses the
+  port in Port42 and opens it on the invite page when you have access. A companion never grants
+  access on its own; it offers the new port to the machines already in this port's chat, and each
+  grant goes through the per-port card on the host. The companion instructions say that someone on
+  another machine sees only the ports shared with them.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
