@@ -793,6 +793,19 @@ above are as recommended.
    the host's port id; the chat beside it; every refusal said plainly. Gates: in Node with a DOM
    (jsdom): no network before a click, the fragment cleared, the key never inside the iframe; the
    shim's calls reach the runtime and nothing else.
+   **Built 2026-09-27.** `guest/invite.html` and `guest/src`: `coupon.js` (the invite from the
+   fragment), `shim.js` (the frame's `window.port42`: a proxy whose calls are messages to the page,
+   with `port42.self.id` the host's port id), `guest.js` (the identity kept for the origin, the
+   session, redeem, the page, the chat, events, and offline with a retry every five seconds that
+   ends on any refusal but offline), `page.js` (the intro with Open in Port42, Open here and Get
+   Port42; the join form; the frame and chat wiring; nothing on load but reading the invite).
+   `guest/src/methods.json` is every remotely reachable method's parameter names, generated from the
+   registry (`GuestMethodsTests`, PORT42_REGEN_GUEST=1), so a page's positional calls are named as
+   the app names them. Gates: `guest/test/page.test.mjs` in jsdom (no network before a click and the
+   fragment cleared; a broken link; join redeems as the name given and the frame has no same-origin
+   and no key; calls named by the registry, unknown ones refused; offline dims the port, stops the
+   chat and says why; a refused invite is explained), run by `go test` (`TestTheInvitePage`);
+   calibrated by five breaks.
 3. *Bundle, server and hygiene:* the esbuild bundle with its integrity hash; `cmd/port42-open`, the
    page's server, with its Content-Security-Policy (`connect-src` the relays only),
    `Referrer-Policy: no-referrer` and no third-party script; `open.Dockerfile` for Railway; invite
