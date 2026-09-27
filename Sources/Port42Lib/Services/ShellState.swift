@@ -888,7 +888,9 @@ public final class ShellState: ObservableObject {
     nonisolated public static let minTileSize = CGSize(width: 220, height: 160)
 
     /// The right-edge rail's two drop zones: park (minimize to a chip) and close (delete the port).
-    public enum ParkZone: Equatable { case park, close }
+    /// `hide`: dropped on the top bar, where the hidden ports are listed (GM, 2026-09-26). The port
+    /// keeps running with no tile.
+    public enum ParkZone: Equatable { case park, close, hide }
 
     /// Which rail zone the in-progress tile drag is currently over (drives the rail highlight); nil
     /// when the drag isn't over the rail.
@@ -934,6 +936,7 @@ public final class ShellState: ObservableObject {
     /// strip is the **close** zone, the rest of the strip is **park**, everything left of the strip
     /// is nil. Pure → headless-testable.
     nonisolated public static func parkZone(at p: CGPoint, in area: CGSize) -> ParkZone? {
+        if p.y < 0 { return .hide }                              // above the desktop: the top bar
         guard p.x >= area.width - parkWidth(area.width) else { return nil }
         return p.y >= area.height - closeZoneHeight(area.height) ? .close : .park
     }
@@ -978,6 +981,12 @@ public final class ShellState: ObservableObject {
             return
         }
         appState.portWindows.close(panel.id)                         // a real tile of this space → close it
+    }
+
+    /// Hide a port (GM, 2026-09-26): off the desktop and the rail, still running, listed under the top
+    /// bar's "N hidden" to show again. From the port's "…" or by dragging it onto the top bar.
+    public func hideTile(_ id: String) {
+        appState.portWindows.applyPresentation("hidden", to: id)
     }
 
     /// Show a hidden port (Phase 3.2): on its home desktop, going there if it is another space, placed

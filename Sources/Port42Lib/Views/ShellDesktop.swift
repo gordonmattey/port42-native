@@ -50,8 +50,10 @@ struct ShellChrome: View {
 
             // HIDDEN PORTS in this space (Phase 3.2, decision 4): a person can always see what is
             // running with no tile, and show it. Absent when there are none.
+            // While a tile is dragged it shows even with none hidden: dropping on the top bar hides.
             let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
-            if !hidden.isEmpty {
+            let overHide = shell.draggingOverPark == .hide
+            if !hidden.isEmpty || shell.isDraggingTile {
                 chromeRow {
                     Menu {
                         ForEach(hidden) { p in
@@ -60,12 +62,16 @@ struct ShellChrome: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "eye.slash").font(.system(size: 10))
-                            Text("\(hidden.count) hidden").font(Port42Theme.mono(11))
+                            Text(overHide ? "release to hide" : shell.isDraggingTile ? "drag here to hide" : "\(hidden.count) hidden")
+                                .font(Port42Theme.mono(11))
                         }
-                        .foregroundStyle(Port42Theme.textSecondary)
+                        .foregroundStyle(overHide ? shell.accent : Port42Theme.textSecondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(overHide ? shell.accent.opacity(0.15) : .clear))
+                        .shadow(color: overHide ? shell.accent.opacity(0.6) : .clear, radius: 6)
                     }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .help("Ports running here with no tile")
+                    .help("Ports running here with no tile. Drag a port here to hide it.")
                 }
             }
 
@@ -702,6 +708,10 @@ struct ShellTile: View {
                         editable: isEditablePort,
                         onRefresh: { appState.portWindows.reloadPort(tile.id); showMore = false },
                         onHistory: { showMore = false; showVersions = true },
+                        onHide: {
+                            shell.hideTile(tile.panel?.id ?? tile.id)
+                            showMore = false
+                        },
                         onSetBackground: {
                             // MOVE the port to the background — a position change, not a clone. Its
                             // presentation flips to "background", so it drops out of the tile grid and
@@ -812,6 +822,7 @@ struct ShellTile: View {
                 let zone = railZone(at: v.location)
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
+                case .hide: if let panel = tile.panel { shell.hideTile(panel.id) }
                 case .park:
                     if let panel = tile.panel {
                         let count = appState.portWindows.railIds(in: panel.spaceId).count
@@ -1391,6 +1402,7 @@ struct PortMorePopover: View {
     let editable: Bool
     let onRefresh: () -> Void
     let onHistory: () -> Void
+    let onHide: () -> Void
     let onSetBackground: () -> Void
 
     var body: some View {
@@ -1402,6 +1414,7 @@ struct PortMorePopover: View {
             }
             // Set-only: clearing is a shell-level action (the "reset background" control in the top
             // chrome), not something that belongs on a random port.
+            row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
         }
         .padding(.vertical, 4)

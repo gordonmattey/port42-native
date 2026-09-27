@@ -37,6 +37,8 @@ public enum SessionImport {
         /// The app the terminal runs in ("Terminal", "iTerm2", "Ghostty"), for "close the originals".
         public let app: String?
         public let tty: String?
+        /// Terminals running this same session (two panes resumed on one): it comes in once.
+        public var panes: Int = 1
     }
 
     /// A session log on disk.
@@ -305,7 +307,11 @@ public enum SessionImport {
             } else {
                 log = logs.first { $0.cli == c && !claimed.contains($0.sessionId) && realpath($0.cwd) == cwd }
             }
-            guard let l = log, !claimed.contains(l.sessionId) else { continue }
+            guard let l = log else { continue }
+            if claimed.contains(l.sessionId) {
+                if let i = out.firstIndex(where: { $0.sessionId == l.sessionId }) { out[i].panes += 1 }
+                continue
+            }
             claimed.insert(l.sessionId)
             out.append(Candidate(cli: c, pid: p.pid, cwd: cwd, project: project(cwd), branch: branch(cwd),
                                  sessionId: l.sessionId, title: title(of: l), lastActive: l.modified,
