@@ -150,22 +150,20 @@ public struct ShellView: View {
             // Quick Switcher (⌘K) — fuzzy jump across spaces/companions, migrated from the
             // classic app as a shell overlay. The scrim dismisses; selection lands at .space.
             if shell.showQuickSwitcher {
-                ZStack(alignment: .top) {
-                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.showQuickSwitcher = false }
+                ZStack {
+                    CommandBackdrop { shell.showQuickSwitcher = false }
                     QuickSwitcher(isPresented: $shell.showQuickSwitcher, shell: shell)
                         .environmentObject(appState)
-                        .padding(.top, 120)
+                        .offset(y: -40)                          // centered, a little above the middle
                 }.zIndex(215)
             }
 
             // Quick imagine (⌘I): one line starts a team in a new space.
             if shell.showImagine {
-                ZStack(alignment: .top) {
-                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.showImagine = false }
+                ZStack {
+                    CommandBackdrop { shell.showImagine = false }
                     ImagineBox(isPresented: $shell.showImagine, appState: appState)
-                        .padding(.top, 120)
+                        .offset(y: -40)
                 }.zIndex(216)
             }
 

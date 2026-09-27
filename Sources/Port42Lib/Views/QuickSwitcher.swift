@@ -40,15 +40,18 @@ public struct QuickSwitcher: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Search field
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Port42Theme.textSecondary)
+            HStack(spacing: 12) {
+                Text("›")
+                    .font(Port42Theme.monoBold(22))
+                    .foregroundStyle(Port42Theme.accent)
+                    .shadow(color: Port42Theme.accent.opacity(0.9), radius: 8)
 
-                TextField("Jump to...", text: $query)
+                TextField("", text: $query, prompt: Text("jump to a space, companion or port…")
+                            .foregroundColor(Port42Theme.textSecondary.opacity(0.55)))
                     .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(14))
+                    .font(Port42Theme.mono(19))
                     .foregroundStyle(Port42Theme.textPrimary)
+                    .tint(Port42Theme.accent)
                     .focused($isFocused)
                     .onSubmit { selectCurrent() }
                     .onChange(of: query) { _, _ in
@@ -74,18 +77,12 @@ public struct QuickSwitcher: View {
                         return .handled
                     }
 
-                Text("esc")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Port42Theme.bgHover)
-                    .cornerRadius(3)
+                KeyCap(label: "esc")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 18)
 
-            Divider().background(Port42Theme.border)
+            Rectangle().fill(Port42Theme.accent.opacity(0.15)).frame(height: 1)
 
 
 
@@ -103,13 +100,13 @@ public struct QuickSwitcher: View {
                                 Button(action: { select(item) }) {
                                     HStack(spacing: 10) {
                                         Text(item.icon)
-                                            .font(Port42Theme.mono(14))
+                                            .font(Port42Theme.mono(15))
                                             .foregroundStyle(iconColor(item))
-                                            .frame(width: 20)
+                                            .frame(width: 22)
 
                                         Text(item.name)
-                                            .font(Port42Theme.mono(13))
-                                            .foregroundStyle(Port42Theme.textPrimary)
+                                            .font(Port42Theme.mono(14))
+                                            .foregroundStyle(index == selectedIndex ? Port42Theme.textPrimary : Port42Theme.textPrimary.opacity(0.85))
 
                                         Spacer()
 
@@ -125,13 +122,19 @@ public struct QuickSwitcher: View {
                                             .help("Delete forever (⌘⌫)")
                                         }
                                     }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 22)
+                                    .padding(.vertical, 10)
                                     .background(
                                         index == selectedIndex
-                                            ? Port42Theme.accent.opacity(0.15)
+                                            ? Port42Theme.accent.opacity(0.14)
                                             : Color.clear
                                     )
+                                    .overlay(alignment: .leading) {
+                                        if index == selectedIndex {
+                                            Rectangle().fill(Port42Theme.accent).frame(width: 3)
+                                                .shadow(color: Port42Theme.accent.opacity(0.9), radius: 6)
+                                        }
+                                    }
                                 }
                                 .buttonStyle(.plain)
                                 .id(item.id)
@@ -139,7 +142,7 @@ public struct QuickSwitcher: View {
                         }
                     }
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: 380)
                 .onChange(of: selectedIndex) { _, newIndex in
                     if newIndex < filteredItems.count {
                         proxy.scrollTo(filteredItems[newIndex].id, anchor: .center)
@@ -147,14 +150,7 @@ public struct QuickSwitcher: View {
                 }
             }
         }
-        .background(Port42Theme.bgSecondary)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Port42Theme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .shadow(color: .black.opacity(0.5), radius: 20)
-        .frame(width: 420)
+        .commandCard(width: 640)
         .onAppear {
             loadClosed()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
