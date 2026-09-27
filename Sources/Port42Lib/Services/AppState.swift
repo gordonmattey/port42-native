@@ -137,6 +137,9 @@ public final class AppState: ObservableObject {
     /// Who each port on this instance is shared with, and its open invites, as the chrome's sharing
     /// pill reads it (4.6b). Refreshed whenever a right or an invite changes (`refreshSharing`).
     @Published public internal(set) var sharing: [String: PortSharing] = [:]
+    /// Replaced in tests: how a tile waits between tries (RemoteTile's backoff), so a test can see the
+    /// waits without depending on the clock.
+    var mirrorWait: (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
 
     /// Replace the relays this instance registers on, and restart the gateway onto them.
     public func setRelays(_ relays: [String]) {

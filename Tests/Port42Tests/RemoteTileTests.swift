@@ -287,13 +287,13 @@ struct RemoteTileTests {
         let tile = try await accept(state)
         state.stopMirror(tile: tile)
         gw.reply = { _, _ in [["type": "error", "code": "host_offline", "error": "gone"]] }
-        let before = gw.calls.count
+        var waits: [TimeInterval] = []
+        state.mirrorWait = { d in waits.append(d); await Task.yield() }
         state.startMirror(tile: tile)
-        try await Task.sleep(nanoseconds: 1_200_000_000)
+        for _ in 0..<2000 where waits.count < 5 { await Task.yield() }
         state.stopMirror(tile: tile)
-        let tries = gw.calls.dropFirst(before).filter { $0["method"] as? String == "port.subscribe" }.count
-        #expect(tries <= 7, "a tile tried an unreachable host \(tries) times in 1.2s: it does not back off")
-        #expect(tries >= 3, "a tile stopped trying")
+        #expect(Array(waits.prefix(5)) == (1...5).map { AppState.mirrorDelay(failures: $0) },
+                "a tile did not wait longer after each failure: \(waits.prefix(5))")
     }
 
     @Test("an ordinary tile's calls are never sent to another instance")

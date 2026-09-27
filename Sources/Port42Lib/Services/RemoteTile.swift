@@ -134,7 +134,7 @@ extension AppState {
                 }
                 self.mirrorStatus[tile]?.online = false
                 failures = Date().timeIntervalSince(started) > Self.mirrorHeld ? 1 : failures + 1
-                try? await Task.sleep(nanoseconds: UInt64(Self.mirrorDelay(failures: failures) * 1_000_000_000))
+                await self.mirrorWait(Self.mirrorDelay(failures: failures))
             }
             self?.remoteMirrors[tile] = nil
         }
