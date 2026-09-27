@@ -2161,10 +2161,12 @@ public final class AppState: ObservableObject {
     }
 
     /// The companions in a given space, current or not (reactive via `spaceAgentIds` + `companions`).
+    /// A space's companions, from the database: the one answer every call gives (GM, 2026-09-27).
+    /// It used to read `spaceAgentIds`, a cache an observer fills a moment later, so `space.current`
+    /// and whoami said a space had no companions right after one joined, while `companions.list`
+    /// (the database) listed it. A view that redraws often reads the cache itself.
     public func companions(forSpace spaceId: String?) -> [AgentConfig] {
-        guard let sid = spaceId else { return [] }
-        if sid == currentSpace?.id { return spaceCompanions }
-        let ids = spaceAgentIds[sid] ?? []
-        return companions.filter { ids.contains($0.id) }
+        guard let sid = spaceId, !sid.isEmpty else { return [] }
+        return Port42Members.companions(appState: self, spaceId: sid)
     }
 }

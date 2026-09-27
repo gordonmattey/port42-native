@@ -4,7 +4,7 @@ Asked by GM on 2026-09-27: `port42 pair` lets any process or app on this Mac ask
 the person accepts in the app, and that process is paired. Every credential gets a scope: the galaxy,
 one space, or one port. Today a credential can do anything its permission cards allow, anywhere. In v1,
 built after the Phase 4 merge (GM, 2026-09-27), because both change the client registry, which Phase
-4 has changed. Status: design, awaiting GM on the four decisions below.
+4 has changed. Status: design; decisions 1 to 3 made by GM (2026-09-27), 4 open.
 
 ## What exists
 
@@ -44,7 +44,7 @@ never raises a card for something outside its scope.
 ## Pairing
 
 1. In any terminal or app on this Mac: `port42 pair --name "my script"`, optionally `--space <name>` or
-   `--port <id>` to ask for a narrower scope. It prints a short code, such as `482-913`, and waits.
+   `--port <id>` to ask for a narrower scope. It prints a six-digit code, such as `48 29 13`, and waits.
 2. Port42 shows a card: who is asking (the name it gave, and what Port42 can verify: the program's
    path and the app it runs in, from the connection's process), the scope it asks for, and the code.
 3. The person checks the code matches their terminal, may narrow the scope, and accepts or denies.
@@ -58,14 +58,14 @@ to narrow or revoke. Pairing an agent on another machine is Phase 4's invite, no
 
 ## Decisions for GM
 
-1. **Companion terminals stay galaxy in v1 (recommended).** Teams, /imagine and cross-space mentions
-   work across spaces today; scoping companions to their space would break them. Revisit after v1.
-2. **A space or port scope reaches no machine capability (recommended).** Terminal, files, screen,
+1. **DECIDED (GM): companion terminals stay galaxy in v1.** A companion has the right to join any space,
+   and any port. Teams, imagine and cross-space mentions depend on it. Worked out after v1.
+2. **DECIDED (GM): a space or port scope reaches ports and port chat only.** Terminal, files, screen,
    clipboard, AppleScript and REST are the desktop's (GM, 2026-07-28: "the desktop is a port, port 0"),
-   so they need galaxy scope. The alternative keeps permission cards for scoped callers too.
-3. **Approval checks a code (recommended).** The person matches the code in their terminal to the
-   card, so a process cannot get a card approved by showing up at the right moment. The alternative is
-   accept or deny on the name alone.
+   so they need galaxy scope.
+3. **DECIDED (GM): approval checks a code.** Six digits shown as three pairs with no hyphen, `48 29 13`,
+   like Phase 4's invite code. The person matches the code in their terminal to the card, so a process
+   cannot get a card approved by showing up at the right moment.
 4. **How a paired process uses its token (recommended: an environment variable).** `port42 pair`
    prints `export PORT42_TOKEN_FILE=…`, the variable every Port42 caller already reads, so the same
    program keeps using it. The alternative is `port42 --as <name>` on each call.
