@@ -191,7 +191,7 @@ public final class GatewayProcess: ObservableObject {
             // already pulled in (spike C's carried detail, pinned by a Go test).
             //
             // Never logged, here or there (NFR2).
-            if let data = Self.handover(host: host, peerSeed: InstanceKey.seed(),
+            if let data = Self.handover(host: host, peerSeed: InstanceKey.seed() ?? "",
                                         attestKey: attest).data(using: .utf8) {
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
             }

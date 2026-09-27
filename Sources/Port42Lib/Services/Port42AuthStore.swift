@@ -158,6 +158,11 @@ public final class Port42AuthStore {
         loadKeychainValue(account: rootSecretAccount(instance))
     }
 
+    /// The gateway root secret, telling "none yet" from "could not read it".
+    public func readGatewayRootSecret(instance: String) -> KeychainRead {
+        readKeychainValue(account: rootSecretAccount(instance))
+    }
+
     public func saveGatewayRootSecret(_ value: String, instance: String) {
         saveKeychainValue(value, account: rootSecretAccount(instance))
     }
@@ -167,6 +172,11 @@ public final class Port42AuthStore {
     /// The instance's Ed25519 seed, base64 (nautilus Phase 4, 4.2). Per instance, never per person.
     public func peerSeed(instance: String) -> String? {
         loadKeychainValue(account: peerSeedAccount(instance))
+    }
+
+    /// The instance's seed, telling "none yet" from "could not read it".
+    public func readPeerSeed(instance: String) -> KeychainRead {
+        readKeychainValue(account: peerSeedAccount(instance))
     }
 
     public func savePeerSeed(_ value: String, instance: String) {
@@ -211,6 +221,26 @@ public final class Port42AuthStore {
         return str
     }
 
+    /// A read that says why nothing came back. Only `.missing` means there is nothing to keep: every
+    /// other failure (another build's signature, a prompt nobody could answer, a locked keychain) must
+    /// not be taken as "make a new one", which silently replaced an instance's identity (Dev2,
+    /// 2026-09-27) and orphaned every grant and invite keyed on it.
+    private func readKeychainValue(account: String) -> KeychainRead {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess, let data = result as? Data,
+              let str = String(data: data, encoding: .utf8) else { return .unreadable(status) }
+        return .found(str)
+    }
+
     private func deleteKeychainValue(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -218,5 +248,30 @@ public final class Port42AuthStore {
             kSecAttrAccount as String: account
         ]
         SecItemDelete(query as CFDictionary)
+    }
+}
+
+/// What a Keychain read found: the value, nothing (the item does not exist), or a failure to read an
+/// item that may well exist.
+public enum KeychainRead: Equatable {
+    case found(String)
+    case missing
+    case unreadable(OSStatus)
+}
+
+/// The one rule for a secret that must outlive a launch: keep what is there, make one only when there
+/// is none, and never replace one that could not be read.
+public enum KeptSecret {
+    public enum Outcome: Equatable { case kept(String), made(String), unreadable(OSStatus) }
+
+    public static func resolve(_ read: KeychainRead, make: () -> String, save: (String) -> Void) -> Outcome {
+        switch read {
+        case .found(let v): return .kept(v)
+        case .missing:
+            let fresh = make()
+            save(fresh)
+            return .made(fresh)
+        case .unreadable(let status): return .unreadable(status)
+        }
     }
 }

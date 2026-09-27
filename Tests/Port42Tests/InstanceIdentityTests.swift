@@ -14,7 +14,7 @@ struct InstanceIdentityTests {
 
     @Test("the seed is 32 bytes, stable for an instance, and different between instances")
     func seedIsPerInstance() throws {
-        let a = InstanceKey.seed(instance: "IdentityTestA")
+        let a = try #require(InstanceKey.seed(instance: "IdentityTestA"))
         #expect(Data(base64Encoded: a)?.count == 32, "an Ed25519 seed is 32 bytes")
         #expect(InstanceKey.seed(instance: "IdentityTestA") == a, "the key must not change between calls")
         #expect(InstanceKey.seed(instance: "IdentityTestB") != a, "two instances must be two peers")

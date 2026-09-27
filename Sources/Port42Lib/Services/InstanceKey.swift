@@ -14,9 +14,11 @@ import Foundation
 
 enum InstanceKey {
 
-    /// This instance's seed, base64 of 32 bytes. Created on first use.
+    /// This instance's seed, base64 of 32 bytes. Created on first use; nil when the Keychain holds one
+    /// that could not be read, so this launch runs without an identity (no sharing) rather than
+    /// replacing it and orphaning everything keyed on it.
     @MainActor
-    static func seed(instance: String = ClientRegistry.currentInstance) -> String {
+    static func seed(instance: String = ClientRegistry.currentInstance) -> String? {
         // A test never touches the Keychain: the seed is per process and in memory, as the root
         // secret's is (ClientRegistry.rootSecret).
         if ClientRegistry.isTestProcess {
@@ -25,11 +27,19 @@ enum InstanceKey {
             testSeeds[instance] = fresh
             return fresh
         }
-        if let existing = Port42AuthStore.shared.peerSeed(instance: instance) { return existing }
-        let fresh = ClientRegistry.randomSecret()
-        Port42AuthStore.shared.savePeerSeed(fresh, instance: instance)
-        return fresh
+        switch KeptSecret.resolve(Port42AuthStore.shared.readPeerSeed(instance: instance),
+                                  make: ClientRegistry.randomSecret,
+                                  save: { Port42AuthStore.shared.savePeerSeed($0, instance: instance) }) {
+        case .kept(let v), .made(let v): return v
+        case .unreadable(let status):
+            p42log("[identity] this instance's key is in the Keychain but could not be read (status %d); "
+                   + "running without sharing rather than replacing it", Int(status))
+            unreadableStatus = status
+            return nil
+        }
     }
 
     @MainActor private static var testSeeds: [String: String] = [:]
+    /// Set when this launch could not read the instance's key (for Settings to say so).
+    @MainActor static var unreadableStatus: OSStatus?
 }

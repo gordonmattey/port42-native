@@ -129,7 +129,9 @@ public struct SignOutSheet: View {
                 Text("THIS INSTANCE")
                     .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
                     .padding(.top, 4)
-                Text(appState.localPeerID ?? "no peer id yet (the gateway has not started)")
+                Text(appState.localPeerID ?? (InstanceKey.unreadableStatus != nil
+                    ? "This instance's key is in the Keychain but could not be read, so sharing is off. Quit and reopen Port42, and allow Keychain access if macOS asks."
+                    : "no peer id yet (the gateway has not started)"))
                     .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
                     .textSelection(.enabled)
 

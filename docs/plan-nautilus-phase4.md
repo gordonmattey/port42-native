@@ -896,6 +896,17 @@ both joined, clicks and chat crossed between them and Dev2. Found:
 Order: shared storage, sharing with the chat and clickable ids, the desktop, the companion
 instructions; then 4.8.
 
+**Found live, fixed 2026-09-27: an instance's identity was replaced when the Keychain could not be
+read.** Dev6's tiles of Dev2's ports stopped syncing after sleeps and restarts, and never recovered:
+Dev2's peer id had changed (`56dvfh4y…` to `rbliv6ag…`), so every call went to a peer that no
+longer exists. Any failed Keychain read came back as "none", and a new key was made and saved over
+the old one; a second build of Dev2 (another session's, another signature) and the harness token
+breaking at the same time point to the same cause for the gateway root secret. Now a read says found,
+missing or unreadable (`KeychainRead`), and `KeptSecret.resolve` makes a secret only when it is
+missing: an unreadable identity leaves the launch without sharing (Settings says why), and an
+unreadable root secret uses a temporary one for that launch, never saved. Gate: `KeptSecretTests`,
+calibrated. Dev2's old key was overwritten and cannot be recovered; its shares to Dev6 need new invites.
+
 ### 4.8 Scenario 4 in the harness
 
 The harness's scenario 4 becomes the master plan's test: a browser on another machine renders the

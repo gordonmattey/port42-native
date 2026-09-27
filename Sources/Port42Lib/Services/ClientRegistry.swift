@@ -97,16 +97,27 @@ public final class ClientRegistry {
             Self.testSecrets[instance] = fresh
             return fresh
         }
-        if let existing = Port42AuthStore.shared.gatewayRootSecret(instance: instance) {
-            return existing
+        // Keep the secret there is; make one only when there is none. One that could not be read is
+        // never replaced (that invalidated every token, Dev2 2026-09-27): this launch uses a secret of
+        // its own, unsaved, so clients cannot connect until the next launch reads the real one again.
+        switch KeptSecret.resolve(Port42AuthStore.shared.readGatewayRootSecret(instance: instance),
+                                  make: Self.randomSecret,
+                                  save: { Port42AuthStore.shared.saveGatewayRootSecret($0, instance: instance) }) {
+        case .kept(let v), .made(let v): return v
+        case .unreadable(let status):
+            p42log("[gateway] the root secret is in the Keychain but could not be read (status %d); "
+                   + "using a temporary one for this launch, not replacing it", Int(status))
+            if let cached = Self.launchSecrets[instance] { return cached }
+            let temp = Self.randomSecret()
+            Self.launchSecrets[instance] = temp
+            return temp
         }
-        let fresh = Self.randomSecret()
-        Port42AuthStore.shared.saveGatewayRootSecret(fresh, instance: instance)
-        return fresh
     }
 
     /// Per-instance secrets for a test process. Never touched in a real build.
     nonisolated(unsafe) private static var testSecrets: [String: String] = [:]
+    /// A temporary secret for a launch that could not read the real one. Never saved.
+    nonisolated(unsafe) private static var launchSecrets: [String: String] = [:]
 
     /// True only under a test runner, established from the runner's own signals rather than from a
     /// build flag, because the defect this guards against reached a RELEASE user's home directory
