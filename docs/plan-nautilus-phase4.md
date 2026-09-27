@@ -559,9 +559,23 @@ Gordon watches both desktops. Everything below is what that needs, and nothing e
   machine's terminal and spends this person's model.
 
 **Steps, each its own commit with gates.**
-1. *The tile's chat is the host's.* On the guest, reading and posting in a mirrored tile's chat go to
-   the host (`chat.read`, `chat.post`), and the mirror applies each `chat` event to the tile's chat
-   live. Gate: a post on either side appears once on both, in order, and none is stored on the guest.
+1. *One resolution layer (Gordon: addressing inside an instance is the same as across them).* Every
+   reference to a port, a bare id, a title, `port42://<this peer>/<id>` or `port42://<other>/<id>`,
+   resolves to one address, and a mirrored tile's id resolves to its host's address. Then one rule:
+   this instance runs the call, any other is forwarded. The tile page's own path (`mirroredCall`)
+   goes, and chat keys resolve the same way, so the tile's chat IS the host's chat and a companion
+   naming the tile reaches the host's port. The mirror applies each `chat` event to the tile's chat
+   live. Gates: a call naming a tile's id, from the page, a companion or the CLI, reaches the host
+   with the host's id; a post on either side appears once on both, in order, stored only on the
+   host; `port.update` naming the tile needs `edit`.
+   **Built 2026-09-26.** `remotePort(for:)` is the one resolver: another instance's address, and a
+   mirrored tile by id, title or this instance's address, resolve to the host's port, and the
+   dispatcher forwards on that. The mirror loads the host's chat into the tile's (`chat.read`) and
+   applies each `chat` event live. Gates: `RemoteTileTests` (tile by id, title and local address;
+   the tile's chat shows the host's and posts go there, stored only there), each calibrated by
+   breaking the resolver, the live events and the initial load. Suite 1301 green. Live, Dev2 and
+   Dev6 in new spaces: a post on each side reads the same on both. The Dev6 post showed as "gordon",
+   the instance's person, though a client made it: step 2.
 2. *The actor crosses.* `remote_call` carries the actor (id, name, kind); the host attributes the
    post to it and routes by its kind. Gate: a guest companion's plain post wakes nobody on the host;
    a guest person's plain post wakes the chat's companions (with `wake_agents`); a claim of kind
@@ -571,11 +585,8 @@ Gordon watches both desktops. Everything below is what that needs, and nothing e
    mention of a guest companion from the host reaches that companion and no other, including when two
    companions share a label.
 4. *Guest wakes, and replies.* A mention in a mirrored chat wakes this instance's companion when the
-   tile allows it; its reply goes back to the tile's chat, so to the host. Gate: off by default; on,
-   one mention gives one wake and one reply in the host's chat.
-5. *A companion works on the tile by its id.* Any local call naming a mirrored tile goes to the host,
-   not only the tile page's own calls. Gate: `port.update` naming the tile edits the host's port with
-   `edit` and is refused `not_granted` without it.
+   tile's switch is on; its reply goes back to the tile's chat, so to the host. Gate: off by default;
+   on, one mention gives one wake and one reply in the host's chat; off again, none.
 
 **Live, the magic test (new spaces on Dev2 and Dev6; Gordon watches).** The shader on Dev2 shared with
 `see`, `use`, `edit` and `wake_agents`; a companion on each instance; Gordon turns on wakes in Dev6's
@@ -584,7 +595,7 @@ post in the one chat, hand off by mention across machines, both edit the port (t
 the token history name each), the chat is the same on both desktops, and the result renders (lit
 pixels, not only a clean console).
 
-Open: the one blocker is the default for "their companions can wake mine": off (recommended) or on.
+Decided (Gordon, 2026-09-26): "their companions can wake mine" is a switch on each tile, off by default.
 
 ### 4.7 The browser lane
 

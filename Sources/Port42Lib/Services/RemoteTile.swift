@@ -32,6 +32,8 @@ extension AppState {
     func mirroredCall(_ method: String, fromTile tile: String, args: [Any]) -> Task<Any, Never>? {
         guard mirrorStatus[tile] != nil, !Self.mirrorLocalMethods.contains(method),
               let row = mirroredRemote(tile) else { return nil }
+        // The page's own id resolves as any reference to the tile does (`remotePort(for:)`): to the
+        // host's port. Its calls name it implicitly as well as by id, so all of them go.
         let names = bridgeRegistry[method]?.paramNames ?? bridgeStreamRegistry[method]?.paramNames ?? []
         var named = BridgeArgs(positional: args, names: names).dictionary
         // The page names its own port by the id it has here; the host knows it by its own.
@@ -79,6 +81,7 @@ extension AppState {
                 if !first { await self.refreshMirror(tile: tile, row: row) }
                 first = false
                 self.mirrorStatus[tile]?.online = true
+                await self.loadMirrorChat(tile: tile, row: row)
                 do {
                     _ = try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.subscribe",
                                                        args: ["id": row.portKey],
@@ -112,6 +115,11 @@ extension AppState {
         switch kind {
         case PortEventKind.state.wire:
             Task { @MainActor in await self.refreshMirror(tile: tile, row: row) }
+        case PortEventKind.chat.wire:
+            // The tile's chat is the host's: each post there is shown here as it lands, stored only there.
+            if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
+                chats.received(key, entry)
+            }
         case PortEventKind.push.wire:
             // The host's page received this push as a `port42:data` event, so the copy does too. The
             // `push` bus event is for watchers of the port, and the page was never one.
@@ -119,6 +127,20 @@ extension AppState {
         default:
             break
         }
+    }
+
+    /// The chat key the shell uses for a tile: its port key, as for any tile.
+    func mirrorChatKey(_ tile: String) -> String? {
+        portWindows.panels.first { $0.id == tile }.map { $0.udid }
+    }
+
+    /// Fill the tile's chat from the host's, so the shell shows the conversation so far.
+    func loadMirrorChat(tile: String, row: DatabaseService.RemotePortRow) async {
+        guard let key = mirrorChatKey(tile),
+              let out = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "chat.read",
+                                                   args: ["port": row.portKey]) as? [String: Any],
+              let list = out["entries"] as? [Any] else { return }
+        chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
     }
 
     func refreshMirror(tile: String, row: DatabaseService.RemotePortRow) async {

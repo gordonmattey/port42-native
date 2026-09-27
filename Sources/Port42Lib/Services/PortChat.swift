@@ -41,6 +41,15 @@ public struct PortChatEntry: Equatable {
         ])
     }
 
+    /// An entry as `chat.read` returns it and a `chat` event carries it (`bridgeValue`, as JSON).
+    static func fromEvent(_ any: Any?) -> PortChatEntry? {
+        guard let o = any as? [String: Any], let seq = o["seq"] as? Int, let text = o["text"] as? String else { return nil }
+        let from = o["from"] as? [String: Any] ?? [:]
+        return PortChatEntry(seq: seq, at: Date(timeIntervalSince1970: (o["at"] as? Double) ?? 0), text: text,
+                             fromId: from["id"] as? String ?? "", fromName: from["name"] as? String ?? "",
+                             fromKind: from["kind"] as? String ?? "")
+    }
+
     /// The stored form, without `seq`: the row's key carries it.
     func storedJSON() -> String {
         let o: [String: Any] = ["at": at.timeIntervalSince1970, "text": text,
@@ -393,6 +402,11 @@ public final class PortChatStore: ObservableObject {
     public func load(_ key: String, from db: DatabaseService) {
         guard entries[key] == nil else { return }
         entries[key] = (try? db.chatEntries(chat: key, after: 0, limit: Self.keep)) ?? []
+    }
+
+    /// A chat kept elsewhere (a tile's, on the instance that holds its port), as that instance has it.
+    public func replace(_ key: String, _ list: [PortChatEntry]) {
+        entries[key] = Array(list.suffix(Self.keep))
     }
 
     /// A post landed. Appended only to a loaded chat; an unloaded one reads it from the store later.

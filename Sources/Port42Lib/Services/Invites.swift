@@ -340,26 +340,37 @@ extension AppState {
         return (PortAddress(peerID: c.host, spaceId: nil, portId: c.port), title, rights)
     }
 
-    /// If a local caller names a port on ANOTHER instance, the call to forward: the address and the
-    /// argument that named it. nil for a local port, for a remote caller (never forwarded on), and for a
-    /// method that does not act on a named port.
-    func remoteTarget(_ method: String, principal: Principal, args: BridgeArgs) -> (addr: PortAddress, param: String)? {
+    /// Where a port reference lives, when it is not here: the instance that holds it and its own id
+    /// there. One layer for every reference (Gordon, 2026-09-26: addressing inside an instance is the
+    /// same as across them): `port42://<other>/<id>` names that instance's port, and a tile mirroring a
+    /// port on another instance, named by its id, its title or `port42://<this>/<tile>`, is that port.
+    /// nil for a port on this instance.
+    func remotePort(for ref: String) -> (peer: String, port: String)? {
+        let addr = PortAddress.parse(ref)
+        if let addr, let peer = addr.peerID, peer != localPeerID { return (peer, addr.portId) }
+        guard let local = resolvePortRef(addr?.portId ?? ref), let tile = local.id ?? local.messageId,
+              let row = mirroredRemote(tile) else { return nil }
+        return (row.peerKey, row.portKey)
+    }
+
+    /// If a local caller names a port that lives on ANOTHER instance, the call to forward: that
+    /// instance, the port's id there, and the argument that named it. nil for a port here, for a
+    /// remote caller (never forwarded on), and for a method that does not act on a named port.
+    func remoteTarget(_ method: String, principal: Principal, args: BridgeArgs) -> (peer: String, port: String, param: String)? {
         guard principal.kind != .remote, case .port(let param, _) = RemoteAccess.reach(method),
-              let raw = args.string(param), let addr = PortAddress.parse(raw),
-              let peer = addr.peerID, peer != localPeerID else { return nil }
-        return (addr, param)
+              let raw = args.string(param), let target = remotePort(for: raw) else { return nil }
+        return (target.peer, target.port, param)
     }
 
     /// Forward a call to the instance that holds the port, through its relays.
-    func forwardRemote(_ method: String, to target: (addr: PortAddress, param: String), args: BridgeArgs,
+    func forwardRemote(_ method: String, to target: (peer: String, port: String, param: String), args: BridgeArgs,
                        onStream: (@MainActor (Any) -> Void)? = nil) async throws -> BridgeValue {
-        guard let peer = target.addr.peerID,
-              let row = ((try? db.remotePorts()) ?? []).first(where: { $0.peerKey == peer }) else {
+        guard let row = ((try? db.remotePorts()) ?? []).first(where: { $0.peerKey == target.peer }) else {
             throw BridgeError.notFound("no invite from that instance: accept one first")
         }
         var forwarded = args.dictionary
-        forwarded[target.param] = target.addr.portId
-        let out = try await door.remoteCall(to: peer, relays: row.relays, method: method, args: forwarded,
+        forwarded[target.param] = target.port
+        let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
                                             onStream: onStream)
         return BridgeValue.fromJSONObject(out)
     }

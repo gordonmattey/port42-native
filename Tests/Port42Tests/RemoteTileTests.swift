@@ -27,7 +27,13 @@ struct RemoteTileTests {
     }
 
     /// The other instance: redeem works, getHtml serves `html()`, subscribe streams `events` and stays open.
-    func host(_ gw: Gateway, html: @escaping () -> String, events: [[String: Any]] = []) {
+    static func entry(_ seq: Int, _ text: String, from: String = "Gordon") -> [String: Any] {
+        ["seq": seq, "at": 1_800_000_000.0 + Double(seq), "text": text,
+         "from": ["id": "u-\(from)", "name": from, "kind": "human"]]
+    }
+
+    func host(_ gw: Gateway, html: @escaping () -> String, events: [[String: Any]] = [],
+              chat: [[String: Any]] = []) {
         gw.reply = { method, _ in
             switch method {
             case "invite.redeem":
@@ -41,6 +47,10 @@ struct RemoteTileTests {
                 }
             case "port.push":
                 return [RemotePortTests.response(["ok": true, "token": "t:1"])]
+            case "chat.read":
+                return [RemotePortTests.response(["entries": chat, "last": chat.count])]
+            case "chat.post":
+                return [RemotePortTests.response(["ok": true])]
             default:
                 return [["type": "error", "code": "transport_failed", "error": "unscripted \(method)"]]
             }
@@ -126,6 +136,41 @@ struct RemoteTileTests {
         state.startMirror(tile: tile)
         await settle { state.mirrorStatus[tile]?.online == false }
         #expect(state.mirrorStatus[tile]?.online == false)
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("any caller naming the tile, by id, title or this instance's address, reaches the host's port")
+    func tileIsTheHostsPort() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>theirs</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        let companion = Principal.peer(id: "cli", displayName: "a companion's CLI")
+        for ref in [tile, "shared chart · Gordon", "port42://\(RemotePortTests.me)/\(tile)"] {
+            let before = gw.calls.count
+            let out = try await state.runBridgeMethod("port.getHtml", principal: companion, args: BridgeArgs(["id": ref]))
+            #expect(out.toJSONObject() as? String == "<p>theirs</p>", "\(ref) read this instance's copy")
+            let sent = gw.calls.dropFirst(before).filter { $0["method"] as? String == "port.getHtml" }
+            #expect(sent.count == 1 && (sent.first?["args"] as? [String: Any])?["id"] as? String == "P",
+                    "\(ref) did not reach the host's port by its own id")
+        }
+    }
+
+    @Test("the tile's chat is the host's: it shows the host's posts, and a post here goes there, stored only there")
+    func tileChatIsTheHosts() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" }, events: [["kind": "chat", "payload": Self.entry(2, "second, live")]],
+             chat: [Self.entry(1, "first, before")])
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        await settle { state.chats.entries[key]?.count == 2 }
+        #expect(state.chats.entries[key]?.map(\.text) == ["first, before", "second, live"])
+
+        state.currentUser = AppUser.createLocal(displayName: "Ada")
+        try await state.postToChatAsPerson(key: key, text: "hello from here")
+        let post = try #require(gw.calls.last { $0["method"] as? String == "chat.post" })
+        #expect((post["args"] as? [String: Any])?["port"] as? String == "P", "the post did not go to the host's port")
+        #expect(try state.db.chatEntries(chat: key, after: 0, limit: 50).isEmpty, "the tile kept its own chat")
         state.stopMirror(tile: tile)
     }
 
