@@ -390,7 +390,7 @@ struct PortChatTests {
 
     @Test("the transcript is one text, so a drag copies several messages")
     func transcriptIsOneText() {
-        let t = PortChatPanel.transcript([e(1, "gordon", "first"), e(2, "swift-fox", "second")])
-        #expect(String(t.characters) == "gordon  first\n\nswift-fox  second")
+        let t = ChatTranscript.build([e(1, "gordon", "first"), e(2, "swift-fox", "second")], me: nil, accent: .green)
+        #expect(t.text.string == "gordon\nfirst\nswift-fox\nsecond")
     }
 }

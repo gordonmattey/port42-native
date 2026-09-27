@@ -366,12 +366,14 @@ them; an item leaves only when it is done and verified.
 | # | Item | Status |
 |---|---|---|
 | 1 | Boot cinematic: pressing a key right after the first scene appears skips to the BIOS | Done: the first scene's video took keyboard focus, so later keys never reached the cinematic and its scenes ran on by their timers (replayed on Dev5). Keys now come from a window monitor while it is up; a held key's repeats do nothing. Replayed live: ten spaces, one scene each, the tenth ends it; GM confirmed on a fresh Dev5 |
-| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Built, awaiting GM's check: a bar on each chat's bottom edge; a port's chat drags down to cover the whole port (double-click toggles that and the default), the space chat's bar sets its height and its corner grip the width too (double-click resets). Sizes hold for the session |
+| 2 | Resizable chats: drag a port's chat panel to any width, all the way across the port; drag the space chat to set its size | Built, second pass after GM's check: invisible zones like a port's own edges, no bar or icons (GM). A port's chat drags by its bottom edge, down to covering the whole port; the space chat by its bottom-right corner, like a port. Sizes hold for the session. Open: something behind the open space chat makes windows under it hard to click (GM) |
 | 3 | "help improve Port42?" comes after echo's CLI is picked, not before: picking echo is the high point of sign-up | Done: it is the last question and its answer finishes setup |
 | 4 | Presence in chat: the chat that asked shows who has its message, working, or waiting | Done (`ee2661a`) |
 | 5 | Echo's welcome names the spaces setup made for imported sessions and who waits in each | Done (`2b34046`) |
 | 6 | The first-run tagline "Every program has a face." (`SetupView` boot lines) is to go (GM: "terrible") | Done: "say it, see it" (GM, from growth's options) |
 | 7 | An agent asked for a website built a server and a browser port instead of a web port, leaving a server to manage | Done: the port42-ports skill says a website is a web port; no server and localhost browser port for it; a server only when the project needs one, in the agent's own terminal; a browser port only for a real URL the person asks for. Guidance, so the proof is the next such request |
+| 8 | The chat input wraps onto more lines as a message grows | Done (`6ad9ce9`): up to 8 lines, then it scrolls; Return sends |
+| 9 | Chat layout: the person's messages on the right, others on the left under their name, and the time of where you are while scrolling | Built (`053f38b`), awaiting GM's look on Dev5: no bubbles (GM chose to see it without first); one AppKit text, so a drag still copies across messages; runs from one sender grouped; hover a message for its time. Bubbles can be drawn on the same view later |
 
 ## Future roadmap
 

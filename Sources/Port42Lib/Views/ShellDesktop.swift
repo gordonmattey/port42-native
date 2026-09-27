@@ -557,17 +557,16 @@ struct ShellTile: View {
                 if chatPanelH + consolePanelH > 0 {
                     AppKitLayer(content: VStack(spacing: 0) {
                         if chatPanelH > 0, let key = chatKey {
-                            PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
-                                .frame(width: liveSize.width, height: max(0, chatPanelH - ChatResizeBar.height))
-                            // Drag to size the chat, down to covering the whole port; double-click
-                            // toggles between that and the default.
                             let body = liveSize.height - headerH
-                            ChatResizeBar(accent: tileAccent, size: CGSize(width: liveSize.width, height: chatPanelH),
-                                          corner: false) { proposed in
-                                shell.portChatShare[key] = ShellState.portChatShare(height: proposed.height, body: body)
-                            } onDoubleClick: {
-                                shell.portChatShare[key] = (shell.portChatShare[key] ?? 0) >= 0.99 ? nil : 1
-                            }
+                            PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
+                                .frame(width: liveSize.width, height: chatPanelH)
+                                // Its bottom edge drags, down to covering the whole port: an invisible
+                                // zone, like a port's own edges.
+                                .overlay(alignment: .bottom) {
+                                    ChatResizeZone(size: CGSize(width: liveSize.width, height: chatPanelH), edge: .bottom) { proposed in
+                                        shell.portChatShare[key] = ShellState.portChatShare(height: proposed.height, body: body)
+                                    }
+                                }
                         }
                         if consolePanelH > 0, let key = consoleKey {
                             PortConsolePanel(key: key, accent: tileAccent)
