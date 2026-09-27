@@ -244,7 +244,7 @@ public struct ShellView: View {
             // listening without saying so.
             if (shell.voiceCapturing || shell.voiceNotice != nil) && shell.voiceAnchorPortId == nil {
                 VoiceIndicator(accent: shell.accent,
-                               label: shell.voicePartial ?? shell.voiceNotice ?? voiceLabel,
+                               label: shell.voiceNotice ?? voiceLabel,
                                live: shell.voiceCapturing)
                     .zIndex(220)
                     .allowsHitTesting(false)
@@ -387,9 +387,9 @@ public struct ShellView: View {
         // After release the capsule says only what the surface cannot: that the words are still being
         // worked on, or that there is no model to work on them. On success `onText` clears it.
         if shell.voiceModel == .ready {
-            // Keep the last partial on screen while the final read finishes, so the words do not blink out
-            // and come back.
-            showVoiceNotice(shell.voicePartial ?? "transcribing", seconds: 8)
+            // Nothing to say: the words are already in the surface as uncommitted text, and the release
+            // commits over them. The mic simply goes cold.
+            clearVoiceNotice()
         } else {
             showVoiceNotice(voiceLabel, seconds: 3)
         }

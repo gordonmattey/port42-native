@@ -580,13 +580,13 @@ struct ShellTile: View {
         // Hold-to-talk, over the tile being dictated into: the words are about to land here, so the
         // indicator belongs here and not in the middle of the desktop. Drawn by the shell, inside the
         // unit, so a port can neither fake it nor hide it.
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .bottomTrailing) {
             if shell.voiceAnchorPortId == tile.id,
                shell.voiceCapturing || shell.voiceNotice != nil {
-                VoicePill(accent: unitAccent,
-                          label: shell.voicePartial ?? shell.voiceNotice ?? shell.voiceModel.label,
-                          live: shell.voiceCapturing)
-                    .padding(.bottom, 12)
+                VoiceStatus(accent: unitAccent,
+                            label: shell.voiceNotice ?? shell.voiceModel.label,
+                            live: shell.voiceCapturing)
+                    .padding([.trailing, .bottom], 12)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }

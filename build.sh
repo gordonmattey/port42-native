@@ -389,10 +389,16 @@ done
 # rebuild is a slow loop and a dev instance reads the same cache at runtime anyway.
 MODEL_SRC="$HOME/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3"
 if [ "$CONFIG" = "release" ] || [ "${BUNDLE_MODEL:-0}" = "1" ]; then
-    if [ -d "$MODEL_SRC/Encoder.mlmodelc" ]; then
+    MODEL_DST="$RESOURCES/Models/parakeet-tdt-0.6b-v3"
+    if [ -d "$MODEL_DST/Encoder.mlmodelc" ] && [ "${BUNDLE_MODEL:-0}" != "force" ]; then
+        # Already in this bundle. Copying again is refused anyway once the app has been launched from
+        # here (macOS protects a launched bundle, and Core ML has the weights mapped), and the weights do
+        # not change between builds. BUNDLE_MODEL=force to replace them.
+        echo "[build] Speech model already bundled: $(du -sh "$MODEL_DST" | cut -f1)"
+    elif [ -d "$MODEL_SRC/Encoder.mlmodelc" ]; then
         mkdir -p "$RESOURCES/Models"
-        rsync -a --delete "$MODEL_SRC/" "$RESOURCES/Models/parakeet-tdt-0.6b-v3/"
-        echo "[build] Speech model bundled: $(du -sh "$RESOURCES/Models/parakeet-tdt-0.6b-v3" | cut -f1) (CC BY 4.0, nvidia/parakeet-tdt-0.6b-v3 via FluidInference)"
+        rsync -a --delete "$MODEL_SRC/" "$MODEL_DST/"
+        echo "[build] Speech model bundled: $(du -sh "$MODEL_DST" | cut -f1) (CC BY 4.0, nvidia/parakeet-tdt-0.6b-v3 via FluidInference)"
     else
         echo "[build] WARNING: no speech model in the FluidAudio cache ($MODEL_SRC) — this build ships without it, and voice input will ask to download"
     fi
