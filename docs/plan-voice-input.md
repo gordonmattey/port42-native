@@ -62,7 +62,13 @@ threshold and key-up, transcription on release. Text is logged, not inserted.
 
 *Verify:* speak a known sentence, read it in the log. Measure time from release to text.
 
-### Phase 3: insertion
+### Phase 3: insertion (DONE 2026-09-26)
+
+One seam for all three surfaces: `NSTextInputClient` on the first responder, which is the same seam a
+keystroke arrives on, so a surface cannot tell dictation from typing. Conformance is the test, not
+`responds(to: "insertText:")`: NSResponder declares that method, so every responder claims to answer
+it, including ones that type nothing. Dictation ends with one space, never doubled. Nowhere to type is
+reported in the capsule rather than swallowed. The retract now uses the same seam.
 
 Wire Phase 2's text into the Phase 1 trigger through `insertText` on the focused responder.
 

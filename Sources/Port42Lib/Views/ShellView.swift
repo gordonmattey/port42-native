@@ -395,8 +395,11 @@ public struct ShellView: View {
         guard voiceSession == nil else { return }
         let session = VoiceSession.live()
         session.onText = { text in
-            p42log("[Port42] voice heard: %@", text)
-            showVoiceNotice(text, seconds: 4)
+            let landed = VoiceInserter.insert(text, into: NSApp.keyWindow?.firstResponder)
+            p42log("[Port42] voice heard (inserted=%d): %@", landed ? 1 : 0, text)
+            // On success the text is visible where it was typed, so the capsule only says what it heard
+            // when there was nowhere to put it.
+            showVoiceNotice(landed ? text : "nowhere to type: \(text)", seconds: landed ? 1.5 : 6)
         }
         session.onModelState = { state in
             shell.voiceModel = state
@@ -407,14 +410,15 @@ public struct ShellView: View {
         session.refreshModelState()
     }
 
-    /// Take back the space that was typed on the way into a hold. The responder that received it is
-    /// the one that must delete it, so this goes through the same responder chain a Delete key
-    /// would, rather than synthesizing an event.
+    /// Take back the space that was typed on the way into a hold, through the same seam the text is
+    /// inserted on: the surface that received the space is the one that must delete it.
+    ///
+    /// The check is conformance, not `responds(to:)`. NSResponder declares both `insertText:` and
+    /// `deleteBackward:`, so every responder claims to answer them, including ones that type nothing.
     @MainActor
     private func retractOneCharacter() {
-        guard let responder = NSApp.keyWindow?.firstResponder,
-              responder.responds(to: #selector(NSResponder.deleteBackward(_:))) else { return }
-        responder.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        guard let client = NSApp.keyWindow?.firstResponder as? NSTextInputClient else { return }
+        client.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
     }
 
     // MARK: - Input (kiosk monitors → the zoom ladder)
