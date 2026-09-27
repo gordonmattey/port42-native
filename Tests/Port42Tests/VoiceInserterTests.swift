@@ -141,3 +141,52 @@ struct VoiceInserterTests {
         #expect(offenders.isEmpty, "the voice path synthesizes key events at \(offenders)")
     }
 }
+
+@Suite("Streaming into a terminal: real characters, smallest edit")
+struct VoiceStreamEditTests {
+
+    /// GM, 2026-09-27, Claude Code in a terminal tile: a spoken sentence longer than the window ran off
+    /// the end of the first line instead of wrapping, because a terminal draws marked text on one line at
+    /// the cursor. A TUI's line editor wraps real characters, so a terminal is streamed as edits.
+    @Test("extending the sentence sends only the new words")
+    func appendOnly() {
+        let e = VoiceInserter.edit(from: "hello", to: "hello there")
+        #expect(e.deletes == 0)
+        #expect(e.insert == " there")
+    }
+
+    @Test("a revised word costs only the characters that changed")
+    func revision() {
+        let e = VoiceInserter.edit(from: "hello there", to: "hello their")
+        #expect(e.deletes == 2)          // "re"
+        #expect(e.insert == "ir")
+    }
+
+    @Test("clearing sends one backspace per character")
+    func clearing() {
+        let e = VoiceInserter.edit(from: "hello", to: "")
+        #expect(e.deletes == 5)
+        #expect(e.insert.isEmpty)
+    }
+
+    @Test("the first partial is all insert")
+    func firstPartial() {
+        let e = VoiceInserter.edit(from: "", to: "hi")
+        #expect(e.deletes == 0)
+        #expect(e.insert == "hi")
+    }
+
+    /// Counted in characters, not bytes: one backspace removes one character, however many bytes it is.
+    @Test("an emoji is one backspace, not four")
+    func graphemes() {
+        let e = VoiceInserter.edit(from: "ok 👍", to: "ok")
+        #expect(e.deletes == 2)          // the space and the emoji
+        #expect(e.insert.isEmpty)
+    }
+
+    @Test("no change sends nothing")
+    func noChange() {
+        let e = VoiceInserter.edit(from: "same", to: "same")
+        #expect(e.deletes == 0 && e.insert.isEmpty)
+    }
+}

@@ -42,6 +42,33 @@ public enum VoiceInserter {
         return true
     }
 
+    /// What it takes to turn `previous` into `next` with a keyboard: some backspaces, then some
+    /// characters. Counted in characters, not bytes, because that is what one backspace removes.
+    ///
+    /// Terminals draw uncommitted (marked) text on one line at the cursor, so a spoken sentence longer
+    /// than the window runs off the edge instead of wrapping (GM, Claude Code in a terminal tile,
+    /// 2026-09-27). A TUI's own line editor wraps real characters correctly, so a terminal is streamed
+    /// as edits rather than as a composition.
+    static func edit(from previous: String, to next: String) -> (deletes: Int, insert: String) {
+        let old = Array(previous), new = Array(next)
+        var shared = 0
+        while shared < old.count, shared < new.count, old[shared] == new[shared] { shared += 1 }
+        return (old.count - shared, String(new[shared...]))
+    }
+
+    /// Stream `next` into a surface that wants real characters, replacing whatever `previous` put there.
+    /// Returns what the surface now holds, so the caller can pass it back as `previous`.
+    @discardableResult
+    public static func stream(_ next: String, previous: String, into responder: NSResponder?) -> String {
+        guard let client = responder as? NSTextInputClient else { return previous }
+        let (deletes, insert) = edit(from: previous, to: next)
+        for _ in 0..<deletes { client.doCommand(by: #selector(NSResponder.deleteBackward(_:))) }
+        if !insert.isEmpty {
+            client.insertText(insert, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        return next
+    }
+
     /// Insert `text` into `responder`. Returns false when there is nowhere to type, so the caller can
     /// say so instead of dropping what was heard. Uncommitted text from `mark` is replaced, because
     /// NSNotFound means "the marked range or the selection", which is what an input method commits over.

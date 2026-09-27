@@ -32,6 +32,11 @@ public struct ShellView: View {
     /// The surface that had the keyboard when the hold began. Held for the length of the hold so a focus
     /// change mid-sentence cannot land the words somewhere else.
     @State private var voiceResponder: NSResponder?
+    /// A terminal takes real characters rather than a composition, because it draws marked text on one
+    /// line at the cursor and a spoken sentence is longer than that. `voiceStreamed` is what this hold has
+    /// already put in the surface, so the next partial only sends the difference.
+    @State private var voiceStreamsAsEdits = false
+    @State private var voiceStreamed = ""
     @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
@@ -369,6 +374,9 @@ public struct ShellView: View {
                 shell.voicePartial = nil
                 shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
                 voiceResponder = NSApp.keyWindow?.firstResponder
+                voiceStreamed = ""
+                voiceStreamsAsEdits = appState.portWindows.panels
+                    .first { $0.id == shell.voiceAnchorPortId }?.portType == "terminal"
                 voiceSession?.begin()
             }
         }
@@ -383,7 +391,13 @@ public struct ShellView: View {
         voiceSession?.end()
         // A hold that produced nothing must leave no uncommitted text behind. The final text, when it
         // comes, commits over the mark; this is the silence case.
-        if voiceSession?.transcription == nil { VoiceInserter.unmark(voiceResponder) }
+        if voiceSession?.transcription == nil {
+            if voiceStreamsAsEdits {
+                voiceStreamed = VoiceInserter.stream("", previous: voiceStreamed, into: voiceResponder)
+            } else {
+                VoiceInserter.unmark(voiceResponder)
+            }
+        }
         // After release the capsule says only what the surface cannot: that the words are still being
         // worked on, or that there is no model to work on them. On success `onText` clears it.
         if shell.voiceModel == .ready {
@@ -424,11 +438,27 @@ public struct ShellView: View {
             shell.voicePartial = partial
             // Stream it into the surface as uncommitted text, so the words appear where they will land.
             if UserDefaults.standard.object(forKey: Self.streamIntoPortKey) as? Bool ?? true {
-                VoiceInserter.mark(partial, into: voiceResponder)
+                if voiceStreamsAsEdits {
+                    voiceStreamed = VoiceInserter.stream(partial, previous: voiceStreamed,
+                                                         into: voiceResponder)
+                } else {
+                    VoiceInserter.mark(partial, into: voiceResponder)
+                }
             }
         }
         session.onText = { text in
-            let landed = VoiceInserter.insert(text, into: voiceResponder ?? NSApp.keyWindow?.firstResponder)
+            let target = voiceResponder ?? NSApp.keyWindow?.firstResponder
+            // A terminal already holds the words as real characters: land the final read as the difference
+            // from what is there, so nothing is typed twice and nothing is left half-said.
+            if voiceStreamsAsEdits, !voiceStreamed.isEmpty {
+                voiceStreamed = VoiceInserter.stream(VoiceInserter.payload(for: text),
+                                                     previous: voiceStreamed, into: target)
+                p42log("[Port42] voice heard (streamed): %@", text)
+                voiceStreamed = ""
+                clearVoiceNotice()
+                return
+            }
+            let landed = VoiceInserter.insert(text, into: target)
             p42log("[Port42] voice heard (inserted=%d): %@", landed ? 1 : 0, text)
             // The text is now where it was typed, so the capsule goes away rather than repeating it.
             // It only speaks when the words could not land anywhere.
