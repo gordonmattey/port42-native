@@ -68,6 +68,18 @@ test('a refresh of the page reopens the port: the tab keeps the invite the addre
   assert.equal(again.window.document.getElementById('paste').hidden, true);
 });
 
+test('pasting another invite switches to it; port42 in the bar goes home and forgets the tab\'s port', async () => {
+  const p = page();
+  const other = { ...coupon, port: 'Q', portTitle: 'other one', nonce: 'nonce-2' };
+  const ev = new p.dom.window.Event('paste', { bubbles: true, cancelable: true });
+  ev.clipboardData = { getData: () => 'https://tele.port42.ai/#' + fragment(other) };
+  p.doc.body.dispatchEvent(ev);
+  assert.equal(p.doc.getElementById('title').textContent, 'other one', 'a pasted invite did not replace the port shown');
+  p.doc.getElementById('home').click();
+  assert.equal(p.doc.getElementById('paste').hidden, false, 'port42 did not go home');
+  assert.equal(p.dom.window.sessionStorage.getItem('port42.guest.invite'), null, 'the tab kept its port');
+});
+
 test('a link that is not an invite says so, and offers to take it pasted', () => {
   const p = page(null);
   assert.equal(p.doc.getElementById('paste').hidden, false);

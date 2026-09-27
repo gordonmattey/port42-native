@@ -20,6 +20,7 @@
   #bar { height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px;
          background: var(--card); border-bottom: 1px solid var(--line); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+  #home { color: var(--accent); text-decoration: none; font-size: 11px; }
   #title { font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pill { font-size: 9px; color: var(--accent); background: var(--input); border: .5px solid rgba(0,212,170,.35);
           border-radius: 99px; padding: 1px 6px; white-space: nowrap; }
@@ -86,7 +87,8 @@
 <div class="tile">
   <header id="bar">
     <span class="dot"></span>
-    <span id="title">port42</span>
+    <a id="home" href="./" title="Paste another invite">port42</a>
+    <span id="title"></span>
     <span id="pill" class="pill" hidden></span>
     <span id="status"></span>
     <span class="spacer"></span>
@@ -129,6 +131,6 @@
   </div>
 </div>
 
-<script type="module" src="dist/port42-guest.js" integrity="sha384-HJTpYBQ9lSDOevWGxkVfmhI8IZBZSdMSciK2RKwxwDAjPkdyK/FH6PBwbQ8cgKDD"></script>
+<script type="module" src="dist/port42-guest.js" integrity="sha384-h8JLgcrJ988dWyny4TXOXKm8/rHDl7DVQz4vjeuPIxdRd+IUDFpc42YzbW744geF"></script>
 </body>
 </html>

@@ -33,11 +33,43 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
       $(doc, 'paste-error').textContent = 'That is not an invite link Port42 can read.';
     }
   };
+  // ⌘V with an invite link opens it, from the home page or from another port (it switches). Pasting
+  // into the chat or a field on the home page still pastes there.
   doc.addEventListener('paste', (ev) => {
-    if (coupon || $(doc, 'paste').hidden) return;
+    const text = (ev.clipboardData?.getData('text') ?? '').trim();
+    const target = ev.target;
+    const inField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && target.id !== 'paste-input';
+    const frag = text.includes('#') ? text.slice(text.indexOf('#') + 1) : text;
+    if (inField) return;
+    if (coupon && !decodeCoupon(frag)) return;
     ev.preventDefault();
-    openPasted(ev.clipboardData?.getData('text') ?? '');
+    if (coupon) { guest?.stop(); guest = null; reset(); }
+    openPasted(text);
   });
+  // "port42" goes home: the paste page, and this tab forgets its port.
+  $(doc, 'home').addEventListener('click', (ev) => {
+    ev.preventDefault();
+    guest?.stop(); guest = null;
+    try { tab?.removeItem(TAB_KEY); } catch {}
+    reset();
+    coupon = null;
+    show(doc, 'paste');
+  });
+  function reset() {
+    frameState.html = null;
+    $(doc, 'frame').src = 'about:blank';
+    $(doc, 'gate').hidden = false;
+    $(doc, 'join-button').disabled = false;
+    $(doc, 'join-error').textContent = '';
+    $(doc, 'chat-toggle').hidden = true;
+    $(doc, 'chat').classList.remove('open');
+    $(doc, 'pill').hidden = true;
+    $(doc, 'open-app').hidden = true;
+    $(doc, 'title').textContent = '';
+    $(doc, 'paste-error').textContent = '';
+    doc.body.classList.remove('offline');
+    $(doc, 'status').textContent = '';
+  }
   $(doc, 'paste-form').addEventListener('submit', (ev) => { ev.preventDefault(); openPasted($(doc, 'paste-input').value); });
 
   function invite(frag) {
