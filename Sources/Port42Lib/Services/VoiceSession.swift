@@ -15,6 +15,9 @@ public final class VoiceSession {
     private let source: VoiceAudioSource
     private let transcriber: VoiceTranscriber
     private let modelIsReady: @Sendable () async -> Bool
+    /// Injected so the permission behavior is testable without touching the real TCC state.
+    private let micGranted: @Sendable () -> Bool
+    private let askForPermissions: @Sendable () -> Void
 
     /// Called with the text of a finished hold. Empty text (silence) is not reported.
     public var onText: ((String) -> Void)?
@@ -23,12 +26,21 @@ public final class VoiceSession {
     public var onPartial: ((String) -> Void)?
     /// Called when the model's state changes, so the indicator can show it.
     public var onModelState: ((VoiceModelState) -> Void)?
+    /// Called when a hold cannot run because the system has not granted something yet, so the indicator can
+    /// say which. Nil means nothing is outstanding.
+    public var onPermissionNeeded: ((VoicePermission?) -> Void)?
 
     public private(set) var model: VoiceModelState = .absent
     public private(set) var isCapturing = false
     /// The transcription started by the last release. Exposed so a test can await delivery instead of
     /// sleeping: a sleep long enough for a loaded machine is a slow suite, and a short one is a flake.
     public private(set) var transcription: Task<Void, Never>?
+
+    /// A hold that landed before the model finished loading. Its audio is kept and read as soon as the model
+    /// is ready: the first hold after a launch is the one a person judges the feature by, and dropping it
+    /// taught them the feature does not work.
+    private var pending: [Float] = []
+    private var askedForPermissions = false
 
     /// How often the words so far are re-read while the hold is open. The whole buffer is transcribed
     /// each time rather than a sliding window: at the measured throughput a 40 second buffer costs about
@@ -43,11 +55,25 @@ public final class VoiceSession {
     public init(source: VoiceAudioSource,
                 transcriber: VoiceTranscriber,
                 modelIsReady: @escaping @Sendable () async -> Bool,
-                model: VoiceModelState = .absent) {
+                model: VoiceModelState = .absent,
+                micGranted: @escaping @Sendable () -> Bool = { VoicePermissions.microphoneGranted() },
+                askForPermissions: @escaping @Sendable () -> Void = VoiceSession.askSystem) {
         self.source = source
         self.transcriber = transcriber
         self.modelIsReady = modelIsReady
         self.model = model
+        self.micGranted = micGranted
+        self.askForPermissions = askForPermissions
+    }
+
+    /// Ask for the microphone and for accessibility at the same moment, so the person answers once instead of
+    /// being interrupted twice at two unrelated times.
+    @Sendable
+    public static func askSystem() {
+        Task { @MainActor in
+            _ = await VoicePermissions.requestMicrophone()
+            if !VoicePermissions.accessibilityGranted() { VoicePermissions.promptAccessibility() }
+        }
     }
 
     /// The real one: the microphone and Parakeet.
@@ -60,7 +86,26 @@ public final class VoiceSession {
 
     public func begin() {
         guard !isCapturing else { return }
-        guard model == .ready else { prepareModel(); return }
+
+        // The system permissions are asked for HERE, on the first hold, and both at once. Before that
+        // nothing has touched the microphone, so nothing has prompted.
+        guard micGranted() else {
+            if !askedForPermissions {
+                askedForPermissions = true
+                askForPermissions()
+            }
+            onPermissionNeeded?(.microphone)
+            return
+        }
+        onPermissionNeeded?(nil)
+
+        // A hold is allowed to run while the model is still loading: the audio is kept and read when the
+        // model lands. Only a model that is absent or failed stops it.
+        switch model {
+        case .ready, .loading, .downloading: break
+        case .absent, .failed: prepareModel(); return
+        }
+
         do {
             try source.start()
             isCapturing = true
@@ -77,6 +122,10 @@ public final class VoiceSession {
         partials = nil
         let samples = source.stop()          // first, always: a running engine is a live microphone
         guard !samples.isEmpty else { return }
+        guard model == .ready else {
+            pending = samples                // the model is still loading; read it the moment it is ready
+            return
+        }
         transcription = Task { [transcriber, onText] in
             let text = (try? await transcriber.transcribe(samples)) ?? ""
             guard !text.isEmpty else { return }
@@ -132,6 +181,10 @@ public final class VoiceSession {
         }
     }
 
+    /// Report a model state from outside, for whoever is doing the loading. Reaching `.ready` this way also
+    /// reads any audio a hold left behind while the model was still loading.
+    public func noteModelState(_ state: VoiceModelState) { setModel(state) }
+
     /// Reflect a model that some other path loaded (a second window, a restart).
     public func refreshModelState() {
         Task { [weak self, modelIsReady] in
@@ -143,5 +196,18 @@ public final class VoiceSession {
         guard state != model else { return }
         model = state
         onModelState?(state)
+        if state == .ready { readPending() }
+    }
+
+    /// Read the audio a hold left behind while the model was loading.
+    private func readPending() {
+        guard !pending.isEmpty else { return }
+        let samples = pending
+        pending = []
+        transcription = Task { [transcriber, onText] in
+            let text = (try? await transcriber.transcribe(samples)) ?? ""
+            guard !text.isEmpty else { return }
+            await MainActor.run { onText?(text) }
+        }
     }
 }

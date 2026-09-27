@@ -45,6 +45,8 @@ public final class ShellState: ObservableObject {
     /// What the last hold produced, or why it produced nothing. Shown next to the indicator; Phase 3
     /// is what puts the text into the focused surface.
     @Published public var voiceNotice: String?
+    /// What the system has not granted yet, if a hold could not run because of it.
+    @Published public var voicePermissionNeeded: VoicePermission?
     /// The words so far, while the hold is still open. Feedback only: the text is inserted on release.
     @Published public var voicePartial: String?
     /// The port being dictated into, so the indicator sits on that tile instead of over the desktop.

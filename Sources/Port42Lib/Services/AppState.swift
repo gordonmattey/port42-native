@@ -351,6 +351,12 @@ public final class AppState: ObservableObject {
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]
 
+    /// Hold-to-talk, owned by the app so the speech model can load at launch. The shell wires its own
+    /// callbacks (partials, text, permissions) onto it when it installs its key monitors.
+    public let voice = VoiceSession.live()
+    /// Mirrored for views that only need to show what the model is doing.
+    @Published public var voiceModelState: VoiceModelState = .absent
+
     public init(db: DatabaseService) {
         self.db = db
         // Forward nested door/portWindows changes to trigger SwiftUI updates
@@ -372,6 +378,12 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
+        // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
+        // loading now rather than when someone first holds space: loading takes seconds, and the first hold
+        // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
+        voice.onModelState = { [weak self] state in self?.voiceModelState = state }
+        voice.prepareModel()
+        voice.refreshModelState()
         // Restore persisted port panels after a brief delay so the window is ready,
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

@@ -105,7 +105,13 @@ three full-suite runs and is not root-caused (`docs/plan-imagine.md`, I.3).
 ## Found while building voice input (2026-09-26, Dev7)
 
 Both were seen on the first holds in Dev7 with the weights already complete on disk (461 MB in
-`~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3`). Neither is fixed.
+`~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3`). **Both fixed 2026-09-27.**
+
+The loading/downloading confusion went first: the three phases FluidAudio reports on one progress stream
+(listing, downloading, compiling) now map to separate states, and only a real download says downloading.
+The rest followed GM's call: the model starts loading with the app rather than on demand, a hold that
+lands while it is still loading keeps its audio and is read the moment the model is ready, and the system
+permissions are asked for on the first hold, both at once, because otherwise they "just stream in".
 
 | Defect | What happened | Where | Fix direction |
 |---|---|---|---|

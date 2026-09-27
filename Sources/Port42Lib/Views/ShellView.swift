@@ -432,7 +432,9 @@ public struct ShellView: View {
     /// what puts it into the focused surface.
     private func installVoiceSession() {
         guard voiceSession == nil else { return }
-        let session = VoiceSession.live()
+        // The session was built with the app and its model has been loading since launch; the shell only
+        // attaches what it draws.
+        let session = appState.voice
         session.onPartial = { partial in
             guard shell.voiceCapturing else { return }
             shell.voicePartial = partial
@@ -475,9 +477,14 @@ public struct ShellView: View {
             default: break
             }
         }
+        session.onPermissionNeeded = { needed in
+            shell.voicePermissionNeeded = needed
+            if let needed {
+                showVoiceNotice(needed.label, seconds: 6)
+            }
+        }
         voiceSession = session
-        session.prepareModel()          // loads if the weights are on disk; never downloads unsolicited
-        session.refreshModelState()
+        shell.voiceModel = session.model
     }
 
     /// Take back the space that was typed on the way into a hold, through the same seam the text is

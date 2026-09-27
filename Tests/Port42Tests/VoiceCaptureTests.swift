@@ -100,8 +100,11 @@ struct VoiceSessionTests {
     private func session(_ transcriber: FakeTranscriber = FakeTranscriber(),
                          model: VoiceModelState = .ready) -> (VoiceSession, FakeSource) {
         let source = FakeSource()
+        // The microphone is granted in these tests: what is under test here is the hold, not the permission.
+        // VoicePermissionTests covers the ungranted case, and a test process has no TCC grant of its own.
         return (VoiceSession(source: source, transcriber: transcriber,
-                             modelIsReady: { true }, model: model), source)
+                             modelIsReady: { true }, model: model,
+                             micGranted: { true }, askForPermissions: {}), source)
     }
 
     @Test("a hold starts the mic and a release reports the text once")
@@ -287,5 +290,92 @@ struct VoiceModelStateTests {
         #expect(VoiceModelSource.resolve(bundled: false, cached: true, downloadAllowed: false) == .cache)
         #expect(VoiceModelSource.resolve(bundled: false, cached: false, downloadAllowed: true) == .download)
         #expect(VoiceModelSource.resolve(bundled: false, cached: false, downloadAllowed: false) == .unavailable)
+    }
+}
+
+@Suite("System permissions are asked for once, on the first hold")
+@MainActor
+struct VoicePermissionTests {
+
+    private func session(micGranted: Bool, model: VoiceModelState = .ready)
+        -> (VoiceSession, FakeSource, () -> Int) {
+        let source = FakeSource()
+        final class Counter { var n = 0 }
+        let asks = Counter()
+        let s = VoiceSession(source: source, transcriber: FakeTranscriber(),
+                             modelIsReady: { true }, model: model,
+                             micGranted: { micGranted },
+                             askForPermissions: { asks.n += 1 })
+        return (s, source, { asks.n })
+    }
+
+    /// GM, 2026-09-27: system permissions "just stream in". Nothing touches the microphone until a hold, so
+    /// nothing prompts until then, and then both are asked for at once.
+    @Test("with no microphone permission a hold asks for it and starts nothing")
+    func firstHoldAsks() {
+        let (s, source, asks) = session(micGranted: false)
+        var needed: [VoicePermission?] = []
+        s.onPermissionNeeded = { needed.append($0) }
+
+        s.begin()
+        #expect(source.starts == 0, "the microphone was opened before it was granted")
+        #expect(!s.isCapturing)
+        #expect(asks() == 1)
+        #expect(needed == [.microphone])
+    }
+
+    @Test("holding again does not ask again")
+    func asksOnlyOnce() {
+        let (s, _, asks) = session(micGranted: false)
+        s.begin(); s.end()
+        s.begin(); s.end()
+        s.begin()
+        #expect(asks() == 1, "the system was asked \(asks()) times")
+    }
+
+    @Test("with the microphone granted, nothing is outstanding")
+    func grantedIsSilent() {
+        let (s, source, asks) = session(micGranted: true)
+        var needed: [VoicePermission?] = []
+        s.onPermissionNeeded = { needed.append($0) }
+        s.begin()
+        #expect(source.starts == 1)
+        #expect(asks() == 0)
+        #expect(needed == [nil])
+    }
+
+    /// The first hold after a launch is the one a person judges the feature by, so it records even though the
+    /// model is still loading, and the words arrive when the model lands.
+    @Test("a hold while the model loads is kept, not dropped")
+    func heldAudioSurvivesLoading() async {
+        let (s, source, _) = session(micGranted: true, model: .loading(0.5))
+        source.samples = Array(repeating: 0.05, count: 20_000)
+        var texts: [String] = []
+        s.onText = { texts.append($0) }
+
+        s.begin()
+        #expect(source.starts == 1, "a hold during loading opened no microphone")
+        s.end()
+        await s.transcription?.value          // whatever the release started, let it finish
+        #expect(texts.isEmpty, "it was transcribed before the model was ready")
+
+        s.noteModelState(.ready)
+        await s.transcription?.value
+        #expect(texts == ["hello there"], "the held audio was dropped")
+    }
+
+    @Test("a model that is absent still stops a hold")
+    func absentModelStopsAHold() {
+        let (s, source, _) = session(micGranted: true, model: .absent)
+        s.begin()
+        #expect(source.starts == 0)
+    }
+
+    @Test("what has to be asked for, microphone first")
+    func missingOrder() {
+        #expect(VoicePermissions.missing(microphone: false, accessibility: false) == [.microphone, .accessibility])
+        #expect(VoicePermissions.missing(microphone: true, accessibility: false) == [.accessibility])
+        #expect(VoicePermissions.missing(microphone: true, accessibility: true).isEmpty)
+        #expect(VoicePermission.microphone.label == "allow the microphone")
     }
 }

@@ -75,7 +75,7 @@ Wire Phase 2's text into the Phase 1 trigger through `insertText` on the focused
 *Verify:* dictate into a terminal, a web port and the chat. The text arrives, attributed to the human,
 and a terminal's `onHumanInput` fires.
 
-### Phase 4: the surface (indicator and partials DONE 2026-09-27; permission flow open)
+### Phase 4: the surface (DONE 2026-09-27)
 
 Done:
 
@@ -91,11 +91,13 @@ Done:
   sentence is longer than that, so it would not wrap.
 - The weights are bundled, so a shipped app dictates with no network and no setup step.
 
-Open:
-
-- The permission flow. Both defects in `defects-triage.md` are this: the microphone prompt arrives long
-  after the first hold, and a hold that lands while the model is still loading is dropped instead of
-  queued.
+- The permission flow. The model starts loading with the app, not on the first hold, so it is warm by the
+  time anyone holds space. Nothing touches the microphone until a hold, so nothing prompts until then, and
+  at that moment the microphone and accessibility are asked for together: macOS otherwise hands them out
+  one at a time, minutes apart, in the middle of something else. A hold that lands while the model is
+  still loading keeps its audio and is read the moment the model is ready, because the first hold after a
+  launch is the one a person judges the feature by. A refusal is reported on the indicator rather than
+  re-asked on every hold, since only System Settings can change it.
 
 ### Phase 5: other apps
 
