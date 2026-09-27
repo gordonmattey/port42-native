@@ -75,10 +75,27 @@ Wire Phase 2's text into the Phase 1 trigger through `insertText` on the focused
 *Verify:* dictate into a terminal, a web port and the chat. The text arrives, attributed to the human,
 and a terminal's `onHumanInput` fires.
 
-### Phase 4: the surface
+### Phase 4: the surface (indicator and partials DONE 2026-09-27; permission flow open)
 
-A microphone indicator the shell draws, because a port must not be able to suppress what it does not
-draw. Streaming partials, if the re-decode cost measured in the research holds. The permission flow.
+Done:
+
+- The indicator is a hot microphone, 20 px, bottom right of the tile being dictated into, inset from the
+  corner, drawn by the shell and never by a port. It carries no caption: the words are already in the
+  surface. Text appears only when the surface cannot say it itself (no model, nowhere to type, a mic that
+  failed).
+- Streaming partials, confirmed by hand. Each tick re-reads the whole buffer rather than running a sliding
+  window or a second model, and the words go into the surface as they are heard.
+- Two ways in, by surface. A field or a web port gets a composition (marked text): nothing is in the
+  document until the release commits over it. A terminal gets real characters as the smallest edit
+  (backspaces plus a suffix), because a terminal draws marked text on one line at the cursor and a spoken
+  sentence is longer than that, so it would not wrap.
+- The weights are bundled, so a shipped app dictates with no network and no setup step.
+
+Open:
+
+- The permission flow. Both defects in `defects-triage.md` are this: the microphone prompt arrives long
+  after the first hold, and a hold that lands while the model is still loading is dropped instead of
+  queued.
 
 ### Phase 5: other apps
 
