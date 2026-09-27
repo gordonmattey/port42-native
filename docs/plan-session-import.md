@@ -28,13 +28,24 @@ At the agent step, under the CLI choice:
 
 - Each row is one running session: which CLI, the project (directory and branch), the session's own
   title or first request, and when it was last active.
-- Each goes into a space named after its project by default, so sessions in the same repository
-  land together. A row's space can be changed to any other row's space or to a new name, which is
-  how the person groups them.
+- They are **grouped automatically**: one space per project (sessions in the same repository land
+  together), shown as groups. The person **drags a session to another group** to move it, or onto
+  "new space" to start one, and can rename a group (GM, 2026-09-26).
 - One button brings the ticked ones in: each becomes a terminal port in its space, resuming its
   session as a fork, and a companion named after its project and branch, so it can be @mentioned.
-- The originals are left alone. A line says they can be closed.
+- **It says it forks, before and after** (GM). Before: "Port42 opens a copy of each session with
+  the whole conversation so far. Your original terminals are not touched." After: "N sessions are in
+  Port42. Their originals are still open and will fall behind: close them now," with the list of
+  originals (project, branch, CLI) to close. Port42 does not close them itself.
 - The same list is a ⌘K action, "Bring in running sessions", for after first run.
+
+## What a fork is
+
+Both CLIs have it. Claude: `claude --resume <id> --fork-session` (teleport already uses it,
+`cli/main.go`); Codex: `codex fork <id>`. Each starts a new session, with a new id, that begins with
+a copy of the whole conversation: every message and tool result, so the agent knows what it knew.
+The original session's file is untouched. From then on the two diverge: work continues in Port42's
+copy, and the original, if kept open, is out of date. Hence closing it.
 
 ## How it finds them
 
@@ -62,11 +73,13 @@ At the agent step, under the CLI choice:
    sessions (CLI, directory, branch, session id, title, last active), skipping Port42's own. Tests on
    fake process lists and fake `~/.claude` and `~/.codex` trees. A one-off live check that
    `codex fork <id>` works under Port42's Codex home.
-2. **Group:** the default space per session and regrouping, pure, tested.
+2. **Group:** the default space per session, moving a session between groups (what a drag does),
+   renaming a group; pure, tested.
 3. **Bring in:** one method, `sessions.import {sessions: [{id, cli, cwd, space}]}`, that makes the
    spaces, the terminal ports resuming as forks, and the companions. Tested headless (the fork
    command each port starts, the spaces, the companions); one live import on a dev instance.
-4. **The first-run step** and the ⌘K action, both calling step 3.
+4. **The first-run step** and the ⌘K action, both calling step 3: grouped rows with drag between
+   groups, the fork note, and the "close these originals" list after import.
 
 ## Not in this plan
 
