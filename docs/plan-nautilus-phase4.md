@@ -845,7 +845,8 @@ the TXT `_railway-verify.tele`; Railway cannot verify ownership through Cloudfla
 record stays DNS only. Let's Encrypt certificate valid. Checked on the live host: the page and frame
 answer 200 with their CSPs, and the bundle is byte-identical to the committed one. The Cloudflare
 token (Zone DNS Edit, port42.ai only) is in the macOS Keychain as service `cloudflare-dns-port42`,
-read at call time. relay1 was redeployed the same day with the server-side pings.
+read at call time. relay1 was redeployed the same day with the server-side pings. Live: Gordon opened
+a Dev2 invite to duo shader at `https://tele.port42.ai/#…` and joined it through relay1 (2026-09-27).
 
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
 Chrome on this Mac, then on a phone on cellular. The port renders, a click there moves it on Dev2 and
