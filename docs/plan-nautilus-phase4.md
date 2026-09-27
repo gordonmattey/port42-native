@@ -865,9 +865,15 @@ both joined, clicks and chat crossed between them and Dev2. Found:
 1. **A late joiner starts empty.** The demo keeps its count in the page, so the second browser loaded
    0 and its first click reset everyone to 1. The manual tells ports to keep state in
    `port42.storage`, and storage is never reachable from another machine, so any port built the
-   recommended way loses its state when shared. Proposed (awaiting Gordon): **shared port storage**,
-   the copies of a shared port read (`see`) and write (`use`) that one port's storage on the host,
-   and each change is announced to every copy.
+   recommended way loses its state when shared. **Decided (Gordon): shared port storage.** Found
+   while designing it: storage is filed under the port's space and whoever made the port, so two
+   ports one companion made in a space share a bucket, and a key like `state` collides; across
+   machines that would be a leak. So, as one step: (a) a port's page stores under the port itself
+   (breaking, allowed for this release); (b) a copy of a shared port on another machine reaches that
+   port's own storage on the host, reading with `see` and writing with `use`, never the space's shared
+   bucket or the global one; (c) every change is a `storage` event to every copy, the host's own page
+   included; (d) the manual's state pattern: load on start, reload on `storage`. Later, the same
+   storage may itself be shipped to guests rather than read from the host (Gordon).
 2. **A guest asked a companion for something new, and it made a port the guest cannot see.** ember
    on Dev2 made "shader" and posted its id. Decided: a port id in a chat is a link (it focuses the port
    in Port42, opens it on the page if you have access); a companion never gives access on its own; it
