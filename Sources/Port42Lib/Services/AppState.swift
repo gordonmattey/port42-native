@@ -1808,6 +1808,19 @@ public final class AppState: ObservableObject {
             let name = self.currentName(of: config)
             if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
         }
+        // What the person types straight into a companion's terminal shows in that terminal's chat, as
+        // them, beside the reply (GM, 2026-09-27: only the replies appeared). Not routed: the companion
+        // already has it. A line Port42 typed in (a chat message, a wake) is already in a chat.
+        controller.onPrompt = { [weak self] prompt in
+            guard let self, !ChatRouting.isInjectedLine(prompt),
+                  !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let user = self.currentUser,
+                  let key = self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
+            _ = try? self.postToChat(key: key, text: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                     from: .human(id: user.id, displayName: user.displayName, spaceId: config.spaceId),
+                                     route: false)
+            self.presence.received(self.currentName(of: config), in: key)
+        }
         controller.onTurnFailed = { [weak self] error, details in
             guard let self else { return }
             let name = self.currentName(of: config)

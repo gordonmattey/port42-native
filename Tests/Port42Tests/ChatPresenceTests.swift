@@ -137,4 +137,29 @@ struct ChatPresenceTests {
         #expect(w.state.chatReplyTargets["alpha"] == nil, "the notice woke the companion")
         withExtendedLifetime(w.state) {}
     }
+
+    @Test("what the person types into a terminal shows in its chat as them, wakes no one, and shows presence")
+    func typedIntoTerminal() throws {
+        let w = try makeParityWorld()
+        var a = AgentConfig.createCommand(ownerId: "u", displayName: "alpha", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        a.openInTerminal = true
+        w.state.companions = [a]
+        let panelId = try #require(w.state.spawnNativeTerminalPort(command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
+                                                      title: "alpha", companionName: "alpha", companionId: a.id,
+                                                      systemPrompt: nil, postCard: false))
+        let key = try #require(w.state.portWindows.panels.first { $0.id == panelId }?.udid)
+        let controller = try #require(w.state.terminalControllers[panelId])
+        w.state.pendingTerminalInjections = [:]
+        controller.handleEvent(.inputSubmitted(prompt: "fix the failing test\n"))
+        let entries = try w.state.db.chatEntries(chat: key, after: 0, limit: 10)
+        #expect(entries.last?.text == "fix the failing test")
+        #expect(entries.last?.fromId == w.state.currentUser?.id)
+        #expect(w.state.chatReplyTargets["alpha"] == nil && w.state.pendingTerminalInjections.isEmpty,
+                "posting it woke the companion again")
+        #expect(w.state.presence.entries(key).first?.state == .working)
+        // A line Port42 typed in (from a chat) is not posted a second time.
+        controller.handleEvent(.inputSubmitted(prompt: "[@gordon in #demo]: hi\r"))
+        #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 10).count == entries.count)
+        withExtendedLifetime(w.state) {}
+    }
 }
