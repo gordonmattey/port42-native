@@ -837,6 +837,16 @@ above are as recommended.
    port panel's own `display` beat the `hidden` attribute and covered the page; `[hidden]` now wins,
    with a gate. Gates in `page.test.mjs` (ten), calibrated.
 
+**Deployed 2026-09-27.** `tele.port42.ai` runs as the Railway service `tele` in the project
+`port42-relay`, next to `relay`, with `RAILWAY_DOCKERFILE_PATH=tele.Dockerfile`. The deploy uploads a
+staged context (committed `gateway/`, `tele.Dockerfile`, `invite.html`, `frame.html`, the bundle), not
+the repo root with its DMG. Cloudflare holds a DNS-only CNAME `tele` → `f7i1ufev.up.railway.app` and
+the TXT `_railway-verify.tele`; Railway cannot verify ownership through Cloudflare's proxy, so the
+record stays DNS only. Let's Encrypt certificate valid. Checked on the live host: the page and frame
+answer 200 with their CSPs, and the bundle is byte-identical to the committed one. The Cloudflare
+token (Zone DNS Edit, port42.ai only) is in the macOS Keychain as service `cloudflare-dns-port42`,
+read at call time. relay1 was redeployed the same day with the server-side pings.
+
 **Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
 Chrome on this Mac, then on a phone on cellular. The port renders, a click there moves it on Dev2 and
 on a Dev6 tile of the same port, a push from Dev2 arrives in the browser, a refresh is the same guest,
