@@ -153,6 +153,12 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.CloseNow()
 	conn.SetReadLimit(int64(s.limits.MaxFrame) + 1024)
 	ctx := r.Context()
+	// The relay pings every client, as a Go client pings the relay: a browser cannot send a ping, only
+	// answer one, and a proxy in front of the relay (Cloudflare) closes a connection quiet for about
+	// 100 seconds (4.7).
+	stop := make(chan struct{})
+	defer close(stop)
+	go keepAlive(conn, stop)
 
 	var nb [16]byte
 	rand.Read(nb[:])

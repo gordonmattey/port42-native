@@ -775,6 +775,16 @@ above are as recommended.
    test runs the runtime in Node against an in-process relay and a Go host instance and completes a
    redeem, `getHtml`, a push and a subscribed event; and the handshake fails against a host with a
    different key. This is the interop gate: the browser speaks exactly the relay's protocol.
+   **Built 2026-09-27.** `guest/src`: `peer.js` (ids as `transport/peerid.go`), `noise.js` (the IK
+   initiator on `@noble`: the X25519 key from the first half of SHA-512 of the Ed25519 seed, as
+   `NoiseKey`; the host's from its Ed25519 key, as `MontgomeryPublic`), `client.js` (the relay's
+   challenge and signed hello, `open`, the handshake, chunked envelopes, calls, streams and refusals
+   with every field). The relay now pings every client: a browser can answer a ping but not send one,
+   and Cloudflare drops a connection quiet for about 100 seconds; relay1 needs redeploying before the
+   live test. Gates: `guest_e2e_test.go` runs the runtime in Node against a real relay and a host
+   gateway (redeem, a read, `stale_write` with `current` then the retry, a streamed event, 200 KB each
+   way; host offline; a handshake the host cannot read is refused), and `TestTheRelayPingsItsClients`;
+   calibrated by five breaks. Go green under `-race`, suite green.
 2. *The guest page* (`guest/invite.html`, as the design's "For the website" section): decode the
    coupon, clear the fragment, show who shared what; "Open in Port42" (`port42://invite#…`) and
    "Open here"; name, code and Join; the port in a sandboxed iframe (`allow-scripts`, never

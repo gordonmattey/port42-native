@@ -337,3 +337,33 @@ func TestAConnectionThatStopsAnsweringIsNoticedAndClosed(t *testing.T) {
 		t.Fatalf("a dead connection was not noticed: %v after %v", err, time.Since(start))
 	}
 }
+
+// A browser cannot ping, only answer, so the relay pings every client: one that stops answering is
+// closed, as a quiet one behind a proxy is kept alive (4.7).
+func TestTheRelayPingsItsClients(t *testing.T) {
+	oldEvery, oldTimeout := PingEvery, PingTimeout
+	PingEvery, PingTimeout = 50*time.Millisecond, 100*time.Millisecond
+	defer func() { PingEvery, PingTimeout = oldEvery, oldTimeout }()
+	srv := httptest.NewServer(NewServer(DefaultLimits).Handler())
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/v1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	if _, _, err := conn.Read(ctx); err != nil { // the challenge
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond) // not reading, so no ping is answered
+	start := time.Now()
+	for {
+		if _, _, err = conn.Read(ctx); err != nil {
+			break
+		}
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("the relay never pinged a silent client: closed after %v (%v)", time.Since(start), err)
+	}
+}
