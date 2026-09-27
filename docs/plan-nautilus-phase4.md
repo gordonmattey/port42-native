@@ -921,7 +921,9 @@ per key and per address (Dev2, Dev6 and the browsers here share one), so Dev6 wa
 remembers a peer it could not reach (15 seconds offline, 60 rate limited) and fails further calls to
 it at once, and a tile's retries double from five seconds to five minutes, resetting once a
 subscription holds 30 seconds. Gates: `TestAnUnreachablePeerIsNotDialledAgainAtOnce` and
-`RemoteTileTests` (backs off), calibrated.
+`RemoteTileTests` (backs off), calibrated. Found with it: a tile restored after a restart ran the page it had saved, not
+the host's current one, until the host next changed it; a restored tile now fetches the page first
+(`RemoteTileTests`, calibrated).
 
 ### 4.8 Scenario 4 in the harness
 

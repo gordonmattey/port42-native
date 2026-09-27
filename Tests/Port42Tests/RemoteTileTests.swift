@@ -74,6 +74,21 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("a tile restored after a restart shows the host's current page, not the one it saved")
+    func restoredTileRefreshes() async throws {
+        let (state, gw) = try world()
+        var version = 1
+        host(gw, html: { "<p>theirs v\(version)</p>" })
+        let tile = try await accept(state)
+        state.stopMirror(tile: tile)
+        version = 2                              // the host changed it while this instance was away
+        state.restoreMirrors()
+        await settle { state.portWindows.panels.first { $0.id == tile }?.html == "<p>theirs v2</p>" }
+        #expect(state.portWindows.panels.first { $0.id == tile }?.html == "<p>theirs v2</p>",
+                "a restored tile kept the page it saved")
+        state.stopMirror(tile: tile)
+    }
+
     @Test("a state event from the host refetches the port into the tile")
     func stateRefreshes() async throws {
         let (state, gw) = try world()

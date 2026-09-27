@@ -106,12 +106,15 @@ extension AppState {
                                           createdBy: nil,   // it acts on nothing here: every call goes to the host
                                           title: "\(row.title) · \(row.hostName)", position: nil)
         try db.setRemotePortTile(peerKey: peer, portKey: port, localPort: id)
-        startMirror(tile: id)
+        startMirror(tile: id, fresh: true)
         return id
     }
 
     /// Mirror a remote port into its tile until the tile goes.
-    func startMirror(tile: String) {
+    /// `fresh` when the tile was just opened with the host's current page; otherwise (a restart, a
+    /// resubscribe) the page is fetched first, since the host may have changed it meanwhile and a
+    /// restored tile would otherwise run what it saved last time.
+    func startMirror(tile: String, fresh: Bool = false) {
         guard remoteMirrors[tile] == nil, let row = mirroredRemote(tile) else { return }
         mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true, wakes: row.wakes)
         remoteMirrors[tile] = Task { @MainActor [weak self] in
@@ -119,7 +122,7 @@ extension AppState {
             var failures = 0
             while let self, !Task.isCancelled, self.portWindows.panels.contains(where: { $0.id == tile }) {
                 let started = Date()
-                if !first { await self.refreshMirror(tile: tile, row: row) }
+                if !first || !fresh { await self.refreshMirror(tile: tile, row: row) }
                 first = false
                 self.mirrorStatus[tile]?.online = true
                 await self.loadMirrorChat(tile: tile, row: row)
