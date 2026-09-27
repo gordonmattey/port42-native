@@ -1407,6 +1407,13 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
 
         // For a caller on another machine: the ports it holds any right on. nil for everyone else.
         let remotePorts: Set<String>? = p.kind == .remote ? appState.remotePorts(of: p.id) : nil
+        // A tile mirroring a port on another instance says so: whose, which port there, and whether the
+        // mirror is connected (nautilus Phase 4), so an agent or a person can see a tile that is not.
+        let mirrors = (try? appState.db.remotePortTiles()) ?? [:]
+        var mirrorState: [String: (online: Bool, running: Bool)] = [:]
+        for id in mirrors.keys {
+            mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil)
+        }
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
                    cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
@@ -1438,6 +1445,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             if let cwd { o["cwd"] = .string(cwd) }
             if let surfaceBound { o["surfaceBound"] = .bool(surfaceBound) }
             if let x, let y { o["x"] = .double(Double(x)); o["y"] = .double(Double(y)) }
+            if let m = mirrors[id] {
+                o["mirrors"] = .object(["peer": .string(m.peerKey), "port": .string(m.portKey),
+                                        "online": .bool(mirrorState[id]?.online ?? false),
+                                        "running": .bool(mirrorState[id]?.running ?? false)])
+            }
             entries.append(.object(o))
         }
         for pt in registered {

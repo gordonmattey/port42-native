@@ -122,9 +122,11 @@ extension AppState {
             var failures = 0
             while let self, !Task.isCancelled, self.portWindows.panels.contains(where: { $0.id == tile }) {
                 let started = Date()
-                if !first || !fresh { await self.refreshMirror(tile: tile, row: row) }
+                // Online only once the host has answered: a fresh tile just did, anything else must reach
+                // it first (the flag said online while every call was failing).
+                let reached = (first && fresh) ? true : await self.refreshMirror(tile: tile, row: row)
                 first = false
-                self.mirrorStatus[tile]?.online = true
+                self.mirrorStatus[tile]?.online = reached
                 await self.loadMirrorChat(tile: tile, row: row)
                 do {
                     _ = try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.subscribe",
@@ -295,9 +297,12 @@ extension AppState {
         chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
     }
 
-    func refreshMirror(tile: String, row: DatabaseService.RemotePortRow) async {
+    /// Fetch the host's page into the tile. False when the host could not be reached.
+    @discardableResult
+    func refreshMirror(tile: String, row: DatabaseService.RemotePortRow) async -> Bool {
         guard let html = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
-                                                    args: ["id": row.portKey]) as? String else { return }
+                                                    args: ["id": row.portKey]) as? String else { return false }
         _ = await portWindows.updatePort(idOrTitle: tile, html: html)
+        return true
     }
 }

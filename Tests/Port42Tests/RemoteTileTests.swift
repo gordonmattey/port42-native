@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import Port42Lib
 
 /// Nautilus Phase 4, step 4.6b: a port on another instance as a tile here. Accepting an invite opens a
@@ -16,6 +17,7 @@ struct RemoteTileTests {
     func world() throws -> (AppState, Gateway) {
         let (state, gw) = try RemotePortTests().world()
         AppState.mirrorRetry = 0.05
+        state.mirrorsRestored = true    // no launch-time resume: each test starts and stops mirrors itself
         return (state, gw)
     }
 
@@ -162,9 +164,18 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
         gw.reply = { method, _ in method == "port.subscribe" ? [["type": "error", "code": "host_offline", "error": "gone"]]
                                                            : [["type": "error", "code": "host_offline", "error": "gone"]] }
+        var seen: [Bool] = []
+        let watch = state.$mirrorStatus.sink { if let s = $0[tile] { seen.append(s.online) } }
         state.startMirror(tile: tile)
-        await settle { state.mirrorStatus[tile]?.online == false }
+        await settle { state.mirrorStatus[tile]?.online == false && seen.count > 2 }
+        watch.cancel()
         #expect(state.mirrorStatus[tile]?.online == false)
+        // Never online on the way: the tile has not reached the host once.
+        #expect(!seen.dropFirst().contains(true), "a tile said online while its host could not be reached: \(seen)")
+        let listed = try await state.runBridgeMethod("ports.list", principal: .human(id: "u", displayName: "Ada", spaceId: nil), args: BridgeArgs([:]))
+        let entry = (listed.toJSONObject() as? [[String: Any]])?.first { $0["id"] as? String == tile }
+        #expect((entry?["mirrors"] as? [String: Any])?["online"] as? Bool == false, "ports.list does not say the tile is offline")
+        #expect((entry?["mirrors"] as? [String: Any])?["peer"] as? String == RemotePortTests.host)
         state.stopMirror(tile: tile)
     }
 
