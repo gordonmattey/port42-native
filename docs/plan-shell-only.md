@@ -396,7 +396,11 @@ last is green:
 At every merge: the branch has merged `nautilus` in and resolved its own conflicts; `swift test` is
 green on the result; the generated files are regenerated, not hand-merged (the tool schema golden,
 `llms.txt`, skill references); migrations keep distinct numbers (Phase 4 v57 to v61, nautilus v62,
-pairing v63); the five scenarios pass on a dev instance. Overlapping files to watch: `AppState`,
+pairing v63); the five scenarios pass on a dev instance; and a companion posts to its space with
+the call its own instructions give, the post appears in that space's chat, and an @mention in it
+wakes the companion it names (the voice session's check, 2026-09-27: prod's stored instructions
+named `messages.send`, which no longer exists, so such posts vanished; nautilus now bakes a
+companion's instructions at every launch). Overlapping files to watch: `AppState`,
 `ShellState`, `ShellDesktop`, `ShellView`, `PortWindowManager`, `BridgeMethods`.
 
 ### Final hit list (GM, 2026-09-26)

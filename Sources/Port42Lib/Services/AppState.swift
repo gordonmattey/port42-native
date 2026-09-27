@@ -1463,7 +1463,18 @@ public final class AppState: ObservableObject {
     /// and `PortWindowManager.restart` calling this on its own is the defect C0 fixed.
     @discardableResult
     func makeTerminalController(for panel: PortPanel) -> GhosttyTerminalController? {
-        guard let config = panel.terminalConfig else { return nil }
+        guard var config = panel.terminalConfig else { return nil }
+        // A COMPANION'S INSTRUCTIONS ARE BAKED AT EVERY LAUNCH, from today's text and the companion's
+        // own brief (2026-09-27). They used to be baked once at spawn and stored with the terminal,
+        // so a terminal relaunched after an upgrade kept the old ones: prod's still told companions to
+        // post with `messages.send`, a method long gone, and their posts vanished (found by the voice
+        // session). The stored copy is only a sign that this terminal is a companion.
+        if !config.companionName.isEmpty, !config.companionPrompt.isEmpty {
+            let companion = companions.first { c in config.companionId.map { $0 == c.id } ?? false }
+                ?? companions.first { $0.displayName == config.companionName }
+            config.companionPrompt = bakeCompanionPrompt(name: currentName(of: config), spaceId: config.spaceId,
+                                                         systemPrompt: companion?.systemPrompt)
+        }
         teardownTerminalController(panelId: panel.id)
 
         // ENROL THE CHILD (slice-02 half two, step 6). This is where the pooled `local-http` bucket
