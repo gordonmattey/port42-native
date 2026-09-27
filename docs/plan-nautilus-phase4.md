@@ -723,12 +723,64 @@ Decided (Gordon, 2026-09-26): "their companions can wake mine" is a switch on ea
 
 ### 4.7 The browser lane
 
-- `port42.ai/invite.html` gains the coupon handling, "Open here" and the bundled script (decision 6),
-  with the page hygiene of decision 4.
-- The gateway's `/port` route and its query-string token are deleted.
+**The goal.** Someone with no Port42 opens an invite link in an ordinary browser, on a laptop or a
+phone, and uses the shared web port there: it renders, their clicks reach the port on the host's Mac,
+and pushes from the host reach them. Same rights, same port, same relay, same end-to-end encryption
+as the Port42 lane (4.6). Terminals and browser ports are never shared, so the browser lane is web
+ports only.
 
-*Gates:* the iframe never holds the key; a refresh is the same guest; the page makes no network call
-before the click. *Live:* scenario 4 from a browser on another network and from a phone on cellular.
+**Measured today.**
+- The relay speaks one protocol to every client (`gateway/relay`): a WebSocket to `wss://<relay>/v1`,
+  a challenge nonce, a `hello` signed with the client's Ed25519 key over the relay URL, the nonce and
+  the role, then `open {to: <host peer>}` answered `opened` or a refusal, then binary frames carrying
+  the Noise IK handshake and the transport messages. The Go client is `relay/client.go`
+  (`dialVia`, `Initiate`).
+- Inside the session, the door's envelopes (`call`, `response`, `stream`, `error`) with a one-byte
+  chunk header, at most 8 MiB a message (`transport/chunk.go`).
+- The host side is complete: `invite.redeem`, rights, the remote door, attestation. A browser guest
+  is one more peer to it.
+- Node 22 and npm are on this Mac, so the browser client can be built and tested here.
+- The gateway still serves the old `/port` spike with a query-string token (`gateway/main.go`).
+
+**Decisions for Gordon.**
+1. *Who builds the page.* This repo ships a reference `invite.html` and the guest script that works
+   against Dev2, and the website agent puts that page on port42.ai as it is, adding only the site's
+   look. Recommended: one implementation, tested here, rather than the agent rebuilding it from the
+   spec and the two drifting.
+2. *The browser tooling.* The guest script is written as ES modules on the `@noble` libraries, bundled
+   by esbuild into one file under `guest/dist/`, with the bundle and its integrity hash committed, so
+   the website needs no build step. npm and esbuild are development tools of this repo only.
+3. *What a browser guest gets.* The port, and the port's chat beside it: a browser guest can talk with
+   the people and companions there (4.6c). Not in 4.7: fork, move, accepting a second invite from the
+   page, and anything that needs an installed Port42.
+4. *Who the browser is.* A browser guest's key is made on its first Join and kept in that browser's
+   storage for port42.ai, so a refresh or a return visit is the same guest and needs no new invite.
+   Clearing the site's data makes a new guest.
+
+**Steps, each its own commit with gates.**
+1. *The guest runtime* (`guest/src`): the relay client (connect, signed `hello`, `open`, pings), a Noise
+   IK initiator on `@noble` (X25519 from the Ed25519 key, ChaCha20-Poly1305, SHA-256, prologue
+   `port42-noise-v1`), the chunk framing, and calls with `call_id`s, streams and refusals. Gate: a Go
+   test runs the runtime in Node against an in-process relay and a Go host instance and completes a
+   redeem, `getHtml`, a push and a subscribed event; and the handshake fails against a host with a
+   different key. This is the interop gate: the browser speaks exactly the relay's protocol.
+2. *The guest page* (`guest/invite.html`, as the design's "For the website" section): decode the
+   coupon, clear the fragment, show who shared what; "Open in Port42" (`port42://invite#…`) and
+   "Open here"; name, code and Join; the port in a sandboxed iframe (`allow-scripts`, never
+   `allow-same-origin`) with a `window.port42` shim that forwards over `postMessage` to the runtime,
+   so the iframe never holds the key; `port42:data` and `state` delivered into it; `port42.self.id`
+   the host's port id; the chat beside it; every refusal said plainly. Gates: in Node with a DOM
+   (jsdom): no network before a click, the fragment cleared, the key never inside the iframe; the
+   shim's calls reach the runtime and nothing else.
+3. *Bundle and hygiene:* the esbuild bundle with its integrity hash; the page's Content-Security-Policy
+   (`connect-src` the relays only), `Referrer-Policy: no-referrer`, no third-party script. Gate: a test
+   that the committed bundle matches a fresh build and the page names its hash.
+4. *The `/port` spike and its query-string token deleted* from the gateway. Gate: `/port` answers 404.
+
+**Live.** Dev2 shares a port; the reference page, served from this Mac, opens it in Safari and in
+Chrome on this Mac, then on a phone on cellular. The port renders, a click there moves it on Dev2 and
+on a Dev6 tile of the same port, a push from Dev2 arrives in the browser, a refresh is the same guest,
+and the host's chat shows the browser guest by name.
 
 ### 4.8 Scenario 4 in the harness
 
