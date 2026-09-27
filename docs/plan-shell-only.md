@@ -372,7 +372,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Test gate | `swift test` green before the release build (1272 tests in 180 suites at `a95bae2`; was 1185 in 152 on the merged branch) |
 | Daily-driver install | After the release scope is done (GM) |
 | Final hit list | Below; every item done before the release build |
-| Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Needs GM: push a `relay-v*` tag, make the Railway template in Railway, the port42.ai page (growth) |
+| Relay you can run yourself (GM, 2026-09-27) | Built on branch `relay-dist` (from `nautilus-phase4`, new files only, to merge into Phase 4): release binaries for Linux, macOS and Windows (x86 and ARM each; macOS Developer ID signed, Windows unsigned), a workflow that on a `relay-v*` tag publishes the image to ghcr.io and the binaries to the release, `gateway/railway.json` for the Railway deploy, and `docs/run-a-relay.md`. Checked locally: binaries, signature, image and `/health`. Publishing waits for the Phase 4 merge (GM, 2026-09-27): the repo is public and the relay's source is only on the unpushed Phase 4 branch. After the release reaches `main`: push `relay-v1.0.0` (the workflow publishes the image and binaries; GM grants `write:packages` once), make the image public, switch relay1 on Railway to `ghcr.io/gordonmattey/port42-relay:latest` (after Phase 4's sharing tests, which run through relay1), make the Railway template, and the port42.ai page (growth) |
 
 ### Final hit list (GM, 2026-09-26)
 
@@ -429,6 +429,8 @@ Things that would be cool once the five scenarios hold.
   undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
   where the hooks live without writing into the user's project or global config. Findings in
   `plan-nautilus-phase3.md` (3.7).
+- **Pairing and scoped tokens: in v1, built after the Phase 4 merge (GM, 2026-09-27).** Design in
+  `docs/plan-pairing-scopes.md`.
 - **Pairing** (GM, 2026-09-27). `port42 pair` from any terminal or app: it asks Port42 for access,
   the app shows who is asking, the person accepts, and that process gets its own credential (the
   registry already has a `paired` kind; the verb was dropped earlier). Pairing agents across spaces
