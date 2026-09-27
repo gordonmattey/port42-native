@@ -31,6 +31,8 @@
   .chip:hover { background: var(--input); color: var(--text); }
   .chip.accent { color: var(--accent); }
   #chat-toggle { display: flex; align-items: center; gap: 4px; }
+  .chip.get { background: var(--accent); color: #000; font-weight: bold; padding: 4px 10px; }
+  .chip.get:hover { background: var(--accent); color: #000; filter: brightness(1.1); }
   #chat-toggle.open { background: var(--input); color: var(--accent); }
   .avatar { width: 14px; height: 14px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 8px;
             font-weight: bold; color: rgba(0,0,0,.75); border: 1.5px solid var(--card); margin-left: -4px; }
@@ -123,6 +125,6 @@
   </div>
 </div>
 
-<script type="module" src="dist/port42-guest.js" integrity="sha384-scKnVZJ3kjXvjeyIZqMJQKITRfdrKEI3YoIm/MFpGKY5PazPGRec8OXXzhisqxYb"></script>
+<script type="module" src="dist/port42-guest.js" integrity="sha384-Eljo7acTQF2RgSzNenEh0RVMmyo5qS8j3PJFM3EyOaWOak36fiL0n+rb1tQRac53"></script>
 </body>
 </html>

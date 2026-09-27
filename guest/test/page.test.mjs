@@ -58,6 +58,16 @@ test('a link opens straight to the port, with one card to join it; nothing conne
   assert.match(p.doc.getElementById('get-app').href, /Port42\.dmg$/);
 });
 
+test('a refresh of the page reopens the port: the tab keeps the invite the address bar lost', () => {
+  const p = page();
+  const url = 'https://tele.port42.ai/';
+  const again = new JSDOM(html, { url });
+  Object.defineProperty(again.window, 'sessionStorage', { value: p.dom.window.sessionStorage });
+  start({ win: again.window, doc: again.window.document, storage: null, connect: async () => {} });
+  assert.equal(again.window.document.getElementById('port').hidden, false, 'a refresh lost the port');
+  assert.equal(again.window.document.getElementById('paste').hidden, true);
+});
+
 test('a link that is not an invite says so, and offers to take it pasted', () => {
   const p = page(null);
   assert.equal(p.doc.getElementById('paste').hidden, false);

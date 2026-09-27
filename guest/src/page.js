@@ -14,7 +14,9 @@ const $ = (doc, id) => doc.getElementById(id);
 
 /// Wire the page. `deps` lets a test give its own window, storage and connect.
 export function start({ win = window, doc = document, storage = safeStorage(win), connect } = {}) {
-  const raw = win.location.hash.replace(/^#/, '');
+  // The invite leaves the address bar, but this tab keeps it, so a refresh reopens the port.
+  const tab = safeSession(win);
+  const raw = win.location.hash.replace(/^#/, '') || read(tab, TAB_KEY) || '';
   // The coupon leaves the address bar at once, so it is not left in history or shared by a screenshot.
   try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
   let coupon = null, guest = null;
@@ -35,6 +37,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
     const c = decodeCoupon(frag);
     if (!c) return false;
     coupon = c;
+    write(tab, TAB_KEY, frag);
     present(frag);
     return true;
   }
@@ -229,6 +232,11 @@ function rememberJoined(storage, c) {
 }
 function read(storage, k) { try { return storage?.getItem(k) ?? null; } catch { return null; } }
 function write(storage, k, v) { try { storage?.setItem(k, v); } catch {} }
+
+const TAB_KEY = 'port42.guest.invite';
+function safeSession(win) {
+  try { return win.sessionStorage; } catch { return null; }
+}
 
 function safeStorage(win) {
   try { return win.localStorage; } catch { return null; }
