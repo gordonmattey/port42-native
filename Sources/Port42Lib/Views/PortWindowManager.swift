@@ -362,6 +362,19 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
+    /// Forget a terminal's prefilled first line once it has been typed, so no restore types it again.
+    /// It is a first-run greeting ("hey, i'm gordon. what is this place?"); kept in the saved config it
+    /// was typed into every relaunch and went out with the next message, so echo welcomed the person
+    /// after each restart (2026-09-28).
+    public func clearTerminalInitialInput(id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              var config = panels[idx].terminalConfig, !config.initialInput.isEmpty else { return }
+        config.initialInput = ""
+        guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else { return }
+        panels[idx].html = json
+        persistPanel(id)
+    }
+
     /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
         guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }

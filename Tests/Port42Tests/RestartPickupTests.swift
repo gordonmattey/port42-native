@@ -75,3 +75,27 @@ struct RestartPickupTests {
         #expect(next.pendingTerminalInjections.isEmpty && next.chatReplyTargets.isEmpty)
     }
 }
+
+@Suite("A first line is typed once")
+@MainActor
+struct FirstLineOnceTests {
+    /// Echo's first-run greeting was saved with its terminal and typed again on every launch, so echo
+    /// welcomed the person after each restart and the welcome went out with the next message.
+    @Test("a terminal's prefilled first line is forgotten once typed, here and in what a restore reads")
+    func prefillOnce() throws {
+        let w = try makeParityWorld()
+        let panelId = try #require(w.state.spawnNativeTerminalPort(command: "claude", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
+                                                                  title: "echo", companionName: "echo", companionId: w.companion.id,
+                                                                  systemPrompt: nil, postCard: false,
+                                                                  initialInput: "hey, i'm gordon. what is this place?"))
+        #expect(w.state.portWindows.panels.first { $0.id == panelId }?.terminalConfig?.initialInput.isEmpty == false)
+        let controller = try #require(w.state.terminalControllers[panelId])
+        controller.handleEvent(.sessionStarted(cli: "claude", sessionId: "s1"))
+        #expect(w.state.portWindows.panels.first { $0.id == panelId }?.terminalConfig?.initialInput == "",
+                "the first line is still in the terminal's settings")
+        let saved = try #require(try w.state.db.fetchPortPanels().first { $0.id == panelId })
+        let restored = try JSONDecoder().decode(TerminalPortConfig.self, from: Data(saved.html.utf8))
+        #expect(restored.initialInput == "", "a restore would type the first line again")
+        withExtendedLifetime(w.state) {}
+    }
+}

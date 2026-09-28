@@ -1834,9 +1834,12 @@ public final class AppState: ObservableObject {
             // A prefilled prompt waits in the CLI's input box for the user to send. SessionStart
             // is the only honest "the TUI is up" signal — typing on a timer races the CLI's boot
             // (and its first-run trust prompt), which drops or misdirects the characters.
-            if !config.initialInput.isEmpty {
-                self.portWindows.prefillTerminal(id: panel.id, text: config.initialInput)
+            // Once only: read from the saved config, which is cleared as soon as it is typed.
+            let stored = self.portWindows.panels.first { $0.id == panel.id }?.terminalConfig?.initialInput ?? ""
+            if !stored.isEmpty {
+                self.portWindows.prefillTerminal(id: panel.id, text: stored)
                 self.terminalControllers[panel.id]?.notePrefill()
+                self.portWindows.clearTerminalInitialInput(id: panel.id)
             }
         }
         let onSessionEnded: () -> Void = { [weak self] in
