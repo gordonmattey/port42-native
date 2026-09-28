@@ -136,6 +136,11 @@ public struct PortActivity: Equatable {
         return Driver(ref: actor, name: e.actorName ?? actor.principal, expires: expires)
     }
 
+    /// WHO last moved this port's token, however long ago. `driver` is what the chrome shows and
+    /// lapses after `driverTTL`; this is the fact itself, for rules that ask "did I cause this?"
+    /// and must not change their answer because the question arrived late.
+    public func lastWriter(of port: String) -> ActorRef? { entries[port]?.actor }
+
     /// The result of a bump: the new token, and the driver when presence MOVED.
     ///
     /// `driverChanged` is non-nil only on a real change (a different actor, or the same one after

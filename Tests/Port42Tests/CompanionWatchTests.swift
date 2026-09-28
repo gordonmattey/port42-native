@@ -87,6 +87,27 @@ struct CompanionWatchTests {
         #expect(x.sent.isEmpty, "woke on its own edit: \(x.sent.map(\.1))")
     }
 
+    @Test("its own write stays its own when the event arrives late, past the chrome's driver window")
+    func noSelfWakeWhenLate() async throws {
+        // The full suite on a loaded machine delivered the events more than 30 s after the write
+        // (2026-09-27); the check read the chrome's driver, which had lapsed, and woke the watcher on
+        // its own edit. The rule is who wrote last, however long ago.
+        let x = try world()
+        _ = try await call(x, "companions.watch", ["port": x.udid, "kinds": ["state"]])
+        x.w.state.companionWatches.turnStarted(companionName: "scout")
+        let tok = x.w.state.portInput.token(for: x.udid)
+        _ = try await call(x, "port.update", ["id": x.udid, "html": "<title>feed</title>v2", "token": tok])
+        let late = Date().addingTimeInterval(PortActivity.driverTTL + 30)
+        x.w.state.companionWatches.now = { late }
+        #expect(x.w.state.portInput.driver(of: x.udid, now: late) == nil, "the premise: the driver lapsed")
+        let before = x.w.state.companionWatches.receivedCount
+        publish(x, "state")
+        #expect(x.w.state.companionWatches.receivedCount == before + 1)
+        x.w.state.companionWatches.turnEnded(companionName: "scout")
+        try await settle()
+        #expect(x.sent.isEmpty, "woke on its own edit: \(x.sent.map(\.1))")
+    }
+
     @Test("unwatch stops it; a stored watch comes back at launch; deleting the port removes it")
     func lifecycle() async throws {
         let x = try world()

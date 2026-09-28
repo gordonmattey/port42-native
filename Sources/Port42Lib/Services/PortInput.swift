@@ -140,6 +140,7 @@ public struct PortInputSeam {
     public func token(for port: String) -> String { activity.token(for: port) }
     public func seq(for port: String) -> Int { activity.seq(for: port) }
     public func driver(of port: String, now: Date) -> Driver? { activity.driver(of: port, now: now) }
+    public func lastWriter(of port: String) -> ActorRef? { activity.lastWriter(of: port) }
 
     /// A CONSISTENT snapshot of every port's counter, for a caller listing many ports at once.
     ///

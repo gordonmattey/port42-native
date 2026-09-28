@@ -70,13 +70,14 @@ struct PortCreateGateTests {
     /// Wait for the card. ~0 ms alone; under the full suite's load the main actor can take many
     /// seconds, and a 5 s ceiling then answered nothing and left the test waiting on an unanswered
     /// card until its minute ran out (it failed the release gate twice, 2026-09-27). 40 s, then a
-    /// clear failure rather than a hang.
-    private func awaitCard(_ appState: AppState) async throws {
+    /// clear failure rather than a hang: false means no card, and the caller must not await the ask.
+    private func awaitCard(_ appState: AppState) async throws -> Bool {
         for _ in 0..<1600 {
-            if appState.permissions.current != nil { return }
+            if appState.permissions.current != nil { return true }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         Issue.record("no permission card appeared within 40 s")
+        return false
     }
 
     @Test("a caller that already holds .terminal is NOT re-asked")
@@ -99,8 +100,10 @@ struct PortCreateGateTests {
     /// A gate that wedges instead of reporting is not a gate. The assertion now reads the STORE —
     /// which is the actual property, "the answer was remembered" — and the limit converts any
     /// remaining await-forever into a failure.
-    @Test("granting through the gate PERSISTS, so the second call is silent",
-          .timeLimit(.minutes(1)))
+    // No time limit: it counted from the test's start, and a loaded machine held the main actor
+    // for 90 s before this test ran a line (2026-09-27). Nothing below can wait forever, since
+    // `awaitCard` returns false instead of letting the ask be awaited unanswered.
+    @Test("granting through the gate PERSISTS, so the second call is silent")
     @MainActor
     func gatePersistsTheGrant() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
@@ -108,10 +111,14 @@ struct PortCreateGateTests {
         #expect(appState.grants(grantee: p.id, on: .machine, zone: nil).isEmpty)
 
         // Answer the card as the human would, then assert the answer was remembered.
-        async let asked = appState.ensurePermission(.browser, for: p)
-        try await awaitCard(appState)
+        // A main-actor Task, not `async let`: an `async let` child starts on the global pool and
+        // only then hops here, and under the full suite other tests hold every pool thread, so the
+        // child never ran and no card appeared in 40 s (release gate, 2026-09-27). A main-actor
+        // Task is queued on the main executor directly, the same one `awaitCard` runs on.
+        let asked = Task { @MainActor in await appState.ensurePermission(.browser, for: p) }
+        guard try await awaitCard(appState) else { return }
         appState.permissions.resolveCurrent(granted: true)
-        #expect(await asked == true)
+        #expect(await asked.value == true)
 
         // The store, not a second call: a second call that re-prompts BLOCKS, so asserting on it
         // would hide the regression behind a hang.
@@ -128,10 +135,10 @@ struct PortCreateGateTests {
 
         // Same fix as above, and this one mattered MORE: no time limit here, so under contention it
         // did not fail, it hung forever.
-        async let asked = appState.ensurePermission(.terminal, for: p)
-        try await awaitCard(appState)
+        let asked = Task { @MainActor in await appState.ensurePermission(.terminal, for: p) }
+        guard try await awaitCard(appState) else { return }
         appState.permissions.resolveCurrent(granted: false)
-        #expect(await asked == false)
+        #expect(await asked.value == false)
 
         #expect(appState.grants(grantee: p.id, on: .machine, zone: nil).isEmpty,
                 "a deny must leave no grant behind")

@@ -289,9 +289,10 @@ public final class CompanionWatchService {
         q.floors[w.id] = w.every.map(TimeInterval.init)
         // NO SELF-WAKE. While the watcher's turn runs, an event on a port it last wrote to is its own
         // doing: an agent fixing a port on `console` would otherwise wake on the log line its own fix
-        // produced, and loop.
-        if q.isBusy, let driver = appState?.portInput.driver(of: w.portUdid, now: now()),
-           identities(of: c).contains(driver.ref.principal) { return }
+        // produced, and loop. The last writer, not the chrome's driver: that lapses after 30 s, and
+        // an event delivered late (a loaded machine) then read as someone else's and woke it.
+        if q.isBusy, let writer = appState?.portInput.lastWriter(of: w.portUdid),
+           identities(of: c).contains(writer.principal) { return }
         let payload = obj["payload"].flatMap { (SafeJSON.data($0, options: [.fragmentsAllowed])) }
             .map { String(decoding: $0, as: UTF8.self) } ?? ""
         let actions = q.receive(.init(watchId: w.id, kind: kind, payload: payload, at: now()))
