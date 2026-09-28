@@ -292,8 +292,9 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
 
     r["invite.list"] = BridgeMethod(permission: nil,
         description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
-        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
-        let rows = (try? appState.db.allInvites()) ?? []
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
+        // APP-01: a caller sees only the invites it may manage.
+        let rows = ((try? appState.db.allInvites()) ?? []).filter { appState.mayManage($0, by: p) }
         return .array(rows.map { row in
             let state = row.revokedAt != nil ? "withdrawn" : row.isUsedUp ? "used"
                 : row.expiresAt < Date() ? "expired" : "open"
@@ -310,8 +311,15 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
 
     r["invite.revoke"] = BridgeMethod(permission: nil, paramNames: ["id"],
         description: "Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.",
-        inputSchema: ["type": "object", "properties": ["id": ["type": "string"]], "required": ["id"]]) { _, args in
-        try appState.db.revokeInvite(id: try args.requireString("id"))
+        inputSchema: ["type": "object", "properties": ["id": ["type": "string"]], "required": ["id"]]) { p, args in
+        let id = try args.requireString("id")
+        // APP-01: only a caller that may manage it withdraws an invite; any other is not found, so
+        // the refusal does not confirm the id.
+        guard let row = ((try? appState.db.allInvites()) ?? []).first(where: { $0.id == id }),
+              appState.mayManage(row, by: p) else {
+            throw BridgeError.notFound("invite '\(id)'")
+        }
+        try appState.db.revokeInvite(id: id)
         return .object(["ok": .bool(true)])
     }
 }
