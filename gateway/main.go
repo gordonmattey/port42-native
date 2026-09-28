@@ -19,8 +19,12 @@ import (
 // Injected at build time via -ldflags
 var posthogAPIKey string
 
+// defaultAddr is loopback (GW-11). It was ":4242", every interface, so a gateway launched by hand with
+// no -addr was reachable from the network. The app always passes its own loopback address.
+const defaultAddr = "127.0.0.1:4242"
+
 func main() {
-	addr := flag.String("addr", ":4242", "listen address")
+	addr := flag.String("addr", defaultAddr, "listen address")
 	watchParent := flag.Bool("watch-parent", false, "exit when stdin (held by the parent app) closes at EOF")
 	relays := flag.String("relay", "", "comma-separated relay URLs (wss://host/v1) to register on and serve remote callers through")
 	flag.Parse()

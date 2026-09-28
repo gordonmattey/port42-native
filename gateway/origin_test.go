@@ -79,3 +79,11 @@ func TestTheLoopbackListenerIsGuarded(t *testing.T) {
 		}
 	}
 }
+
+// A gateway launched by hand with no -addr listens on loopback only (GW-11), where the loopback guard
+// applies.
+func TestTheDefaultListenAddressIsLoopback(t *testing.T) {
+	if !isLoopbackAddr(defaultAddr) {
+		t.Fatalf("the default listen address %q is reachable from the network", defaultAddr)
+	}
+}
