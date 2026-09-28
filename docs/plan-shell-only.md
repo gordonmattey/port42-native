@@ -609,6 +609,14 @@ Things that would be cool once the five scenarios hold.
 - **Dev instances write their gateway logs into production's data folder** (found 2026-09-28). Every
   instance's `gateway127.0.0.1:<port>.log` lands in `~/Library/Application Support/Port42`, which held 870
   of them; dev instances keep all other data apart. Write each into its own instance's folder.
+- **An agent can set up what the person should look at** (GM, 2026-09-28: "I wish you could just do
+  that for me, tile, etc."). An API to open a port's chat panel and lay tiles out side by side, so an
+  agent can stage a demo or a review (two instances' tiles for a sharing check) instead of asking the
+  person to click there. `port.move` and `port.position` exist; opening a chat panel does not.
+- **Codex reports its tools too** (2026-09-28). Presence says what a Claude Code agent is doing from
+  its PreToolUse and PostToolUse hooks; Port42 registers only SessionStart and Stop with Codex, so a
+  Codex companion shows "working" alone. Codex's hooks share Claude's event names; confirm with a live
+  Codex turn before relying on them (Codex's hooks have contradicted its documentation before).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
