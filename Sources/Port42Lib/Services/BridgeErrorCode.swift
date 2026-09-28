@@ -101,6 +101,9 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     case hostOffline = "host_offline"
     /// The gateway reached the host and the send failed. Rare, and not the caller's fault.
     case transportFailed = "transport_failed"
+    /// The caller sent more than the gateway takes in a second, and the frame was dropped. Slow down
+    /// and send it again; nothing ran.
+    case rateLimited = "rate_limited"
 
     // MARK: It went wrong out there
     case io
@@ -204,7 +207,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .io, .deviceError, .browserError, .aiError,
              .scriptError, .jsError, .methodFailed, .pathEscape: return .somethingFailed
         case .noBody, .noUser, .noMessages, .notLLM:        return .rarelySeen
-        case .noHost, .hostOffline, .transportFailed:       return .theGateway
+        case .noHost, .hostOffline, .transportFailed, .rateLimited: return .theGateway
         }
     }
 
@@ -230,6 +233,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .noHost:          return "Port42 is not running, or not connected to this gateway — start it"
         case .hostOffline:     return "it was there and its connection dropped; retry shortly"
         case .transportFailed: return "the gateway could not hand your call over; retry"
+        case .rateLimited:     return "too many frames in one second from you; slow down and send it again"
         default:               return ""
         }
     }

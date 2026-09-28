@@ -94,7 +94,7 @@ Execute JavaScript on a live port. Use this to call functions, push data, or upd
 
 ## port.getDom
 
-Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'expect' on your next write and it will be refused rather than clobber someone if the port moved in between.
+Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'token' on your next write and it will be refused rather than clobber someone if the port moved in between.
 
         id (string, required): The port's UDID (from ports_list)
         selector (string): Optional CSS selector to read just one subtree. Omit for the whole document.

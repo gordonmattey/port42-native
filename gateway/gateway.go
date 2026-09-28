@@ -327,7 +327,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		// one leaves a caller waiting until it times out. Measured with the real gateway and door:
 		// a burst of 300 calls got 30 answers (GatewayStallTests).
 		if !g.isHost(peer) && !peer.rateOK() {
-			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
+			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded", Code: CodeRateLimited})
 			log.Printf("[gateway] peer %s rate limited", peer.ID[:min(8, len(peer.ID))])
 			continue
 		}
@@ -422,7 +422,7 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	if !online {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "host is offline"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "host is offline", "code": CodeHostOffline})
 		return
 	}
 
@@ -494,7 +494,12 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if resp.Error != "" {
 			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": resp.Error})
+			// The host's code travels with its message: a caller branches on the code, never the text.
+			out := map[string]string{"error": resp.Error}
+			if resp.Code != "" {
+				out["code"] = resp.Code
+			}
+			json.NewEncoder(w).Encode(out)
 		} else if resp.Payload != nil {
 			var payload map[string]interface{}
 			if err := json.Unmarshal(resp.Payload, &payload); err == nil {

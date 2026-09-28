@@ -1725,7 +1725,7 @@ The blocker is answered. Identity is three axes, not one: **person** (the `AppUs
 
 **What that fixes here:** `Lease.holder` is a **qualified principal**, `<peerID>/<principalId>`,
 with the local peer as the empty prefix — the same shape as slice-02's port address
-(`port42://<peerID>/space/<id>/<portId>`). So the local lease is the DEGENERATE FORM of the remote
+(`port42://<peerID>/<portId>` as built in Phase 4, `PortAddress.swift`; drafted here as `port42://<peerID>/space/<id>/<portId>`). So the local lease is the DEGENERATE FORM of the remote
 lease, not a different object, and cross-instance stays the prefix the plan claims it is.
 
 Write holder strings peer-qualified from L2.a. It is one line now and a migration later.
@@ -1801,7 +1801,7 @@ instance.
 ## 8. Staging to cross-instance (what changes, what does not)
 
 When the local slice is green, cross-instance is additive:
-- **Address:** prefix `port42://<peerID>/space/<s>/<p>`. The resolver gains a "not-local → route to peer"
+- **Address:** `port42://<peerID>/<portId>` (as built in Phase 4, `PortAddress.swift`; first drafted as the prefix `port42://<peerID>/space/<s>/<p>`). The resolver gains a "not-local → route to peer"
   branch; local resolution is unchanged.
 - **Transport:** swap the local Notify fan-out for a wire (the current WebSocket gateway relay first, as a
   low-lift proof on substrate we already run; libp2p/gossipsub later to chase the sovereignty

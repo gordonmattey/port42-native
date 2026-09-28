@@ -171,3 +171,53 @@ func TestHTTPCallConcurrentRoutingByCallID(t *testing.T) {
 		}
 	}
 }
+
+// Every refusal on the HTTP door carries a code a caller can branch on (lucky-ibis, 2026-09-27): the
+// host slot naming a peer that is gone, and an error the host itself sent back.
+func TestHTTPCallRefusalsCarryCodes(t *testing.T) {
+	t.Run("host offline", func(t *testing.T) {
+		gw := NewGateway()
+		srv, _ := setupTestServerWithCall(gw)
+		defer srv.Close()
+		gw.mu.Lock()
+		gw.globalHostID = "gone-host" // named, but no longer connected
+		gw.mu.Unlock()
+		out := httpCall(t, srv.URL, "ping")
+		if out["code"] != CodeHostOffline {
+			t.Fatalf("host offline: code %v, want %q (body %v)", out["code"], CodeHostOffline, out)
+		}
+	})
+
+	t.Run("host error keeps its code", func(t *testing.T) {
+		gw := NewGateway()
+		srv, wsURL := setupTestServerWithCall(gw)
+		defer srv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		conn, first := dialAndRead(t, ctx, wsURL)
+		if first.Type != "no_auth" {
+			t.Fatalf("expected no_auth, got %s", first.Type)
+		}
+		sendEnvelope(t, ctx, conn, Envelope{Type: "identify", SenderID: "host-peer", SenderName: "Host", IsHost: true})
+		readEnvelope(t, ctx, conn) // welcome
+		go func() {
+			for {
+				_, data, err := conn.Read(ctx)
+				if err != nil {
+					return
+				}
+				var env Envelope
+				if json.Unmarshal(data, &env) != nil || env.Type != "call" {
+					continue
+				}
+				out, _ := json.Marshal(Envelope{Type: "response", CallID: env.CallID, TargetID: env.SenderID,
+					Error: "the port moved", Code: "stale_write"})
+				_ = conn.Write(ctx, websocket.MessageText, out)
+			}
+		}()
+		out := httpCall(t, srv.URL, "port.update")
+		if out["code"] != "stale_write" || out["error"] != "the port moved" {
+			t.Fatalf("host error: got %v, want error and code stale_write", out)
+		}
+	})
+}

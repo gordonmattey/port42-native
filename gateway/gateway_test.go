@@ -146,6 +146,9 @@ func TestRateLimiting(t *testing.T) {
 	for i := 0; i < rateLimitPerSec+10; i++ {
 		env := readEnvelope(t, ctx, conn)
 		if env.Type == "error" && env.Error == "rate limit exceeded" {
+			if env.Code != CodeRateLimited {
+				t.Fatalf("rate limit refusal carries code %q, want %q", env.Code, CodeRateLimited)
+			}
 			return
 		}
 	}

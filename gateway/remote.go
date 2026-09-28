@@ -129,7 +129,7 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 			return
 		}
 		if !c.rateOK() {
-			c.send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
+			c.send(ctx, Envelope{Type: "error", Error: "rate limit exceeded", Code: CodeRateLimited})
 			continue
 		}
 		var env Envelope
