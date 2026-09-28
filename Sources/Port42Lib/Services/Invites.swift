@@ -93,10 +93,14 @@ extension AppState {
 
     /// What the port itself can do on this machine: the machine grants of the identity it runs as.
     /// A guest who drives the port can make it use them, so the creator is told before sharing.
+    ///
+    /// Read from the port's own principal (APP-06), the identity every call from its page is
+    /// judged as: its creator for a companion-made port, and the port itself otherwise. Reading
+    /// `createdBy` alone disclosed nothing for a port with no creator, which can hold grants too.
     func portMachineGrants(_ key: String) -> [PortPermission] {
-        guard let panel = portWindows.panels.first(where: { $0.udid == key }), let author = panel.createdBy,
-              !author.isEmpty else { return [] }
-        return grants(grantee: author, on: .machine, zone: panel.spaceId).sorted { $0.rawValue < $1.rawValue }
+        guard let panel = portWindows.panels.first(where: { $0.udid == key }) else { return [] }
+        let runsAs = panel.bridge.portPrincipal
+        return grants(grantee: runsAs.id, on: .machine, zone: runsAs.spaceId).sorted { $0.rawValue < $1.rawValue }
     }
 
     func inviteError(_ reason: String, _ message: String) -> BridgeError {

@@ -267,13 +267,12 @@ public final class PortWindowManager: ObservableObject {
             // again, which is exactly the case where a persisted grant needs to be found.
             let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId,
                                     createdBy: row.createdBy, stableIdentity: row.id)
-            // Restore previously granted permissions so the user isn't re-prompted
-            if let permsStr = row.grantedPermissions {
-                let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
-                bridge.grantedPermissions = perms
-            }
-            // NAU-02: code written from another machine stays not-the-creator's after a restart. Set
-            // AFTER the grants above, so its didSet clears what the init and the row restored.
+            // `row.grantedPermissions` is NOT restored (APP-06). It was a snapshot of the
+            // creator's grants, so it brought a revoked grant back with the port at launch.
+            // The port's principal is asked live instead; the column is left unread.
+            // NAU-02: code written from another machine stays not-the-creator's after a restart.
+            // With no restored grants there is nothing for it to clear: it changes who the port
+            // authorizes as, and that identity's live grants are what every call is judged on.
             if let who = row.codeChangedBy { bridge.codeChangedBy = who }
             // Per-desktop positions (v46). `positions` is the authority; posX/posY is the
             // home-space projection a pre-v46 row carries, and the fallback when the JSON is

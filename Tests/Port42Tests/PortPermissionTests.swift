@@ -131,22 +131,6 @@ struct PortPermissionTests {
         #expect(try registryPermission("fs.write") == .filesystem)
     }
 
-    // MARK: - Separate Grants
-
-    @Test("AI permission does not grant terminal")
-    func aiDoesNotGrantTerminal() {
-        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        bridge.grantedPermissions.insert(.ai)
-        #expect(!bridge.grantedPermissions.contains(.terminal))
-    }
-
-    @Test("terminal permission does not grant microphone")
-    func terminalDoesNotGrantMicrophone() {
-        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        bridge.grantedPermissions.insert(.terminal)
-        #expect(!bridge.grantedPermissions.contains(.microphone))
-    }
-
     // MARK: - Permission Description
 
     @Test(".ai permission has non-empty description")
@@ -167,19 +151,6 @@ struct PortPermissionTests {
     }
 
     // MARK: - PortBridge Permission State
-
-    @Test("new bridge has empty grantedPermissions")
-    func newBridgeEmptyPermissions() {
-        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        #expect(bridge.grantedPermissions.isEmpty)
-    }
-
-    @Test("granted permission persists within session")
-    func grantedPermissionPersists() {
-        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        bridge.grantedPermissions.insert(.ai)
-        #expect(bridge.grantedPermissions.contains(.ai))
-    }
 
     @Test("new bridge has no active streams")
     func newBridgeNoStreams() {

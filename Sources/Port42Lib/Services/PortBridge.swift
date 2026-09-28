@@ -27,8 +27,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Permission State
 
-    /// Permissions granted during this port session. Resets when bridge is deallocated.
-    public var grantedPermissions: Set<PortPermission> = []
+    // NO PERMISSION STATE OF ITS OWN (APP-06). A bridge used to carry `grantedPermissions`: its
+    // creator's grants copied in at construction, saved on the port row and restored at launch, and
+    // passed to every call as a pregrant. It was never a grant, only a snapshot of one, so it went
+    // stale: a grant the person revoked came back with the port at the next launch, and code
+    // written into the port later ran with it. Every call now asks the dispatcher, which reads the
+    // live grants of `portPrincipal`, so a port holds exactly what its principal holds right now.
 
     /// **Who on ANOTHER machine replaced this port's code**, or nil (NAU-02).
     ///
@@ -38,13 +42,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// guest's code raises under the creator's name, would still reach the guest. So once a remote
     /// caller has written the code, the port stops being its creator: it authorizes as itself,
     /// inherits nothing, and its cards say who changed it. Persisted, so a restart does not launder it.
-    public var codeChangedBy: String? {
-        didSet {
-            guard codeChangedBy != nil else { return }
-            grantedPermissions = []
-            if let mid = messageId { state?.cachedPortPermissions[mid] = nil }
-        }
-    }
+    public var codeChangedBy: String?
 
     /// Active AI streams keyed by callId.
     /// In-flight streaming-registry calls (ai.complete, companions.invoke), keyed by the JS callId so
@@ -77,24 +75,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         self.stableIdentity = stableIdentity
         super.init()
 
-        // Restore cached permissions immediately so they're in place before the webview
-        // loads and JS executes. This prevents permission prompts from re-firing when
-        // LazyVStack recycles inline port views.
-        if let state = appState as? AppState {
-            // 1. Message-level cache (survives view recycling within session)
-            if let mid = messageId, let cached = state.cachedPortPermissions[mid] {
-                grantedPermissions = cached
-            }
-            // 2. Companion-level persistence (P-260): auto-restore what this companion was granted
-            //    on port 0 in this zone (zone nil = a zoneless caller's global grant — see
-            //    AppState.grants). The OBJECT is port 0: these are machine capabilities.
-            if let by = createdBy {
-                let companionPerms = state.grants(grantee: by, on: .machine, zone: spaceId)
-                if !companionPerms.isEmpty {
-                    grantedPermissions.formUnion(companionPerms)
-                }
-            }
-        }
     }
 
     deinit {
@@ -429,8 +409,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             do {
                 let value = try await state.runBridgeMethod(
                     canonical, principal: principal,
-                    args: BridgeArgs(positional: args, names: bridgeMethod.paramNames),
-                    pregrant: grantedPermissions)
+                    args: BridgeArgs(positional: args, names: bridgeMethod.paramNames))
                 return value.toJSONObject()
             } catch let e as BridgeError {
                 // The CODE and the DETAILS travel, not just the prose. `ports-context.txt` teaches
@@ -452,14 +431,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         if let state, state.bridgeStreamHandles(canonical) {
             let principal = portPrincipal
             let names = state.bridgeStreamRegistry[canonical]?.paramNames ?? []
-            let grants = grantedPermissions
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
                     let value = try await state.runBridgeStream(
                         canonical, principal: principal,
                         args: BridgeArgs(positional: args, names: names),
-                        pregrant: grants,
                         yield: { [weak self] token in self?.pushToken(callId, token) })
                     self.resolveValue(callId, value)
                 } catch let e as BridgeError {

@@ -72,8 +72,7 @@ struct ImagineTeamScenarioTests {
 
         // The port asks for the microphone (a shader that reacts to music) and the person allows it for the lead.
         t.w.state.saveGrants([.microphone], grantee: t.lead.id, on: .machine, zone: t.w.space.id)
-        let panel = try #require(t.w.state.portWindows.panels.first { $0.id == id || $0.udid == id })
-        panel.bridge.grantedPermissions.insert(.microphone)
+        // The saved grant is the port's whole authority (APP-06): a bridge keeps no copy of it.
 
         let current = try #require(t.w.state.portWindows.panels.first { $0.id == id || $0.udid == id }).udid
         tok = t.w.state.portInput.token(for: current)

@@ -44,10 +44,8 @@ extension AppState {
         if writer.id == authority.id { return }
         if let space = bridge.spaceId, companionInSpace(writer) == space { return }
 
-        // What the port's code runs with: its principal's grants, plus the copy its bridge carries
-        // and passes as a pregrant on every call (APP-06).
-        let runsWith = bridge.grantedPermissions
-            .union(grants(grantee: authority.id, on: .machine, zone: authority.zone))
+        // What the port's code runs with: its principal's live grants (APP-06 removed the copy).
+        let runsWith = grants(grantee: authority.id, on: .machine, zone: authority.zone)
         let holds = grants(grantee: writer.id, on: .machine, zone: writer.zone)
         let missing = runsWith.subtracting(holds)
         guard !missing.isEmpty else { return }

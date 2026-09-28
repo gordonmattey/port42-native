@@ -2240,8 +2240,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
             self.positions = (SafeJSON.data(obj))
                 .flatMap { String(data: $0, encoding: .utf8) }
         }
-        let perms = panel.bridge.grantedPermissions
-        self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
+        // Never written (APP-06): a port's grants live with its principal, not on its row.
+        self.grantedPermissions = nil
         self.userTitle = panel.userTitle
         if !panel.storedCapabilities.isEmpty,
            let json = SafeJSON.data(panel.storedCapabilities),

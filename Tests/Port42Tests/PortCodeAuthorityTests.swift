@@ -116,18 +116,6 @@ struct PortCodeAuthorityTests {
         #expect(try await html(w, id) == .string(Self.planted))
     }
 
-    @Test("a grant held only by the live bridge counts too")
-    @MainActor
-    func liveBridgeGrantCounts() async throws {
-        let w = try makeParityWorld()
-        let id = try privilegedPort(w, grants: [])
-        let panel = try #require(w.state.portWindows.findPort(by: id))
-        panel.bridge.grantedPermissions = [.camera]
-        await #expect(throws: BridgeError.self) {
-            _ = try await call(w, "port.update", as: bystander(w), ["id": id, "html": Self.planted])
-        }
-    }
-
     @Test("a remote guest holding edit cannot replace a privileged port's code (NAU-02)")
     @MainActor
     func remoteGuestRefused() async throws {

@@ -47,7 +47,8 @@ struct PortCodeProvenanceTests {
         let now = bridge.portPrincipal
         #expect(now.id != w.companion.id, "the guest's code must not run as the creator")
         #expect(now.displayName.contains("code changed by guest"), "its cards must say who changed it")
-        #expect(bridge.grantedPermissions.isEmpty)
+        // A bridge holds no copy of grants to clear (APP-06): the live grants of the identity it
+        // now runs as are the whole of its authority, which is what the next line checks.
         #expect(!w.state.grants(grantee: now.id, on: .machine, zone: now.spaceId).contains(.clipboard))
     }
 

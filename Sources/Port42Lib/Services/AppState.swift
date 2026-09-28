@@ -331,8 +331,6 @@ public final class AppState: ObservableObject {
     private var activeBridges: [WeakBridge] = []
 
 
-    /// Cached port permissions by message ID. Survives LazyVStack view recycling.
-    public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
 
     /// Every permission ask, from every caller (a port's JS, a companion's tool use, the gateway),
     /// queued in one place and rendered once by `ShellView`. Replaces the old
