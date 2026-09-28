@@ -16,13 +16,19 @@ import Foundation
 // bucket, reading with `see` and writing with `use`; never the space's shared bucket or the global one
 // (nautilus Phase 4, 4.7b). Every change is a `storage` event to every copy.
 //   get -> { value }   set/delete -> { ok }   list -> { keys }
+//
+// global + shared is a PUBLIC BOARD (APP-20), by decision rather than by accident: one cell every
+// LOCAL caller reads and writes, ungated, which is what cross-space collaboration between ports
+// needs. Another machine never reaches it (refused below). It is documented as such in the port
+// manual and in these descriptions, so an author is told before storing anything there that it is
+// neither private nor tamper-proof.
 
 @MainActor
 func storageManifest() -> ServiceManifest {
     ServiceManifest(service: "storage", methods: [
         ManifestMethod(
             canonical: "storage.get", paramNames: ["key", "options"],
-            description: "Get a value from persistent key-value storage",
+            description: "Get a value from persistent key-value storage. Private to the caller by default; options {shared:true} and {scope:'global'} widen it, and {scope:'global', shared:true} is a PUBLIC board every caller on this machine can read and overwrite, so treat what you read there as untrusted.",
             inputSchema: [
                 "type": "object",
                 "properties": ["key": ["type": "string", "description": "The storage key"],
@@ -31,7 +37,7 @@ func storageManifest() -> ServiceManifest {
             ]),
         ManifestMethod(
             canonical: "storage.set", paramNames: ["key", "value", "options"],
-            description: "Store a value in persistent key-value storage",
+            description: "Store a value in persistent key-value storage. Private to the caller by default. {scope:'global', shared:true} is a PUBLIC board: every port, companion and client on this machine can read and overwrite it, so never store secrets or personal data there.",
             inputSchema: [
                 "type": "object",
                 "properties": [
