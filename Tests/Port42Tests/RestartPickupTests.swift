@@ -79,23 +79,45 @@ struct RestartPickupTests {
 @Suite("A first line is typed once")
 @MainActor
 struct FirstLineOnceTests {
-    /// Echo's first-run greeting was saved with its terminal and typed again on every launch, so echo
-    /// welcomed the person after each restart and the welcome went out with the next message.
-    @Test("a terminal's prefilled first line is forgotten once typed, here and in what a restore reads")
-    func prefillOnce() throws {
+    static let greeting = "hey, i'm gordon. what is this place?"
+
+    func echoTerminal(_ w: ParityWorld) throws -> String {
+        try #require(w.state.spawnNativeTerminalPort(command: "claude", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
+                                                    title: "echo", companionName: "echo", companionId: w.companion.id,
+                                                    systemPrompt: nil, postCard: false, initialInput: Self.greeting))
+    }
+    func saved(_ w: ParityWorld, _ id: String) throws -> String {
+        let row = try #require(try w.state.db.fetchPortPanels().first { $0.id == id })
+        return try JSONDecoder().decode(TerminalPortConfig.self, from: Data(row.html.utf8)).initialInput
+    }
+
+    /// Kept until sent: an unfinished first run (quit before sending it) gets the line back next
+    /// launch; once sent it is never typed again (it was typed into every relaunch, 2026-09-28).
+    @Test("the first line is typed at session start and kept until it is sent, then forgotten")
+    func keptUntilSent() throws {
         let w = try makeParityWorld()
-        let panelId = try #require(w.state.spawnNativeTerminalPort(command: "claude", cwd: NSTemporaryDirectory(), spaceId: w.space.id,
-                                                                  title: "echo", companionName: "echo", companionId: w.companion.id,
-                                                                  systemPrompt: nil, postCard: false,
-                                                                  initialInput: "hey, i'm gordon. what is this place?"))
-        #expect(w.state.portWindows.panels.first { $0.id == panelId }?.terminalConfig?.initialInput.isEmpty == false)
-        let controller = try #require(w.state.terminalControllers[panelId])
-        controller.handleEvent(.sessionStarted(cli: "claude", sessionId: "s1"))
-        #expect(w.state.portWindows.panels.first { $0.id == panelId }?.terminalConfig?.initialInput == "",
-                "the first line is still in the terminal's settings")
-        let saved = try #require(try w.state.db.fetchPortPanels().first { $0.id == panelId })
-        let restored = try JSONDecoder().decode(TerminalPortConfig.self, from: Data(saved.html.utf8))
-        #expect(restored.initialInput == "", "a restore would type the first line again")
+        let id = try echoTerminal(w)
+        let c = try #require(w.state.terminalControllers[id])
+        c.handleEvent(.sessionStarted(cli: "claude", sessionId: "s1"))
+        #expect(c.prefillPending, "the first line was not typed")
+        #expect(try saved(w, id) == Self.greeting, "the first line was forgotten before it was sent")
+        c.handleEvent(.inputSubmitted(prompt: Self.greeting))
+        #expect(try saved(w, id) == "", "a restore would type the sent line again")
+        withExtendedLifetime(w.state) {}
+    }
+
+    /// The glued prompt (GM's Dev5, 2026-09-28): the greeting's typing raced a waiting message and
+    /// they went out as "what is this place?[@port42]: …". With a message waiting, the greeting waits.
+    @Test("with a message waiting at session start, the first line is not typed, so the two cannot be glued")
+    func notTypedOverAWaitingMessage() throws {
+        let w = try makeParityWorld()
+        let id = try echoTerminal(w)
+        let c = try #require(w.state.terminalControllers[id])
+        c.inject("[@port42]: Port42 restarted while you were working on this chat's last message.\r")
+        try #require(c.hasWaitingMessages, "the test's message is not waiting for the CLI")
+        c.handleEvent(.sessionStarted(cli: "claude", sessionId: "s1"))
+        #expect(!c.prefillPending, "the first line was typed over a waiting message")
+        #expect(try saved(w, id) == Self.greeting, "the first line was lost rather than kept for later")
         withExtendedLifetime(w.state) {}
     }
 }

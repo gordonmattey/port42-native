@@ -1841,12 +1841,15 @@ public final class AppState: ObservableObject {
             // A prefilled prompt waits in the CLI's input box for the user to send. SessionStart
             // is the only honest "the TUI is up" signal — typing on a timer races the CLI's boot
             // (and its first-run trust prompt), which drops or misdirects the characters.
-            // Once only: read from the saved config, which is cleared as soon as it is typed.
+            // Read from the saved config, which forgets the line once it has been SENT (onPrompt below):
+            // an unfinished first run gets it back next launch, a finished one never sees it again.
+            // Not while a message is waiting: typing both at once raced, and they went out glued
+            // together ("what is this place?[@port42]: …", 2026-09-28). The line stays saved for later.
             let stored = self.portWindows.panels.first { $0.id == panel.id }?.terminalConfig?.initialInput ?? ""
-            if !stored.isEmpty {
+            let controller = self.terminalControllers[panel.id]
+            if !stored.isEmpty, controller?.hasWaitingMessages != true {
                 self.portWindows.prefillTerminal(id: panel.id, text: stored)
-                self.terminalControllers[panel.id]?.notePrefill()
-                self.portWindows.clearTerminalInitialInput(id: panel.id)
+                controller?.notePrefill()
             }
         }
         let onSessionEnded: () -> Void = { [weak self] in
@@ -1899,6 +1902,11 @@ public final class AppState: ObservableObject {
             // task notifications and sub-agent reports), and those were posted as the person (GM,
             // 2026-09-28). So: typed here since the last prompt, and not one of the CLI's own lines.
             guard let self else { return }
+            // The prefilled first line went out: forget it, so no later launch types it again.
+            if let first = self.portWindows.panels.first(where: { $0.id == panel.id })?.terminalConfig?.initialInput
+                .trimmingCharacters(in: .whitespacesAndNewlines), !first.isEmpty, prompt.contains(first) {
+                self.portWindows.clearTerminalInitialInput(id: panel.id)
+            }
             let typed = self.terminalTyped.remove(panel.id) != nil
             guard typed, !ChatRouting.isInjectedLine(prompt), !ChatRouting.isCLIOwnLine(prompt),
                   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

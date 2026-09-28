@@ -426,6 +426,9 @@ final class GhosttyTerminalController {
         }
     }
     private var heldUntilRunning: [String] = []
+    /// A message is waiting to be typed once the CLI is ready. A first-run prefill must not be typed
+    /// now: its typing races the message's, and the two were submitted as one prompt (2026-09-28).
+    var hasWaitingMessages: Bool { !heldUntilRunning.isEmpty }
     /// How long a held message waits for SessionStart before it is typed anyway (a CLI whose hook
     /// never fires would otherwise hold it forever, silently).
     var heldFallback: TimeInterval = 60
