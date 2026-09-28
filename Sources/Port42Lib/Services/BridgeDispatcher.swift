@@ -53,7 +53,8 @@ extension AppState {
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif
 
-        if let perm = method.permission {
+        if let perm = method.permission,
+           !pickConsents(method.pickedPath, args: args, principal: principal) {
             guard try await ensurePermission(perm, for: principal, pregrant: pregrant) else {
                 throw BridgeError.permissionDenied(perm.rawValue)
             }
@@ -138,6 +139,14 @@ extension AppState {
         granted.insert(perm)
         saveGrants(granted, grantee: principal.id, on: object, zone: principal.zone)
         return true
+    }
+
+    /// **Did the person already consent to this call by picking its file?** (APP-19.) Only for an
+    /// ABSOLUTE path this principal picked; the body's `resolve` enforces the same rule, so a call
+    /// waved through here cannot then reach a path the person did not choose.
+    func pickConsents(_ param: String?, args: BridgeArgs, principal: Principal) -> Bool {
+        guard let param, let path = args.string(param), path.hasPrefix("/") else { return false }
+        return principalHasPickedPath(path, principalId: principal.id)
     }
 
     /// Ask the person, and turn "no card could be seen" into its own error (APP-16). Every ask that

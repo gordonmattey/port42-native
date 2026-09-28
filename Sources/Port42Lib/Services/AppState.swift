@@ -369,14 +369,28 @@ public final class AppState: ObservableObject {
     /// CALLING principal absolute-path access; fs.read/fs.write honor exactly that principal's
     /// grants. This is the Phase-3 seam: when the authenticated principal lands, the key tightens
     /// with it. Paths are stored standardized so lookups cannot be dodged with "/./" tricks.
-    public var pickedFilePaths: [String: Set<String>] = [:]
+    ///
+    /// PERSISTED (APP-19): a read-through cache over `picked_paths`, so a pick survives a restart
+    /// like any other consent, and `revokeAllGrants` takes it back with the rest.
+    private var pickedFilePaths: [String: Set<String>] = [:]
 
     public func grantPickedPath(_ path: String, to principalId: String) {
-        pickedFilePaths[principalId, default: []].insert((path as NSString).standardizingPath)
+        let standardized = (path as NSString).standardizingPath
+        var paths = pickedPaths(for: principalId)
+        paths.insert(standardized)
+        pickedFilePaths[principalId] = paths
+        try? db.savePickedPath(grantee: principalId, path: standardized)
     }
 
     public func principalHasPickedPath(_ path: String, principalId: String) -> Bool {
-        pickedFilePaths[principalId]?.contains((path as NSString).standardizingPath) ?? false
+        pickedPaths(for: principalId).contains((path as NSString).standardizingPath)
+    }
+
+    private func pickedPaths(for principalId: String) -> Set<String> {
+        if let cached = pickedFilePaths[principalId] { return cached }
+        let loaded = (try? db.pickedPaths(grantee: principalId)) ?? []
+        pickedFilePaths[principalId] = loaded
+        return loaded
     }
 
     /// The unified bridge method registry (API/tool-use unification, Phase 2). One implementation per
@@ -879,6 +893,7 @@ public final class AppState: ObservableObject {
     public func revokeAllGrants(grantee: String) {
         try? db.revokeAllGrants(grantee: grantee)
         grantCache.removeAll()
+        pickedFilePaths[grantee] = nil      // the DB dropped its picks too (APP-19)
     }
 
     /// `lastUsedAt`, throttled. The read side is the hot path — every gated dispatch — so an

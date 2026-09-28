@@ -51,6 +51,9 @@ struct BridgeTargetScopeTests {
         "audio.speak": "output only", "audio.play": "output only", "audio.stop": "stop only",
         "camera.stopStream": "stop only", "screen.stopStream": "stop only",
         "screen.record.stop": "stop only",
+        // Files: picking is the consent (APP-19). The native panel is shown only to the person, who
+        // chooses exactly the files or cancels; while locked the pick is refused as `locked` (APP-16).
+        "fs.pick": "the native panel is the consent, shown only to the person; refused while locked (APP-19, APP-16)",
         // Storage: the caller's own space and bucket; global and shared are a public board (APP-20).
         "storage.get": "caller-scoped bucket", "storage.set": "caller-scoped bucket",
         "storage.delete": "caller-scoped bucket", "storage.list": "caller-scoped bucket",

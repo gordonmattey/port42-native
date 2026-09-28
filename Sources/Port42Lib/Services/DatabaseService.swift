@@ -981,6 +981,18 @@ public final class DatabaseService {
             try db.alter(table: "port_panels") { t in t.add(column: "codeChangedBy", .text) }
         }
 
+        migrator.registerMigration("v67-picked-paths") { db in
+            // A file the person PICKED for a caller (fs.pick, or a drop onto a port). The pick is
+            // the consent for that one path, so it outlives the process like any other grant
+            // (APP-19); before this it lived in memory and every restart silently took it back.
+            try db.create(table: "picked_paths") { t in
+                t.column("grantee", .text).notNull()
+                t.column("path", .text).notNull()       // standardized
+                t.column("pickedAt", .datetime).notNull()
+                t.primaryKey(["grantee", "path"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1437,6 +1449,24 @@ public final class DatabaseService {
     public func revokeAllGrants(grantee: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM grants WHERE grantee = ?", arguments: [grantee])
+            // APP-19: "take it all back" that left a picked file readable would not be all.
+            try db.execute(sql: "DELETE FROM picked_paths WHERE grantee = ?", arguments: [grantee])
+        }
+    }
+
+    // MARK: - Picked paths (APP-19)
+
+    public func savePickedPath(grantee: String, path: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO picked_paths (grantee, path, pickedAt) VALUES (?, ?, ?)",
+                           arguments: [grantee, path, Date()])
+        }
+    }
+
+    public func pickedPaths(grantee: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT path FROM picked_paths WHERE grantee = ?",
+                                    arguments: [grantee]))
         }
     }
 

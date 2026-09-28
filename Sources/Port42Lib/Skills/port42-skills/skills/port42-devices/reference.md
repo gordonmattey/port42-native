@@ -194,9 +194,7 @@ Create a directory (and any missing parent directories) in the Port42 data direc
 
 ## fs.pick
 
-_needs the filesystem permission_
-
-Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.
+Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write, with no further permission.
 
     port42 fs.pick
 

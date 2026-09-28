@@ -249,8 +249,8 @@ Generated from the live method registry: every entry below is served exactly as 
   fs.mkdir(path)  [permission: filesystem]
       Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. "scopes/strategy/decisions").
         path (string, required): Relative path to create (e.g. "scopes/strategy/decisions")
-  fs.pick(options)  [permission: filesystem]
-      Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.
+  fs.pick(options)
+      Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write, with no further permission.
   fs.read(path, encoding)  [permission: filesystem]
       Read a file. Use a relative path (e.g. "scopes/strategy/scope.md") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.
         encoding (string): utf8 (default) or base64

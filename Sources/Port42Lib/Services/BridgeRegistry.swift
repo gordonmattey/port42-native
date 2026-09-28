@@ -80,6 +80,12 @@ public struct BridgeMethod {
     /// `terminal.exec` does, because driving a shell through its port is driving the shell.
     /// Enforced once in the dispatcher by `requireTerminalTarget`, before any token moves.
     public let terminalTarget: String?
+    /// The paramName carrying a path that, when it is ABSOLUTE and this caller PICKED it, needs no
+    /// `permission` (APP-19). The pick is the consent for that one file: asking for the broad
+    /// `.filesystem` grant on top made the person consent twice, the second time to far more than
+    /// they chose. Relative (data directory) paths still need `permission`. Enforced once in the
+    /// dispatcher by `pickConsents`.
+    public let pickedPath: String?
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -91,6 +97,7 @@ public struct BridgeMethod {
                 replacesState: Bool = false,
                 needsLiveSurface: Bool = false,
                 terminalTarget: String? = nil,
+                pickedPath: String? = nil,
                 wired: Bool = true,
                 toolExposed: Bool = true,
                 description: String = "",
@@ -106,6 +113,7 @@ public struct BridgeMethod {
         self.replacesState = replacesState
         self.needsLiveSurface = needsLiveSurface
         self.terminalTarget = terminalTarget
+        self.pickedPath = pickedPath
         self.run = run
     }
 }
@@ -166,6 +174,7 @@ public extension BridgeMethod {
                             // which is what made it visible.
                             needsLiveSurface: needsLiveSurface,
                             terminalTarget: terminalTarget,
+                            pickedPath: pickedPath,
                             wired: wired,
                             toolExposed: toolExposed,
                             description: description,

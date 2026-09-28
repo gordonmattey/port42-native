@@ -149,7 +149,7 @@ struct BridgePrincipalTests {
         let stream = buildBridgeStreamRegistry(w.state)
         let expected: [(String, PortPermission?)] = [
             ("terminal.exec", .terminal), ("clipboard.read", .clipboard), ("clipboard.write", .clipboard),
-            ("fs.read", .filesystem), ("fs.write", .filesystem), ("fs.pick", .filesystem),
+            ("fs.read", .filesystem), ("fs.write", .filesystem), ("fs.pick", nil),
             ("screen.capture", .screen), ("screen.windows", .screen), ("screen.stream", .screen),
             ("camera.capture", .camera), ("camera.stream", .camera),
             ("audio.capture", .microphone),

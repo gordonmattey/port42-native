@@ -130,12 +130,12 @@ struct BridgeFilesPickedTests {
         return path
     }
 
-    @Test("the family is wired and fs.pick is registered, gated, and not a tool")
+    @Test("the family is wired and fs.pick is registered, ungated (the panel is the consent), and not a tool")
     @MainActor
     func wiring() throws {
         let w = try makeParityWorld()
         let pick = try #require(w.registry["fs.pick"], "fs.pick must join the registry")
-        #expect(pick.permission == .filesystem)
+        #expect(pick.permission == nil, "APP-19: the pick is the consent, not a .filesystem grant")
         #expect(!pick.toolExposed, "the picker is port UX, not an LLM tool")
         for m in ["fs.pick", "fs.read", "fs.write", "fs.list", "fs.mkdir"] {
             #expect(try #require(w.registry[m]).wired, "\(m) must be wired")

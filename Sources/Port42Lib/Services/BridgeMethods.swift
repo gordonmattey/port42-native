@@ -1035,9 +1035,15 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
 
     // fs.pick: the user-consent path to absolute file access. Presents the native panel and grants
     // every chosen path to the CALLING principal. Not an LLM tool (a companion cannot pop panels).
+    //
+    // UNGATED ON PURPOSE (APP-19): the panel IS the consent. The person sees it, picks exactly the
+    // files they mean, or cancels, so asking for `.filesystem` first was a second, broader question
+    // in front of the real one. Refused while locked, for the reason APP-16 refuses a card then:
+    // a panel over the lock screen would let whoever is at the machine choose for the caller.
     let picker = FileBridge()
-    r["fs.pick"] = BridgeMethod(permission: .filesystem, paramNames: ["options"], toolExposed: false,
-        description: "Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.") { p, args in
+    r["fs.pick"] = BridgeMethod(permission: nil, paramNames: ["options"], toolExposed: false,
+        description: "Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write, with no further permission.") { p, args in
+        guard appState.permissions.canPrompt() else { throw BridgeError.locked("fs.pick") }
         let result = await picker.pick(opts: args.object("options") ?? args.dictionary)
         if let one = result["path"] as? String { appState.grantPickedPath(one, to: p.id) }
         if let many = result["paths"] as? [String] {
@@ -1047,6 +1053,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
     }
 
     r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"],
+                                pickedPath: "path",
         description: "Read a file. Use a relative path (e.g. \"scopes/strategy/scope.md\") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.",
         inputSchema: [
             "type": "object",
@@ -1071,6 +1078,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
     }
 
     r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"],
+                                 pickedPath: "path",
         description: "Write a file. Use a relative path (e.g. \"scopes/strategy/facts.md\") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.",
         inputSchema: [
             "type": "object",

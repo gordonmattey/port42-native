@@ -116,9 +116,9 @@ struct PortPermissionTests {
         #expect(try registryPermission("clipboard.write") == .clipboard)
     }
 
-    @Test("fs.pick requires .filesystem permission")
+    @Test("fs.pick needs no permission: the panel is the consent (APP-19)")
     @MainActor func fsPickPermission() throws {
-        #expect(try registryPermission("fs.pick") == .filesystem)
+        #expect(try registryPermission("fs.pick") == nil)
     }
 
     @Test("fs.read requires .filesystem permission")
