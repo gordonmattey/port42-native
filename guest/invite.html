@@ -40,6 +40,7 @@
   #chat-count { font-size: 8px; font-weight: bold; color: #000; background: var(--accent); border-radius: 99px;
                 padding: 1px 4px; margin-left: 4px; }
   #body { position: relative; flex: 1; min-height: 0; overflow: hidden; }   /* the closed chat stays out of the title bar */
+  #port { position: absolute; inset: 0; }   /* the port fills the body; without it the frame falls back to 150px */
   iframe { width: 100%; height: 100%; border: 0; background: #000; display: block; transition: opacity .3s; }
   body.offline iframe { opacity: .35; pointer-events: none; }
   #chat { position: absolute; top: 0; left: 0; right: 0; height: 45%; min-height: 220px; display: flex;
