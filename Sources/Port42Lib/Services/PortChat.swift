@@ -434,8 +434,9 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
                 "limit": ["type": "integer", "description": "At most this many, the newest ones (default \(PortChat.defaultReadLimit), max \(PortChat.maxReadLimit))."],
             ],
             "required": ["port"],
-        ]) { _, args in
-        let k = try key(args)
+        ]) { p, args in
+        // APP-09: only a chat in the caller's own space (the APP-10 rule), not any chat by id.
+        let k = try appState.requireReadableChat(try args.requireString("port"), by: p)
         let limit = max(1, min(args.int("limit") ?? PortChat.defaultReadLimit, PortChat.maxReadLimit))
         let entries = try appState.db.chatEntries(chat: k, after: args.int("after") ?? 0, limit: limit)
         let last = try appState.db.lastChatSeq(chat: k)

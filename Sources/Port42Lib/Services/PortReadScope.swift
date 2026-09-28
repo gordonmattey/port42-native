@@ -56,6 +56,24 @@ extension AppState {
         }
     }
 
+    /// The space a chat belongs to (APP-09): nil for the desktop's chat (port 0, which is in no
+    /// space), the space itself for a space's chat, and the port's space for a port's chat.
+    func chatSpaceId(_ key: String) -> String? {
+        if key == PortChat.desktopKey { return nil }
+        if spaces.contains(where: { $0.id == key }) { return key }
+        return resolvePortRef(key).flatMap(portSpaceId)
+    }
+
+    /// Resolve a chat for a READ, by the same rule as a port (APP-09): a port or companion reads
+    /// only the chats of the space it acts in, and a refusal is `not_found`, as for a missing chat.
+    func requireReadableChat(_ port: String, by principal: Principal) throws -> String {
+        guard let key = chatKey(for: port),
+              canRead(portInSpace: chatSpaceId(key), by: principal) else {
+            throw BridgeError.notFound("port '\(port)' (a chat belongs to port 0, a space, or a port)")
+        }
+        return key
+    }
+
     /// Resolve `id` for a READ, refusing a port outside the caller's scope as if it did not exist.
     func requireReadablePort(_ id: String, by principal: Principal) throws -> PortRef {
         guard let ref = resolvePortRef(id), canRead(portInSpace: portSpaceId(ref), by: principal) else {

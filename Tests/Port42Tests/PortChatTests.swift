@@ -51,7 +51,9 @@ struct PortChatTests {
     func scopes() async throws {
         let w = try makeParityWorld()
         _ = try await call(w, "chat.post", ["port": "0", "text": "desk"])
-        #expect(entries(try await call(w, "chat.read", ["port": "0"])).count == 1)
+        // Read as the person: since APP-09 a companion in a space does not read the desktop's chat.
+        let person = Principal.human(id: "person", displayName: "person", spaceId: nil)
+        #expect(entries(try await call(w, "chat.read", ["port": "0"], as: person)).count == 1)
         #expect(entries(try await call(w, "chat.read", ["port": w.space.id])).isEmpty,
                 "chats are per port, not shared")
         do {
@@ -73,10 +75,11 @@ struct PortChatTests {
     @Test("after and limit page the transcript, oldest first")
     func paging() async throws {
         let w = try makeParityWorld()
-        for i in 1...5 { _ = try await call(w, "chat.post", ["port": "0", "text": "m\(i)"]) }
-        let after = entries(try await call(w, "chat.read", ["port": "0", "after": 3]))
+        // The caller's own space chat: paging is not about scope (APP-09).
+        for i in 1...5 { _ = try await call(w, "chat.post", ["port": w.space.id, "text": "m\(i)"]) }
+        let after = entries(try await call(w, "chat.read", ["port": w.space.id, "after": 3]))
         #expect(after.map { $0["text"] as? String } == ["m4", "m5"])
-        let newest = entries(try await call(w, "chat.read", ["port": "0", "limit": 2]))
+        let newest = entries(try await call(w, "chat.read", ["port": w.space.id, "limit": 2]))
         #expect(newest.map { $0["text"] as? String } == ["m4", "m5"], "limit keeps the newest")
     }
 
