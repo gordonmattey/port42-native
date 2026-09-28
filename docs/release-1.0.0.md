@@ -32,6 +32,11 @@ git merge <the squad's reviewed commits>   # optional, morning decision; never t
 git add -f dist/Port42.app dist/Port42.dmg && git commit -m "Release: v1.0.0" && git push
 ```
 
+Run it from the main checkout, never a fresh worktree: the build number comes from the untracked
+`.build-number` in the checkout (2427 on 2026-09-28), and a fresh worktree starts at 1. Installed copies
+update only to a higher build number than their own (v0.5.50 is 2184), so a build 1 would reach no one,
+and an installed build 1 would be offered v0.5.50 as an update.
+
 `./build.sh --release` runs the suite first and stops on a failure. It pushes `main` before tagging, so
 the `v1.0.0` tag names the commit the DMG was built from. It stops the app only when that app runs from
 the build folder; production runs from `/Applications` and is left alone.
