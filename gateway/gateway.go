@@ -524,6 +524,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		Method string          `json:"method"`
 		Args   json.RawMessage `json:"args"`
 	}
+	// Same ceiling as one WebSocket frame (GW-12); the body used to be read without bound.
+	r.Body = http.MaxBytesReader(w, r.Body, maxMessageSize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Method == "" {
 		http.Error(w, `{"error":"missing method","code":"`+CodeMissingArg+`"}`, http.StatusBadRequest)
 		return

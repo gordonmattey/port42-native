@@ -44,12 +44,7 @@ func main() {
 
 	gw := NewGateway()
 
-	srv := &http.Server{
-		Addr:    *addr,
-		Handler: serverHandler(*addr, gw),
-		// No read/write timeouts: WebSocket connections are long-lived
-		// and timeouts would kill them (especially through a reverse proxy)
-	}
+	srv := newHTTPServer(*addr, serverHandler(*addr, gw))
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
@@ -196,6 +191,13 @@ const rootPage = `<!DOCTYPE html>
 </body>
 </html>
 `
+
+// newHTTPServer is the gateway's listener. No read or write timeout, because WebSocket connections are
+// long-lived and a timeout would cut them, but request headers must arrive promptly (GW-12): without
+// ReadHeaderTimeout a client that sends them slowly holds a connection open for as long as it likes.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+}
 
 // serverHandler is what the listener on addr serves: the routes, behind the loopback guard when addr
 // is loopback (GW-05), so no web page the user opens reaches the gateway.

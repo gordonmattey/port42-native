@@ -6,9 +6,9 @@ package main
 import (
 	"flag"
 	"log"
-	"net/http"
 	"os"
 
+	"github.com/port42/gateway/relay"
 	"github.com/port42/gateway/tele"
 )
 
@@ -20,5 +20,5 @@ func main() {
 		port = "8080"
 	}
 	log.Printf("[tele] serving %s on :%s", *dir, port)
-	log.Fatal(http.ListenAndServe(":"+port, tele.Handler(*dir)))
+	log.Fatal(relay.NewHTTPServer(":"+port, tele.Handler(*dir)).ListenAndServe())
 }

@@ -134,3 +134,43 @@ func TestOneSourceHoldsBoundedSessionsWithAHost(t *testing.T) {
 		t.Fatalf("another source was refused: %s", code)
 	}
 }
+
+// The relay and invite-page listeners have a header timeout (GW-12).
+func TestTheRelayListenerHasAHeaderTimeout(t *testing.T) {
+	if srv := NewHTTPServer(":0", http.NotFoundHandler()); srv.ReadHeaderTimeout <= 0 {
+		t.Fatal("the relay listener has no ReadHeaderTimeout")
+	}
+}
+
+// One address holds at most ConnsPerIP relay connections at once (GW-12).
+func TestOneAddressHoldsBoundedConnections(t *testing.T) {
+	l := DefaultLimits
+	l.ConnsPerIP = 2
+	srv := NewServer(l)
+	srv.TrustCloudflare = true
+	hs := httptest.NewServer(srv.Handler())
+	defer hs.Close()
+	url := "ws" + strings.TrimPrefix(hs.URL, "http") + "/v1"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dial := func(ip string) error {
+		h := http.Header{}
+		h.Set("CF-Connecting-IP", ip)
+		c, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: h})
+		if err == nil {
+			t.Cleanup(func() { c.CloseNow() })
+		}
+		return err
+	}
+	for i := 0; i < 2; i++ {
+		if err := dial("203.0.113.1"); err != nil {
+			t.Fatalf("connection %d refused: %v", i, err)
+		}
+	}
+	if err := dial("203.0.113.1"); err == nil {
+		t.Fatal("a third connection from one address was accepted")
+	}
+	if err := dial("203.0.113.2"); err != nil {
+		t.Fatalf("another address was refused: %v", err)
+	}
+}

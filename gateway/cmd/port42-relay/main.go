@@ -8,7 +8,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
 
 	"github.com/port42/gateway/relay"
@@ -25,5 +24,5 @@ func main() {
 	// that is reached directly, where that header would be whatever the client sent (REL-01).
 	srv.TrustCloudflare = os.Getenv("PORT42_RELAY_BEHIND_CLOUDFLARE") != "0"
 	log.Printf("[relay] listening on :%s (client address from CF-Connecting-IP: %v)", port, srv.TrustCloudflare)
-	log.Fatal(http.ListenAndServe(":"+port, srv.Handler()))
+	log.Fatal(relay.NewHTTPServer(":"+port, srv.Handler()).ListenAndServe())
 }

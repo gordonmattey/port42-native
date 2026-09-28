@@ -66,6 +66,8 @@ type Limits struct {
 	SessionsPerKey  int // open sessions one guest key can have
 	OpensPerIPMin   int // session requests one IP may make a minute
 	OpensPerHostMin int // session requests one host may receive a minute FROM ONE IP (REL-01)
+	// ConnsPerIP bounds the relay connections, host or guest, one address holds at once (GW-12).
+	ConnsPerIP int
 	// SessionsPerHostIP bounds the open sessions one IP holds with one host, so a single source
 	// cannot fill SessionsPerHost with sessions that never complete Noise (REL-01).
 	SessionsPerHostIP int
@@ -78,7 +80,7 @@ type Limits struct {
 const guestQueue = 16
 
 var DefaultLimits = Limits{MaxFrame: 64<<10 + 64, SessionsPerHost: 32, SessionsPerKey: 4,
-	OpensPerIPMin: 30, OpensPerHostMin: 10, SessionsPerHostIP: 4,
+	OpensPerIPMin: 30, OpensPerHostMin: 10, SessionsPerHostIP: 4, ConnsPerIP: 64,
 	AcceptTimeout: 15 * time.Second, Idle: 5 * time.Minute}
 
 // Server is a relay. The zero value is not usable; call NewServer.
@@ -92,6 +94,7 @@ type Server struct {
 	opensIP   map[string][]time.Time
 	opensTo   map[string][]time.Time // by host key + source IP (REL-01), never by host key alone
 	perHostIP map[string]int         // open sessions by host key + source IP
+	connsIP   map[string]int         // open connections by source IP (GW-12)
 
 	// TrustCloudflare takes the client's address from CF-Connecting-IP, which Cloudflare sets and
 	// overwrites, when the relay runs behind it. Otherwise the address is the connection's own.
@@ -103,7 +106,7 @@ type Server struct {
 func NewServer(l Limits) *Server {
 	return &Server{limits: l, hosts: map[string]*hostConn{}, sessions: map[string]*relaySession{},
 		perKey: map[string]int{}, opensIP: map[string][]time.Time{}, opensTo: map[string][]time.Time{},
-		perHostIP: map[string]int{}}
+		perHostIP: map[string]int{}, connsIP: map[string]int{}}
 }
 
 type hostConn struct {
@@ -167,6 +170,22 @@ func readControl(ctx context.Context, c *websocket.Conn) (Control, error) {
 }
 
 func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
+	ip := s.clientIP(r)
+	s.mu.Lock()
+	if s.limits.ConnsPerIP > 0 && s.connsIP[ip] >= s.limits.ConnsPerIP {
+		s.mu.Unlock()
+		http.Error(w, "too many connections from this address", http.StatusTooManyRequests)
+		return
+	}
+	s.connsIP[ip]++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.connsIP[ip]--; s.connsIP[ip] <= 0 {
+			delete(s.connsIP, ip)
+		}
+		s.mu.Unlock()
+	}()
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
 	if err != nil {
 		return
@@ -204,7 +223,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	if hello.Role == "host" {
 		s.serveHost(ctx, conn, hello.Key)
 	} else {
-		s.serveGuest(ctx, conn, hello.Key, s.clientIP(r))
+		s.serveGuest(ctx, conn, hello.Key, ip)
 	}
 }
 
