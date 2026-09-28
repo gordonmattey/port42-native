@@ -62,6 +62,10 @@ extension AppState {
         // An imagine team past its version budget is refused here, before the token moves.
         try imagineBudgetGate(method: canonical, args: args, principal: principal)
 
+        // APP-03: a terminal target needs `.terminal`, before the write moves any token.
+        try await requireTerminalTarget(method.terminalTarget, args: args, principal: principal,
+                                        pregrant: pregrant, standing: false)
+
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,

@@ -75,6 +75,11 @@ public struct BridgeMethod {
     /// that one is: it is the same shape of decision, at the same choke point, and enforced once in
     /// `applyWriteSideEffects` so no verb can escape it.
     public let needsLiveSurface: Bool
+    /// The paramName naming a port that, when it is a TERMINAL, this verb types into or reads from
+    /// (APP-03, APP-04). Such a call from a local caller needs `.terminal`, exactly as
+    /// `terminal.exec` does, because driving a shell through its port is driving the shell.
+    /// Enforced once in the dispatcher by `requireTerminalTarget`, before any token moves.
+    public let terminalTarget: String?
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -85,6 +90,7 @@ public struct BridgeMethod {
                 writesTarget: String? = nil,
                 replacesState: Bool = false,
                 needsLiveSurface: Bool = false,
+                terminalTarget: String? = nil,
                 wired: Bool = true,
                 toolExposed: Bool = true,
                 description: String = "",
@@ -99,6 +105,7 @@ public struct BridgeMethod {
         self.writesTarget = writesTarget
         self.replacesState = replacesState
         self.needsLiveSurface = needsLiveSurface
+        self.terminalTarget = terminalTarget
         self.run = run
     }
 }
@@ -158,6 +165,7 @@ public extension BridgeMethod {
                             // `PortLiveSurfaceTests` asserts on the LIVE registry, after this copy,
                             // which is what made it visible.
                             needsLiveSurface: needsLiveSurface,
+                            terminalTarget: terminalTarget,
                             wired: wired,
                             toolExposed: toolExposed,
                             description: description,
@@ -214,6 +222,9 @@ public struct BridgeStreamMethod {
     /// same treatment gave them a hang and then a timeout. Declared here rather than inferred from
     /// the method name, so a caller-facing refusal cannot drift from what the method actually does.
     public let endless: Bool
+    /// Same meaning as `BridgeMethod.terminalTarget` (APP-04): `port.subscribe` on a terminal is
+    /// reading that shell's output, so it needs `.terminal`.
+    public let terminalTarget: String?
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
@@ -226,6 +237,7 @@ public struct BridgeStreamMethod {
                 description: String = "",
                 inputSchema: [String: Any] = [:],
                 endless: Bool = false,
+                terminalTarget: String? = nil,
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
@@ -236,6 +248,7 @@ public struct BridgeStreamMethod {
         self.description = description
         self.inputSchema = inputSchema
         self.endless = endless
+        self.terminalTarget = terminalTarget
         self.run = run
     }
 
@@ -279,7 +292,7 @@ public struct BridgeStreamMethod {
                                   // drops a declared property turns it off silently, and this struct
                                   // has now lost two fields that way.
                                   description: description, inputSchema: schema,
-                                  endless: endless, run: run)
+                                  endless: endless, terminalTarget: terminalTarget, run: run)
     }
 }
 

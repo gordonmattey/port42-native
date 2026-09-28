@@ -184,7 +184,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"], writesTarget: "id",
-        needsLiveSurface: true,
+        needsLiveSurface: true, terminalTarget: "id",
         description: "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. \"ls\\n\") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.",
         inputSchema: [
             "type": "object",
