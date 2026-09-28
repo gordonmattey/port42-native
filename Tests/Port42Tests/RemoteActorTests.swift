@@ -40,10 +40,22 @@ struct RemoteActorTests {
 
         let theirPerson = there.acting(as: RemoteActor(id: "u-ada", name: "Ada", kind: .human))
         let e2 = try w.state.postToChat(key: key, text: "alpha, go", from: theirPerson)
-        #expect(e2.fromName == "Ada" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves")
+        // Named as themselves, and marked as remote (NAU-04): never the bare name a local post has.
+        #expect(e2.fromName == "Ada (remote)" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves, from there")
         #expect(e2.fromId != w.state.currentUser?.id, "a claim of human became this instance's person")
         #expect(w.state.chatReplyTargets["alpha"] == key, "the person there, with wake_agents, did not wake the port's companion")
         withExtendedLifetime(w.state) {}
+    }
+
+    @Test("a remote actor claiming to be this machine's person is shown with the peer's label (NAU-04)")
+    func remotePersonCannotPassAsLocal() throws {
+        let there = Principal.remote(peer: Self.peer, displayName: "Ada")
+        let spoof = there.acting(as: RemoteActor(id: "u-x", name: "Alice", kind: .human))
+        let who = AppState.chatAuthor(spoof)
+        #expect(who.name == "Alice (Ada)", "a remote claim of a local person's name rendered bare")
+        #expect(who.name != "Alice")
+        let local = AppState.chatAuthor(Principal.human(id: "alice", displayName: "Alice", spaceId: nil))
+        #expect(local.name == "Alice", "a local post must stay unsuffixed")
     }
 
     @Test("a write from another instance names the actor there as the port's driver")

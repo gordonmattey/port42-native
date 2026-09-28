@@ -141,10 +141,17 @@ extension AppState {
     /// (4.6c): `<peer>/<actor>`, labelled with that instance's person unless it is the person, and of
     /// the actor's kind, so routing treats a companion there as a companion here. A claim of `human`
     /// is never this instance's person: its id is the instance's, not `AppUser.id`.
+    ///
+    /// **EVERY remote author is suffixed, a person too** (NAU-04). The actor's name and kind are the
+    /// other instance's claim; only its peer id is attested. A person there used to be shown by the
+    /// bare name it gave, so a peer could post as "Alice", this instance's person, and read as her.
+    /// The suffix is the peer's enrolled label, or "remote" when the claimed name IS that label (no
+    /// "Ada (Ada)"); a local post is never suffixed, so a remote one can never render as a local one.
     static func chatAuthor(_ p: Principal) -> (id: String, name: String, kind: String) {
         guard p.kind == .remote, let a = p.actor else { return (p.id, p.displayName, p.kind.rawValue) }
         let kind: Principal.Kind = a.kind == .port ? .peer : a.kind
-        return (p.id + "/" + a.id, a.kind == .human ? a.name : "\(a.name) (\(p.displayName))", kind.rawValue)
+        let label = a.name == p.displayName ? "remote" : p.displayName
+        return (p.id + "/" + a.id, "\(a.name) (\(label))", kind.rawValue)
     }
 
     /// A line from Port42 itself in a port's chat: a notice, not a message, so it wakes nobody.
