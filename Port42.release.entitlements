@@ -10,6 +10,13 @@
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!-- The hardened runtime (every notarized build) lets an app ask for the microphone or the camera
+	     only when it declares these. Without them macOS never shows the prompt and supplies silence:
+	     voice showed a live mic and typed nothing, in every release (GM, 2026-09-27). -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
 	<!-- GhosttyKit allocates executable memory at runtime (GPU/font stack);
 	     Apple Silicon kills the process without these. Matches Ghostty.app.
 	     Notarization permits these (Ghostty ships notarized with allow-jit). -->
