@@ -98,7 +98,7 @@ restore. A security test that has never failed proves nothing. Headless unless m
 **Scopes on the client row**
 
 - **The upgrade is not a narrowing and not a widening.** Every existing client (installed CLI,
-  children, manual tokens) reads galaxy after migration v63; a new manual token asks its scope.
+  children, manual tokens) reads galaxy after migration v64; a new manual token asks its scope.
 - **Narrowing and revoking apply on the next call,** with no restart: a call after the change is
   judged by the new scope; a revoked token is refused.
 - **A deleted space or port leaves its scoped tokens reaching nothing,** not reaching everything.
@@ -137,7 +137,7 @@ restore. A security test that has never failed proves nothing. Headless unless m
 
 ## Steps (after the Phase 4 merge)
 
-1. **Scope on the client row** (migration v63) and the scope gate, reusing `RemoteAccess` with the
+1. **Scope on the client row** (migration v64) and the scope gate, reusing `RemoteAccess` with the
    `.space` class added. Tests: each scope against a port, space and machine method of every class, and
    listings filtered.
 2. **`pair.request` and the approval card.** Tests: loopback only, the rate limit, expiry, a wrong

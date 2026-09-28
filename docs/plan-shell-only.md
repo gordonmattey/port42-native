@@ -357,6 +357,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
 | Voice input (GM, 2026-09-27: on the v1 list) | Feature-complete on `voice-input` (the "handoff: arrange" session, 2026-09-27): all five phases, confirmed by hand on Dev7, suite green (1351) merged against nautilus `e497a17`. Hold space past 0.2 s and speak; words stream into whatever has the keyboard (chat field, web port, terminal) and commit on release; other apps behind a setting and Accessibility. Parakeet TDT v3 on the Neural Engine via FluidAudio (new package, Apache 2.0). No migration, nothing in the bridge registry (a test pins that no port reaches the microphone or the typer). The 461 MB model is fetched on first use, not shipped; its CC BY 4.0 attribution goes in `THIRD-PARTY-LICENSES.txt` before release. Adds a Voice tab to Settings (`SignOutSheet`, which Phase 4 also changes). Voice starts from the app at launch, not `AppState.init`: starting it there doubled the suite and made a watch test flake |
 | Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; all four decisions made (GM) |
+| Version (GM, 2026-09-27) | Stays **1.0.0** until the push: no incremental versions. Every build until then says 1.0.0 (a `NO_PUBLISH` build does not record a release, so the version is not bumped) |
 | Daily-driver install | After the release scope is done (GM) |
 | The app's videos are not in git (found 2026-09-27) | `*.mp4` is gitignored, so `DolphinProtocolLoading`, `dream-architect`, `dreamscape` and `TheAquariumsDoorIsOpen` exist only on this Mac; a fresh clone builds without them. `.gitattributes` already sends `*.mp4` to Git LFS, so un-ignoring them is the fix. GM to decide |
 | Clean up after the release (GM, 2026-09-27) | The merged local branches and the 16 `worktree-agent-*` worktrees and branches, each worktree checked for uncommitted work first; GitHub untouched. The 390 leftover test keychain items were deleted 2026-09-27 (GM) |
@@ -385,14 +386,14 @@ there through relay1. Still open with Phase 4: the daily-driver deep-link test.
    merges the latest `nautilus` first and resolves its side; then nautilus merges it.
 3. **`voice-input` into `nautilus`,** after Phase 4 is in, so voice resolves once against the whole
    tree. It merges `nautilus` first. It adds a package (FluidAudio), so the first build fetches it.
-4. **Pairing and scoped tokens** built on the integrated tree (migration v63), then the "…" menu
+4. **Pairing and scoped tokens** built on the integrated tree (migration v64), then the "…" menu
    reorder.
 5. **Release build.**
 
 At every merge: the branch has merged `nautilus` in and resolved its own conflicts; `swift test` is
 green on the result; the generated files are regenerated, not hand-merged (the tool schema golden,
 `llms.txt`, skill references); migrations keep distinct numbers (Phase 4 v57 to v61, nautilus v62,
-pairing v63); the five scenarios pass on a dev instance; and a companion posts to its space with
+Phase 4 v63 for two-use invites, pairing v64); the five scenarios pass on a dev instance; and a companion posts to its space with
 the call its own instructions give, the post appears in that space's chat, and an @mention in it
 wakes the companion it names (the voice session's check, 2026-09-27: prod's stored instructions
 named `messages.send`, which no longer exists, so such posts vanished; nautilus now bakes a
@@ -424,7 +425,7 @@ them; an item leaves only when it is done and verified.
 | 16 | A browser port whose page cannot be reached showed its chrome and nothing else (GM, v1 daily driver, 2026-09-27: the local site servers had stopped with the upgrade) | Done: it shows "Can't reach <host>", the reason, what to do (for a server on this Mac: start it again) and Retry, under the failing URL so the address bar keeps it. The origin gate names it as its one exception. In the next build, not in the installed 1.0.0 |
 | 17 | Renaming a space did not save, and there was no button to finish (GM, v1 daily driver, 2026-09-27) | Done: the space and companion boxes saved only on Return or a click outside, and their one button, ✕, discarded the change. Both now have Done (save and close), ✕ keeps the edit too, and only Esc discards. In the next build, not in the installed 1.0.0 |
 | 18 | Web share: on the invite page in a browser the port's HTML area is about 20% of the height it should be (GM, 2026-09-27) | Open, Phase 4's (sent to it): should fill the whole area under the bar |
-| 19 | An invite opened in the browser first is then "already used" in Port42 (GM, 2026-09-27) | Open, Phase 4's: an invite binds to the first redeemer's key, and the browser and Port42 are two keys. Proposed: the page redeems only on "Open here", and "Open in Port42" from a joined browser hands the grant over |
+| 19 | An invite opened in the browser first is then "already used" in Port42 (GM, 2026-09-27) | Decided (GM): a share link works twice for now (two different keys: the browser and the app), not a hand-over button. Phase 4 builds it; its migration is v63 and pairing moves to v64 |
 | 20 | On a remote machine, a shared port's chat shows no presence while the host's companion works (GM, 2026-09-27) | Open: presence is kept only on the host and never crosses a share. Fix: the host publishes presence changes on the port's topic, as it does chat, and the remote tile shows them under its chat |
 | 21 | Imagine ran Claude for the lead and one engineer whatever the person chose, and Codex for the other only if installed (GM, 2026-09-27: his brother chose Codex) | Done: the whole team runs on the agent picked at first run (recorded now; older installs read echo's), even with both installed; another only if the choice is no longer installed. In the next build |
 | 22 | In chat, my messages on the right had right-aligned lines, so a wrapped one was ragged on the left (GM, 2026-09-27) | Done: each of my messages is a right-hand block of left-aligned text, indented by the room its widest line leaves, laid out again when the chat is resized; checked in a real text layout. In the next build |
