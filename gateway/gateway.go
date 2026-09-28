@@ -121,6 +121,19 @@ type Peer struct {
 	rateMu   sync.Mutex
 }
 
+// maxCallerMessageSize is the frame limit for every WebSocket peer that is not the proven host
+// (GW-13): the 2026-03 limit. The 2 MB limit exists for the host's answers, which can carry large
+// payloads; a caller with a large request has /call, which takes the same 2 MB.
+const maxCallerMessageSize = 64 * 1024
+
+// readLimitFor is the largest frame a WebSocket peer may send.
+func readLimitFor(provenHost bool) int64 {
+	if provenHost {
+		return maxMessageSize
+	}
+	return maxCallerMessageSize
+}
+
 // isHost reports whether this peer is the proven global host (see the is_host check in handleWS).
 func (g *Gateway) isHost(p *Peer) bool {
 	g.mu.RLock()
@@ -395,7 +408,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		g.sendRelayStates(ctx, peer)
 	}
 
-	conn.SetReadLimit(maxMessageSize)
+	conn.SetReadLimit(readLimitFor(provenHost))
 
 	for {
 		_, data, err := conn.Read(ctx)

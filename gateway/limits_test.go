@@ -27,3 +27,13 @@ func TestAnOversizedCallBodyIsRefused(t *testing.T) {
 		t.Fatalf("an oversized body got %d, want 400", w.Code)
 	}
 }
+
+// Only the proven host sends 2 MB frames; every other WebSocket peer gets the 2026-03 limit (GW-13).
+func TestOnlyTheHostGetsTheLargeFrameLimit(t *testing.T) {
+	if readLimitFor(true) != maxMessageSize {
+		t.Fatal("the proven host lost the large limit its answers need")
+	}
+	if readLimitFor(false) != maxCallerMessageSize || maxCallerMessageSize >= maxMessageSize {
+		t.Fatal("a caller that is not the host may send 2 MB frames")
+	}
+}
