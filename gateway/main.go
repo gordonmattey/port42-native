@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -106,16 +105,20 @@ func main() {
 				gw.SetAttestKey(key)
 			}
 			// Remote callers arrive through relays (4.4), once this instance has a key to register.
+			// Registered only while the app says it is sharing (GW-16): off until "relay-host on".
+			hostRelay := func(bool) {}
 			if list := splitRelays(*relays); len(list) > 0 && gw.peerKey() != nil {
 				t := relay.NewTransport(gw.peerKey(), list)
 				for _, r := range list {
 					gw.SetRelayState(r, false)
 				}
 				t.OnState = gw.SetRelayState
-				t.Run(context.Background())
+				host := &relayHost{run: t.Run, relays: list, setState: gw.SetRelayState}
+				hostRelay = host.set
 				go gw.ServeRemote(context.Background(), t)
 			}
-			io.Copy(io.Discard, rest)
+			// The rest of the pipe carries the app's commands; its end is the app's death.
+			readControl(rest, hostRelay)
 			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
 			done <- syscall.SIGTERM
 		}()

@@ -160,11 +160,12 @@ public struct SignOutSheet: View {
                 }
                 ForEach(relays, id: \.self) { relay in
                     let up = appState.relayStates[relay] == true
+                    let idle = !appState.relayHosting
                     HStack(spacing: 8) {
-                        Circle().fill(up ? accent : Port42Theme.textSecondary.opacity(0.4)).frame(width: 7, height: 7)
+                        Circle().fill(up ? accent : Port42Theme.textSecondary.opacity(idle ? 0.2 : 0.4)).frame(width: 7, height: 7)
                         Text(relay.replacingOccurrences(of: "wss://", with: "").replacingOccurrences(of: "/v1", with: ""))
                             .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                        Text(up ? "connected" : "not connected")
+                        Text(up ? "connected" : idle ? "connects while you share" : "not connected")
                             .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                         Spacer()
                         Button("remove") { appState.setRelays(relays.filter { $0 != relay }) }

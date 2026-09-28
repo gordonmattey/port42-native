@@ -29,6 +29,27 @@ public final class GatewayProcess: ObservableObject {
     /// so the gateway can never orphan and hold the port. See the "-watch-parent" flag in main.go.
     private var parentPipe: Pipe?
 
+    /// Whether this instance should be registered on its relays (GW-16): only while it shares a port or
+    /// has an invite that could still be redeemed. Sent down the private pipe, and again to a gateway
+    /// that restarts, since a new gateway starts unregistered.
+    private var wantsRelayHost = false
+
+    /// The line that tells the gateway to register on its relays, or to stop.
+    nonisolated static func relayHostLine(_ on: Bool) -> String { on ? "relay-host on\n" : "relay-host off\n" }
+
+    /// Register on the relays or stop. Repeating the current state sends nothing.
+    public func setRelayHosting(_ on: Bool) {
+        guard on != wantsRelayHost else { return }
+        wantsRelayHost = on
+        sendRelayHost()
+    }
+
+    private func sendRelayHost() {
+        guard let pipe = parentPipe, let data = Self.relayHostLine(wantsRelayHost).data(using: .utf8) else { return }
+        try? pipe.fileHandleForWriting.write(contentsOf: data)
+        p42log("[gateway] relay hosting %@", wantsRelayHost ? "on" : "off")
+    }
+
     /// The credential this spawn's gateway must present to claim `is_host`. In memory only, never
     /// written anywhere, and replaced on every spawn (D2). Readable so the host side can present it.
     public private(set) var hostCredential: String?
@@ -205,6 +226,8 @@ public final class GatewayProcess: ObservableObject {
                                         attestKey: attest).data(using: .utf8) {
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
             }
+            // A new gateway starts unregistered; if this instance is sharing, say so again.
+            if wantsRelayHost { sendRelayHost() }
 
             isRunning = true
             print("[gateway] started on port \(port), pid \(proc.processIdentifier)")

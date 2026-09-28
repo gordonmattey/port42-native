@@ -394,6 +394,13 @@ extension AppState {
         for s in sharedPorts() where !s.rights.isEmpty { out[s.portKey, default: PortSharing()].people.append(s) }
         for i in openInvites() { out[i.portKey, default: PortSharing()].openInvites += 1 }
         sharing = out
+        // Reachable through the relays only while something is shared or an invite could still be
+        // redeemed (GW-16): every install used to register at launch and stay registered.
+        let host = !out.isEmpty
+        if host != relayHosting {
+            relayHosting = host
+            onRelayHosting(host)
+        }
     }
 
     /// What the sharing pill in a tile's chrome says, if anything: a port of this instance that is

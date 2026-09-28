@@ -125,6 +125,14 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Whether this instance is registered on its relays (GW-16): only while it shares something.
+    @Published public internal(set) var relayHosting = false
+    /// Where the decision goes; the gateway in the app, a recorder in tests.
+    var onRelayHosting: (Bool) -> Void = { on in
+        guard !AppState.isTestProcess else { return }
+        GatewayProcess.shared.setRelayHosting(on)
+    }
+
     /// Turns the last run left unfinished (a restart cut them off), read at launch before anything can
     /// change presence, and handed back once the ports are restored.
     var turnsCutOff: [DatabaseService.TurnInFlight] = []
