@@ -371,6 +371,23 @@ else
 fi
 
 envsubst < "$DIR/Info.plist" > "$APP/Contents/Info.plist"
+
+# BLD-04 BEGIN: the Sparkle update key must be real. envsubst turns an unset SPARKLE_EDDSA_PUBLIC_KEY
+# into an empty SUPublicEDKey without a word (set -u does not reach it), and a release with no key
+# cannot verify its own updates. Checked on the generated plist, so any way of losing it is caught.
+# An EdDSA public key is 32 bytes, 44 characters of base64. A release stops; a dev build only warns.
+SU_KEY=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP/Contents/Info.plist" 2>/dev/null || true)
+# `|| true` inside: under pipefail a key base64 cannot decode would stop the build here, before the
+# message saying why.
+SU_KEY_BYTES=$( (printf '%s' "$SU_KEY" | base64 -D 2>/dev/null || true) | wc -c | tr -d ' ')
+if [ "$SU_KEY_BYTES" != "32" ]; then
+    if [ "$CONFIG" = "release" ]; then
+        echo "[build] ERROR: SUPublicEDKey is missing or not a 32-byte EdDSA key. Set SPARKLE_EDDSA_PUBLIC_KEY (.env or .secrets)." >&2
+        exit 1
+    fi
+    echo "[build] WARNING: SUPublicEDKey is missing or invalid; this dev build cannot verify updates"
+fi
+# BLD-04 END
 if $DEV_ISO; then
     # Launcher (the bundle's main executable) sets the isolated data dir + gateway port, then
     # execs the real binary.
