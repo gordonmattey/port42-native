@@ -15,6 +15,7 @@ public struct VoiceTyper {
     /// `CGEventKeyboardSetUnicodeString` is not meant for long strings, so the text goes in short runs.
     private static let runLength = 16
     private static let backspaceKey: CGKeyCode = 51
+    private static let returnKey: CGKeyCode = 36
 
     /// Type `text` into whatever has the keyboard right now.
     public static func type(_ text: String) {
@@ -40,6 +41,12 @@ public struct VoiceTyper {
             CGEvent(keyboardEventSource: nil, virtualKey: backspaceKey, keyDown: true)?.post(tap: .cghidEventTap)
             CGEvent(keyboardEventSource: nil, virtualKey: backspaceKey, keyDown: false)?.post(tap: .cghidEventTap)
         }
+    }
+
+    /// Press Return in the other app, so releasing the space sends what was said there too.
+    public static func pressReturn() {
+        CGEvent(keyboardEventSource: nil, virtualKey: returnKey, keyDown: true)?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: nil, virtualKey: returnKey, keyDown: false)?.post(tap: .cghidEventTap)
     }
 
     /// Turn what is on screen into what was heard, with the smallest edit: some backspaces, then some

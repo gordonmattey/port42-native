@@ -7,9 +7,10 @@ import AppKit
 /// from typing, so none of them needs code of its own, and a port cannot opt out of being dictated into
 /// any more than it can opt out of being typed into.
 ///
-/// Nothing here synthesizes a key event. A synthetic event would need Accessibility, would reach
+/// Nothing here posts a key event to the system. A posted event would need Accessibility, would reach
 /// whatever is frontmost rather than what the shell believes is focused, and would let a hidden port
-/// type into another app. Going through the responder that already has the keyboard is the narrow path.
+/// type into another app. Going through the responder that already has the keyboard is the narrow path,
+/// and `submit` keeps to it: its Return is handed to that one responder, never posted.
 public enum VoiceInserter {
 
     /// Dictation ends with a space, so the next word does not run into the last one, and so the space
@@ -67,6 +68,29 @@ public enum VoiceInserter {
             client.insertText(insert, replacementRange: NSRange(location: NSNotFound, length: 0))
         }
         return next
+    }
+
+    /// Press Return in the surface the words went to, so releasing the space sends what was said (GM,
+    /// 2026-09-27). A key event, not `doCommand(insertNewline:)`: the terminal (Ghostty) takes Return only
+    /// as a key, the chat field turns the key into its submit, and a web port sees a real keydown. It is
+    /// handed to this responder alone, so it cannot land anywhere the words did not.
+    @discardableResult
+    public static func submit(into responder: NSResponder?) -> Bool {
+        guard let responder, responder is NSTextInputClient else { return false }
+        let window = (responder as? NSView)?.window
+        guard let down = returnKey(.keyDown, in: window), let up = returnKey(.keyUp, in: window) else { return false }
+        responder.keyDown(with: down)
+        responder.keyUp(with: up)
+        return true
+    }
+
+    static let returnKeyCode: UInt16 = 36
+
+    static func returnKey(_ type: NSEvent.EventType, in window: NSWindow?) -> NSEvent? {
+        NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window?.windowNumber ?? 0,
+                         context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                         isARepeat: false, keyCode: returnKeyCode)
     }
 
     /// Insert `text` into `responder`. Returns false when there is nowhere to type, so the caller can

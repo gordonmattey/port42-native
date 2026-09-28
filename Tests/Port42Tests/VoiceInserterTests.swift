@@ -20,6 +20,9 @@ private final class FakeInputClient: NSResponder, NSTextInputClient {
         ranges.append(replacementRange)
     }
     override func doCommand(by selector: Selector) {}
+    var keys: [(NSEvent.EventType, UInt16, String)] = []
+    override func keyDown(with event: NSEvent) { keys.append((event.type, event.keyCode, event.characters ?? "")) }
+    override func keyUp(with event: NSEvent) { keys.append((event.type, event.keyCode, event.characters ?? "")) }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         marked.append((string as? String) ?? (string as? NSAttributedString)?.string ?? "")
         markCarets.append(selectedRange.location)
@@ -110,6 +113,30 @@ struct VoiceInserterTests {
     func nowhereToType() {
         #expect(VoiceInserter.insert("hi", into: DeafResponder()) == false)
         #expect(VoiceInserter.insert("hi", into: nil) == false)
+    }
+
+    @Test("releasing the space sends: Return goes to the surface the words went to, as a key")
+    func submitPressesReturn() {
+        let client = FakeInputClient()
+        #expect(VoiceInserter.submit(into: client))
+        #expect(client.keys.map(\.0) == [.keyDown, .keyUp])
+        #expect(client.keys.allSatisfy { $0.1 == 36 && $0.2 == "\r" }, "not a Return: \(client.keys)")
+        // A surface that cannot type is not pressed, and there is no surface to fall back to.
+        #expect(VoiceInserter.submit(into: DeafResponder()) == false)
+        #expect(VoiceInserter.submit(into: nil) == false)
+    }
+
+    @Test("send on release is on unless turned off, and each landing in Port42 and in another app sends")
+    @MainActor
+    func sendOnReleaseWiring() throws {
+        UserDefaults.standard.removeObject(forKey: ShellView.sendOnReleaseKey)
+        #expect(ShellView.sendsOnRelease)
+        UserDefaults.standard.set(false, forKey: ShellView.sendOnReleaseKey)
+        #expect(!ShellView.sendsOnRelease)
+        UserDefaults.standard.removeObject(forKey: ShellView.sendOnReleaseKey)
+        let src = try String(contentsOf: Self.sources.appendingPathComponent("Views/ShellView.swift"), encoding: .utf8)
+        // Another app, a streamed terminal, an inserted field: three places the words land, three sends.
+        #expect(src.components(separatedBy: "sendAfterWords(into:").count - 1 == 3, "a landing that does not send")
     }
 
     @Test("empty text inserts nothing")

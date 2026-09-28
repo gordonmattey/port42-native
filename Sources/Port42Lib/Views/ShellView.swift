@@ -472,6 +472,21 @@ public struct ShellView: View {
     /// that renders marked text badly can be taken back to pill-only without a build.
     static let streamIntoPortKey = "voiceStreamIntoPort"
 
+    /// Whether letting go of the space sends what was said: Return after the words land (GM, 2026-09-27).
+    /// On by default; off in Settings, Voice, for someone who wants to read it over first.
+    static let sendOnReleaseKey = "voiceSendOnRelease"
+    static var sendsOnRelease: Bool { UserDefaults.standard.object(forKey: sendOnReleaseKey) as? Bool ?? true }
+    /// A beat between the words and the Return, so a terminal app does not take text followed at once by
+    /// Return for a paste, where Return is a new line rather than send.
+    static let sendDelay: TimeInterval = 0.25
+
+    private func sendAfterWords(into target: NSResponder?) {
+        guard Self.sendsOnRelease else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.sendDelay) {
+            if let target { VoiceInserter.submit(into: target) } else { VoiceTyper.pressReturn() }
+        }
+    }
+
     /// Let go of a hold without treating it as a finished sentence: no transcription, no insertion, and any
     /// uncommitted text taken back. The watchdog and the focus changes both land here.
     @MainActor
@@ -576,6 +591,7 @@ public struct ShellView: View {
                 voiceTyped = VoiceTyper.stream(VoiceInserter.payload(for: text), previous: voiceTyped)
                 p42log("[Port42] voice typed into %@: %@", VoiceTyper.frontmostAppName ?? "another app", text)
                 voiceTyped = ""
+                sendAfterWords(into: nil)
                 return
             }
             let target = voiceResponder ?? NSApp.keyWindow?.firstResponder
@@ -587,6 +603,7 @@ public struct ShellView: View {
                 p42log("[Port42] voice heard (streamed): %@", text)
                 voiceStreamed = ""
                 clearVoiceNotice()
+                sendAfterWords(into: target)
                 return
             }
             let landed = VoiceInserter.insert(text, into: target)
@@ -595,6 +612,7 @@ public struct ShellView: View {
             // It only speaks when the words could not land anywhere.
             if landed {
                 clearVoiceNotice()
+                sendAfterWords(into: target)
             } else {
                 showVoiceNotice("nowhere to type: \(text)", seconds: 6)
             }

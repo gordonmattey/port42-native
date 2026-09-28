@@ -12,6 +12,7 @@ public struct SignOutSheet: View {
     @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
     @AppStorage(ShellMode.takeoverKey) private var fullscreenTakeover = false
     @AppStorage(VoiceGlobalTrigger.enabledKey) private var voiceInOtherApps = false
+    @AppStorage(ShellView.sendOnReleaseKey) private var voiceSendsOnRelease = true
     @State private var accessibilityGranted = false
 
 
@@ -243,6 +244,17 @@ public struct SignOutSheet: View {
                     }
                     Spacer(minLength: 12)
                     voiceModelButton
+                }
+
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SEND ON RELEASE").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                        Text("letting go of the space sends what you said, as Return would. Off: the words wait for you to send them.")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $voiceSendsOnRelease).labelsHidden().toggleStyle(.switch).tint(accent)
                 }
 
                 HStack(alignment: .top) {
