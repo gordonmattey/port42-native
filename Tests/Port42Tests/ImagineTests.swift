@@ -201,6 +201,14 @@ struct ImagineTests {
         #expect(ImagineBox.command(for: "   ") == nil)
     }
 
+    @Test("the box opens the catalog in the browser, for more ideas than its chips hold")
+    func boxOpensCatalog() throws {
+        #expect(ImagineBox.catalogURL.absoluteString == "https://port42.ai/elements.html#catalog")
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Port42Lib/Views/ImagineBox.swift"), encoding: .utf8)
+        #expect(src.contains("NSWorkspace.shared.open(Self.catalogURL)"), "the catalog button opens nothing")
+    }
+
     @Test("in a chat, /imagine runs and posts nothing as the person; any other line posts")
     @MainActor
     func slashInChat() async throws {

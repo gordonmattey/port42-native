@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The quick imagine box (⌘I, docs/plan-imagine.md): type what to make, Enter, and a team starts in
 /// a new space. Takes what a chat's `/imagine` takes, with or without the `/imagine` in front.
@@ -18,6 +19,8 @@ struct ImagineBox: View {
     @FocusState private var focused: Bool
 
     static let examples = ["a shader that reacts to music", "a starfield you can steer", "a live chart of my CPU"]
+    /// More ideas than three chips hold, on the site until the catalog lives in the box (GM, 2026-09-27).
+    static let catalogURL = URL(string: "https://port42.ai/elements.html#catalog")!
 
     /// What the box's text means: the same parser as a chat, so the two cannot drift.
     static func command(for text: String) -> Imagine.Command? {
@@ -86,6 +89,15 @@ struct ImagineBox: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Button { NSWorkspace.shared.open(Self.catalogURL) } label: {
+                        Text("more in the catalog ↗")
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .help(Self.catalogURL.absoluteString)
                 }
             }
 
