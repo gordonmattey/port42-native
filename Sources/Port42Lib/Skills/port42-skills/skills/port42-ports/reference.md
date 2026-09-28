@@ -16,7 +16,7 @@ Accept an invite someone sent you: this instance joins their port, which opens h
 
 ## invite.create
 
-Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
+Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
 
         expiresIn (integer): Seconds until the link stops working (default 7 days, at most 30).
         port (string, required): The port to share (id / udid / title).
@@ -27,7 +27,7 @@ Make an invite link that lets one person on another machine open ONE port: in Po
 
 ## invite.list
 
-The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer), expired or withdrawn.
+The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer, and usedAgainBy for the second of its two), expired or withdrawn.
 
     port42 invite.list
 
