@@ -352,4 +352,20 @@ struct InviteTests {
         #expect(w.state.sharedPorts().isEmpty)
         #expect(reason(try await remote(w, as: Self.ada, "port.getHtml", ["id": w.p])) == "not_granted")
     }
+
+    /// What the browser guest does when a shared page loads its data: `storage.get` naming the port
+    /// (GM, 2026-09-27: a shared port's board was empty in the browser). The port lives in a space, as
+    /// a real one does, and its data is where v1 keeps it.
+    @Test("a guest who joined reads the shared port's storage, as the browser page does")
+    func guestReadsStorage() async throws {
+        let w = try world()
+        _ = w.state.portWindows.registerTiledPort(id: "inv-s", html: "<p>s</p>", spaceId: "space-1", createdBy: "author-1",
+                                                  title: "squad", position: nil)
+        let s = try #require(w.state.portWindows.panels.first { $0.id == "inv-s" }?.udid)
+        try w.state.db.setPortStorage(key: "state", value: "\"board\"", scope: "space-1", creatorId: "port:" + s)
+        let c = try coupon(try await create(w, port: s))
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce, "name": "Ada"])
+        let got = try await remote(w, as: Self.ada, "storage.get", ["key": "state", "port": s])
+        #expect((got as? [String: Any])?["value"] as? String == "board", "the guest could not read it: \(String(describing: got))")
+    }
 }

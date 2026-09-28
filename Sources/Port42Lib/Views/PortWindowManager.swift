@@ -1250,6 +1250,7 @@ enum PortWebViewFactory {
         });
         </script>
         <style data-port42>
+            :root { --color-accent: #00ff41; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
                 background: #111;
