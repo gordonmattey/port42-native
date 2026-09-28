@@ -17,8 +17,9 @@ struct BridgeTargetScopeTests {
         // Terminal targets need .terminal (APP-03, APP-04); code needs the port's authority (APP-05, APP-07).
         "port.push": "terminal target (APP-03); write scope (APP-11)",
         "port.subscribe": "terminal target (APP-04); read scope OPEN: APP-10",
-        "port.exec": "OPEN: APP-05 (code authority)",
-        "port.update": "OPEN: APP-07", "port.patch": "OPEN: APP-07", "port.restore": "OPEN: APP-07",
+        "port.exec": "code authority (APP-05)",
+        "port.update": "code authority (APP-07)", "port.patch": "code authority (APP-07)",
+        "port.restore": "code authority (APP-07)",
         "port.create": "gated on its type: terminal and browser ask for the capability",
         // A port acting on itself only.
         "port.close": "own port", "port.setTitle": "own port", "port.setCapabilities": "own port",

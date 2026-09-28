@@ -298,12 +298,20 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response, as {value, token}. A bare expression yields its value (multi-line is fine). A multi-statement body needs an explicit return: `foo(); 42` is a syntax error, `foo(); return 42;` works."]
             ],
             "required": ["id", "js"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let js = try args.requireString("js")
         // Phase L0: resolve the target, then require a web surface (docs/plan-port42-protocol-local-bus.md).
-        guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser,
-              let wv = webView(ref.id ?? ref.messageId ?? id) else { throw BridgeError.notFound("port '\(id)'") }
+        guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser else {
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        // APP-05: the JS runs as the PORT, with its grants, so exec is judged like a code write
+        // (APP-07). A port whose bridge cannot be found is refused rather than run unjudged.
+        let bridge = ref.id.flatMap { pid in appState.portWindows.panels.first(where: { $0.id == pid })?.bridge }
+            ?? ref.messageId.flatMap { appState.findInlineBridge(by: $0) }
+        guard let bridge else { throw BridgeError.notFound("port '\(id)'") }
+        try appState.requireCodeAuthority(over: bridge, named: id, by: p, doing: "running code in it")
+        guard let wv = webView(ref.id ?? ref.messageId ?? id) else { throw BridgeError.notFound("port '\(id)'") }
         // #5: PortExecJS awaits promises + marshals objects; nil = undefined/no-return.
         //
         // The catch is what makes a failure ACTIONABLE. Thrown as-is, a JS error reached the caller
