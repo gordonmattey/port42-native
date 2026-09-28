@@ -246,16 +246,6 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
             ] as [String: Any],
             "required": ["port"],
         ]) { p, args in
-        // Sharing hands a port to someone elsewhere, so an agent or client asks first, for each port
-        // (Gordon, 2026-09-26): leave to share one port is not leave to share the next. The person
-        // using Port42 is never asked on their own behalf.
-        if p.kind != .human, let key = appState.resolvePortRef(try args.requireString("port"))?.key {
-            let title = appState.portWindows.panels.first { $0.udid == key }?.title ?? key
-            guard await appState.ensureShareGrant(AppState.shareObject(port: key),
-                                                  detail: "Share '\(title)' with another machine", for: p) else {
-                throw BridgeError.permissionDenied(PortPermission.share.rawValue)
-            }
-        }
         let raw = (args.array("rights") as? [String]) ?? ["see", "use", "wake_agents"]
         var rights: [RemoteRight] = []
         for r in raw {
@@ -263,6 +253,24 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
                 throw BridgeError.badArg("unknown right '\(r)': use see, use, edit, wake_agents, fork or move")
             }
             if !rights.contains(right) { rights.append(right) }
+        }
+        // Sharing hands a port to someone elsewhere, so an agent or client asks first, for each port
+        // (Gordon, 2026-09-26): leave to share one port is not leave to share the next. The person
+        // using Port42 is never asked on their own behalf.
+        //
+        // NAU-03: the card says WHAT is given (the rights) and what the port can reach here, and a
+        // yes covers only that port with exactly those rights. `edit` and `move` are asked every
+        // time and never remembered: one lets them change the code that runs here, the other hands
+        // the port over.
+        if p.kind != .human, let key = appState.resolvePortRef(try args.requireString("port"))?.key {
+            let title = appState.portWindows.panels.first { $0.udid == key }?.title ?? key
+            let detail = AppState.shareCardDetail(title: title, rights: rights,
+                                                  reach: appState.portMachineGrants(key))
+            guard await appState.ensureShareGrant(AppState.shareObject(port: key, rights: rights),
+                                                  detail: detail, for: p,
+                                                  remember: !rights.contains(.edit) && !rights.contains(.move)) else {
+                throw BridgeError.permissionDenied(PortPermission.share.rawValue)
+            }
         }
         let life = TimeInterval(args.int("expiresIn") ?? Int(AppState.inviteDefaultLife))
         let made = try appState.createInvite(port: try args.requireString("port"), rights: rights, life: life,
@@ -439,11 +447,39 @@ extension AppState {
     /// The grant object for sharing one port: a local port's key, or `<peer>/<port>` for one elsewhere.
     static func shareObject(port: String) -> String { "share:" + port }
 
-    /// Ask a caller, once per port, to share it or open it (see `invite.create`, `invite.accept`).
-    func ensureShareGrant(_ object: String, detail: String, for p: Principal) async -> Bool {
-        if (try? db.grants(grantee: p.id, object: object, zone: ""))?.contains(.share) == true { return true }
+    /// The grant object for sharing one port WITH these rights (NAU-03). The rights are part of the
+    /// key, so a yes to "see" is not a yes to "see, use, wake_agents": any other set asks again.
+    static func shareObject(port: String, rights: [RemoteRight]) -> String {
+        shareObject(port: port) + "#" + rights.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
+    /// What the share card says (NAU-03): the port, what the person on the other machine could do
+    /// with it, and what the port itself can reach here, since they can make it use that.
+    static func shareCardDetail(title: String, rights: [RemoteRight], reach: [PortPermission]) -> String {
+        let can = RemoteRight.allCases.filter(rights.contains).map { right -> String in
+            switch right {
+            case .see:        return "see it"
+            case .use:        return "use it and post in its chat"
+            case .edit:       return "change its code, which then runs on this machine"
+            case .wakeAgents: return "wake your agents from its chat"
+            case .fork:       return "take a copy"
+            case .move:       return "take it over (it closes here)"
+            }
+        }
+        let reachLine = reach.isEmpty
+            ? "It reaches nothing else on this machine."
+            : "It can use \(reach.map(\.rawValue).joined(separator: ", ")) on this machine, "
+              + "and whoever you let in can make it do so."
+        return "Share '\(title)' with another machine. They could \(can.joined(separator: ", ")). \(reachLine)"
+    }
+
+    /// Ask a caller to share a port or open one (see `invite.create`, `invite.accept`). A yes is kept
+    /// for `object` unless `remember` is false, when it is asked every time (NAU-03: edit, move).
+    func ensureShareGrant(_ object: String, detail: String, for p: Principal,
+                          remember: Bool = true) async -> Bool {
+        if remember, (try? db.grants(grantee: p.id, object: object, zone: ""))?.contains(.share) == true { return true }
         guard await permissions.request(.share, from: p, detail: detail) else { return false }
-        try? db.saveGrants([.share], grantee: p.id, object: object, zone: "")
+        if remember { try? db.saveGrants([.share], grantee: p.id, object: object, zone: "") }
         return true
     }
 
