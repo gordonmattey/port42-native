@@ -17,4 +17,8 @@ test('dist/port42-guest.js is a fresh build of src, and invite.html names its ha
   const hash = 'sha384-' + createHash('sha384').update(committed).digest('base64');
   const page = readFileSync(new URL('invite.html', root), 'utf8');
   assert.ok(page.includes(`integrity="${hash}"`), 'invite.html does not name the bundle\'s hash');
+  // Once, with that hash: a merge left a second tag with an old one, so the page loaded twice and
+  // showed the conflict markers around it (GM, 2026-09-27).
+  assert.equal(page.split('dist/port42-guest.js').length - 1, 1, 'invite.html loads the bundle more than once');
+  assert.ok(!/^(<{7}|>{7}) /m.test(page), 'invite.html has merge conflict markers');
 });
