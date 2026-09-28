@@ -164,13 +164,19 @@ extension AppState {
         if row.revokedAt != nil {
             throw inviteError("revoked", "This invite was withdrawn by the person who sent it.")
         }
-        if let by = row.redeemedBy, by != peer {
+        // A link lets in two keys, then it is used up (GM, 2026-09-27): the person who looked in the
+        // browser first can still open it in their Port42. A key it already let in is not a use.
+        let fresh = peer != row.redeemedBy && peer != row.redeemedAgainBy
+        if fresh, row.redeemedAgainBy != nil {
             throw inviteError("used", "This invite has already been used. Ask for a new one.")
         }
-        if row.redeemedBy == nil, row.expiresAt < Date() {
+        if fresh, row.redeemedBy != nil, row.rights.contains(.move) {     // a port moves once
+            throw inviteError("used", "This port has already moved.")
+        }
+        if fresh, row.expiresAt < Date() {
             throw inviteError("expired", "This invite has expired. Ask for a new one.")
         }
-        if row.redeemedBy == nil, let codeHash = row.codeHash {
+        if fresh, let codeHash = row.codeHash {
             let given = (args["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             guard ClientRegistry.constantTimeEquals(Self.inviteHash(given), codeHash) else {
                 let tries = try db.bumpInviteCodeTries(id: row.id)
@@ -208,8 +214,9 @@ extension AppState {
         }
         let rights = remoteRights(of: peer, onPort: row.portKey).union(row.rights)
         grantRemoteRights(rights, to: peer, onPort: row.portKey)
-        if row.redeemedBy == nil {
-            try db.markInviteRedeemed(id: row.id, by: peer)
+        if fresh {
+            if row.redeemedBy == nil { try db.markInviteRedeemed(id: row.id, by: peer) }
+            else { try db.markInviteRedeemedAgain(id: row.id, by: peer) }
             refreshSharing()
             let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
             postSystemChatLine(key: row.portKey,
@@ -227,7 +234,7 @@ extension AppState {
 @MainActor
 func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["invite.create"] = BridgeMethod(permission: nil, paramNames: ["port", "rights", "expiresIn", "requireCode"],
-        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -270,7 +277,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["invite.list"] = BridgeMethod(permission: nil,
-        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer), expired or withdrawn.",
+        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer, and usedAgainBy for the second of its two), expired or withdrawn.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         let rows = (try? appState.db.allInvites()) ?? []
         return .array(rows.map { row in
@@ -282,6 +289,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
                 "expires": .int(Int(row.expiresAt.timeIntervalSince1970)), "code": .bool(row.codeHash != nil),
             ]
             if let by = row.redeemedBy { o["usedBy"] = .string(by) }
+            if let by = row.redeemedAgainBy { o["usedAgainBy"] = .string(by) }
             return .object(o)
         })
     }

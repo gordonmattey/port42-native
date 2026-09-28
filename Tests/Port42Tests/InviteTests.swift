@@ -247,15 +247,44 @@ struct InviteTests {
         #expect(notice.fromKind == "system" && notice.text.contains("Ada joined"))
     }
 
-    @Test("a link works once: a second redeemer is refused, the first may repeat it")
-    func oneTime() async throws {
+    @Test("a link lets in two machines (a browser, then Port42), refuses a third, and either may repeat it")
+    func twoUses() async throws {
         let w = try world()
         let c = try coupon(try await create(w))
-        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce, "name": "Ada"])
-        #expect(reason(try await remote(w, as: Self.eve, "invite.redeem", ["nonce": c.nonce, "name": "Eve"])) == "used")
-        #expect(try w.state.db.client(peerKey: Self.eve) == nil, "a second redeemer was enrolled")
-        let again = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce])
-        #expect((again as? [String: Any])?["port"] as? String == w.p, "the same guest reconnecting was refused")
+        let browser = Self.ada, app = Self.eve
+        let third = "thirdthirdthirdthirdthirdthirdthirdthirdthirdthirdq"
+        _ = try await remote(w, as: browser, "invite.redeem", ["nonce": c.nonce, "name": "Gordon"])
+        _ = try await remote(w, as: browser, "invite.redeem", ["nonce": c.nonce])           // a refresh: not a use
+        let second = try await remote(w, as: app, "invite.redeem", ["nonce": c.nonce, "name": "Gordon"])
+        #expect((second as? [String: Any])?["port"] as? String == w.p, "the same link in Port42 after the browser was refused")
+        #expect(w.state.remoteRights(of: app, onPort: w.p) == [.see, .use, .wakeAgents])
+        #expect(!w.state.remoteRights(of: browser, onPort: w.p).isEmpty, "the browser lost the port")
+        #expect(reason(try await remote(w, as: third, "invite.redeem", ["nonce": c.nonce, "name": "Mallory"])) == "used")
+        #expect(try w.state.db.client(peerKey: third) == nil, "a third redeemer was enrolled")
+        for peer in [browser, app] {
+            let again = try await remote(w, as: peer, "invite.redeem", ["nonce": c.nonce])
+            #expect((again as? [String: Any])?["port"] as? String == w.p, "a machine it let in was refused on reconnecting")
+        }
+        let joins = try w.state.db.chatEntries(chat: w.p, after: 0, limit: 20).filter { $0.text.contains("joined from another machine") }
+        #expect(joins.count == 2, "each machine let in is announced once: \(joins.count)")
+    }
+
+    @Test("the second machine meets the same checks as the first: expiry and code")
+    func secondUseChecked() async throws {
+        let w = try world()
+        let made = try await create(w, code: true)
+        let c = try coupon(made)
+        let code = try #require(made["code"] as? String)
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce, "code": code])
+        #expect(reason(try await remote(w, as: Self.eve, "invite.redeem", ["nonce": c.nonce])) == "wrong_code",
+                "the second machine got in without the code")
+        try w.state.db.insertInvite(id: "soon", portKey: w.p, rights: [.see], nonceHash: AppState.inviteHash("soon-nonce"),
+                                    codeHash: nil, createdBy: "u", expiresAt: Date().addingTimeInterval(-60))
+        try w.state.db.markInviteRedeemed(id: "soon", by: Self.ada)
+        #expect(reason(try await remote(w, as: Self.eve, "invite.redeem", ["nonce": "soon-nonce"])) == "expired",
+                "an expired link let in a second machine")
+        #expect((try await remote(w, as: Self.ada, "invite.redeem", ["nonce": "soon-nonce"]) as? [String: Any])?["port"] as? String == w.p,
+                "the first machine was refused on reconnecting after expiry")
     }
 
     @Test("an unknown, expired or withdrawn invite is refused with its reason")
