@@ -272,6 +272,9 @@ public final class PortWindowManager: ObservableObject {
                 let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
                 bridge.grantedPermissions = perms
             }
+            // NAU-02: code written from another machine stays not-the-creator's after a restart. Set
+            // AFTER the grants above, so its didSet clears what the init and the row restored.
+            if let who = row.codeChangedBy { bridge.codeChangedBy = who }
             // Per-desktop positions (v46). `positions` is the authority; posX/posY is the
             // home-space projection a pre-v46 row carries, and the fallback when the JSON is
             // missing or unreadable — a restore must never silently unplace a layout.

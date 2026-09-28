@@ -1571,6 +1571,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let html = try args.requireString("html")
         let target = appState.resolvePortRef(id)?.udid ?? id
         try appState.requireCodeAuthority(over: target, by: p)   // APP-07
+        appState.recordCodeWrite(to: target, by: p, replacesAll: true)   // NAU-02
         guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
@@ -1600,6 +1601,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.badArg("search string not found in port '\(id)' — read the current HTML with port.getHtml and copy the exact string")
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
+        appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
         guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
             throw BridgeError.notFound("port '\(id)'")
         }
@@ -1623,6 +1625,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
+        appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
         guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }

@@ -975,6 +975,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v66-port-code-changed-by") { db in
+            // NAU-02: who on another machine replaced a port's code. A port with a value here runs
+            // as itself, not as its creator, across restarts too.
+            try db.alter(table: "port_panels") { t in t.add(column: "codeChangedBy", .text) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -2179,6 +2185,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var positions: String?
     /// v62 — pinned in every space.
     public var pinnedEverywhere: Bool = false
+    /// v66 — who on another machine replaced this port's code (NAU-02); nil = its creator's code.
+    public var codeChangedBy: String?
 
     public init(from panel: PortPanel) {
         self.id = panel.id
@@ -2194,6 +2202,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.isBackground = panel.isBackground
         self.isAlwaysOnTop = panel.isAlwaysOnTop
         self.pinnedEverywhere = panel.pinnedEverywhere
+        self.codeChangedBy = panel.bridge.codeChangedBy
         self.posX = panel.position.map { Double($0.x) }
         self.posY = panel.position.map { Double($0.y) }
         if !panel.positions.isEmpty {

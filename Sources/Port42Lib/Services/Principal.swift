@@ -155,15 +155,21 @@ public struct Principal: Equatable {
     /// `ports.list`, used to resolve a port's AI model). Only the authorization identity changes, so
     /// "who made this" and "what it may do" stop being the same field.
     public static func forPortBridge(createdBy: String?, messageId: String?, instanceFallback: String,
-                                     title: String?, spaceId: String?) -> Principal {
+                                     title: String?, spaceId: String?,
+                                     codeChangedBy: String? = nil) -> Principal {
         // I1.3: inherit the creator's identity only when the creator is an actual author.
-        let author = createdBy.flatMap { isSharedIdentity($0) ? nil : $0 }
+        // NAU-02: and only while the code is still theirs. Code a caller on another machine wrote is
+        // not the creator's, so the port authorizes as ITSELF (rung 2), holding nothing inherited.
+        let author = codeChangedBy == nil ? createdBy.flatMap { isSharedIdentity($0) ? nil : $0 } : nil
         return Principal(
             id: author ?? messageId ?? instanceFallback,
             // The card must name whoever the grant is ABOUT. When the port authorizes as itself,
             // naming its creator would ask the human to grant to "Local (gateway)" while the grant
-            // actually lands on one port, which is the opposite of informed consent.
-            displayName: author ?? title ?? "a port",
+            // actually lands on one port, which is the opposite of informed consent. A port whose
+            // code someone elsewhere changed says so, or the card would read as the creator's ask.
+            displayName: author
+                ?? codeChangedBy.map { "\(title ?? "a port") (code changed by \($0))" }
+                ?? title ?? "a port",
             spaceId: spaceId, kind: .port,
             // The port's OWN id, carried separately from the authz `id` (which is the creator for a
             // companion-made port). Owner resolution keys on this so event routing and teardown find

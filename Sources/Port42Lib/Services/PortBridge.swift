@@ -30,6 +30,22 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Permissions granted during this port session. Resets when bridge is deallocated.
     public var grantedPermissions: Set<PortPermission> = []
 
+    /// **Who on ANOTHER machine replaced this port's code**, or nil (NAU-02).
+    ///
+    /// A port authorizes as its creator (P-260), so its code runs with the creator's machine grants.
+    /// A guest holding `edit` can replace that code, and APP-07 only asks whether the port holds a
+    /// grant AT THE MOMENT of the write: a grant given to the creator afterwards, or a card the
+    /// guest's code raises under the creator's name, would still reach the guest. So once a remote
+    /// caller has written the code, the port stops being its creator: it authorizes as itself,
+    /// inherits nothing, and its cards say who changed it. Persisted, so a restart does not launder it.
+    public var codeChangedBy: String? {
+        didSet {
+            guard codeChangedBy != nil else { return }
+            grantedPermissions = []
+            if let mid = messageId { state?.cachedPortPermissions[mid] = nil }
+        }
+    }
+
     /// Active AI streams keyed by callId.
     /// In-flight streaming-registry calls (ai.complete, companions.invoke), keyed by the JS callId so
     /// `ai.cancel(callId)` and `suspendAI()` (park/background) can cancel the running Task. This is the
@@ -171,7 +187,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             // The ObjectIdentifier arm survives as the honest answer for a bridge that genuinely
             // has no identity, and the probe reports it as `rung=objectIdentifier` if one appears.
             instanceFallback: stableIdentity ?? ObjectIdentifier(self).debugDescription,
-            title: title, spaceId: spaceId)
+            title: title, spaceId: spaceId, codeChangedBy: codeChangedBy)
         #if DEBUG
         // I1.1: which rung of the chain a real port actually lands on. Rung 2 (`messageId`) still
         // names ONE port and does not pool; rung 3 names a heap address that differs every launch,
