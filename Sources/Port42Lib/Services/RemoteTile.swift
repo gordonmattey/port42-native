@@ -68,10 +68,25 @@ extension AppState {
         return ((try? db.remotePorts()) ?? []).first { $0.peerKey == link.peerKey && $0.portKey == link.portKey }
     }
 
-    /// A mirrored tile's call, sent to the instance that holds the port. nil for any other tile.
+    /// A mirrored tile's call, sent to the instance that holds the port. nil for any other tile, or
+    /// for a method the tile answers about this desktop.
+    ///
+    /// **WHETHER A TILE IS A MIRROR IS READ FROM ITS DATABASE LINK** (NAU-01). This used to be
+    /// `mirrorStatus[tile] != nil`, which only `startMirror` sets, after the gateway's welcome. A tile
+    /// restored at launch loads the other machine's saved page at once, so until the welcome (or for
+    /// good, if it never came, or after `stopMirror`) this returned nil and the page's calls ran HERE,
+    /// as a local port with this machine's authority: a foreign page could reach `port.push` into
+    /// local terminals. A mirror that is not forwarding now has its calls refused, never run locally.
     func mirroredCall(_ method: String, fromTile tile: String, args: [Any]) -> Task<Any, Never>? {
-        guard mirrorStatus[tile] != nil, !Self.mirrorLocalMethods.contains(method),
-              let row = mirroredRemote(tile) else { return nil }
+        guard !Self.mirrorLocalMethods.contains(method), let row = mirroredRemote(tile) else { return nil }
+        guard mirrorStatus[tile] != nil else {
+            let refusal = BridgeError(
+                code: .hostOffline,
+                message: "This tile mirrors '\(row.title)' on \(row.hostName)'s machine and is not connected "
+                       + "to it yet, so '\(method)' was not run here. It connects once Port42's gateway "
+                       + "is up; call again then.")
+            return Task { ["error": refusal.message, "code": refusal.code] }
+        }
         // The page's own id resolves as any reference to the tile does (`remotePort(for:)`): to the
         // host's port. Its calls name it implicitly as well as by id, so all of them go.
         let names = bridgeRegistry[method]?.paramNames ?? bridgeStreamRegistry[method]?.paramNames ?? []

@@ -107,6 +107,27 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("a mirror tile that is not forwarding refuses its page's calls instead of running them here (NAU-01)")
+    func notForwardingRefuses() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>theirs</p>" })
+        let tile = try await accept(state)
+        // As at launch before the gateway's welcome: the tile and its saved page are back, the mirror
+        // is not running yet.
+        state.stopMirror(tile: tile)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == tile }?.bridge)
+
+        // ports.list is ungated here: run locally, it hands the foreign page this machine's ports.
+        let out = await bridge.handleMethod("ports.list", args: [])
+        let o = out as? [String: Any]
+        #expect(o?["code"] as? String == BridgeErrorCode.hostOffline.wire,
+                "a restored mirror's page ran a call here, with this machine's authority")
+
+        // What the tile answers about this desktop still answers.
+        let info = await bridge.handleMethod("port.info", args: [])
+        #expect((info as? [String: Any])?["error"] == nil)
+    }
+
     @Test("a state event from the host refetches the port into the tile")
     func stateRefreshes() async throws {
         let (state, gw) = try world()
