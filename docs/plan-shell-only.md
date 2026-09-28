@@ -578,6 +578,9 @@ Things that would be cool once the five scenarios hold.
   CLI's flag and typing it into its arguments. Offer the models each CLI can run (Claude Code's and
   Codex's own lists) as a choice when making or editing a companion, and at first run, and write the
   flag for the person.
+- **Move browser and terminal ports to another space** (GM, 2026-09-27). "Move to…" for a web port
+  exists; a browser or terminal port should move across spaces the same way, keeping its session (the
+  terminal keeps running, the browser keeps its page).
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
