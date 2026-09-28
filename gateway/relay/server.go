@@ -73,6 +73,10 @@ type Limits struct {
 	Idle              time.Duration // a session with no frames either way is closed
 }
 
+// guestQueue is how many host frames the relay holds for one guest (up to 1 MB at MaxFrame) before
+// it decides the guest has stopped reading and ends that session (#124).
+const guestQueue = 16
+
 var DefaultLimits = Limits{MaxFrame: 64<<10 + 64, SessionsPerHost: 32, SessionsPerKey: 4,
 	OpensPerIPMin: 30, OpensPerHostMin: 10, SessionsPerHostIP: 4,
 	AcceptTimeout: 15 * time.Second, Idle: 5 * time.Minute}
@@ -124,8 +128,11 @@ type relaySession struct {
 	guestKey string
 	hostIP   string // host key + source IP, for perHostIP
 	accepted chan bool
-	gmu      sync.Mutex
-	last     atomic.Int64 // unix nanos of the last frame either way
+	// out holds host frames for the guest, written by the session's own writer. Full means the
+	// guest is not reading (#124).
+	out  chan []byte
+	gmu  sync.Mutex
+	last atomic.Int64 // unix nanos of the last frame either way
 }
 
 func (s *relaySession) writeGuest(ctx context.Context, typ websocket.MessageType, b []byte) error {
@@ -258,8 +265,13 @@ func (s *Server) serveHost(ctx context.Context, conn *websocket.Conn, key string
 				continue
 			}
 			rs.last.Store(time.Now().UnixNano())
-			if err := rs.writeGuest(ctx, websocket.MessageBinary, b[16:]); err != nil {
-				s.endSession(rs, "")
+			// Never write to a guest from here (#124). This loop is every session this host has, so
+			// one guest that stopped reading would stall all of them, indefinitely. The frame goes to
+			// that session's queue; a full queue ends that session alone.
+			select {
+			case rs.out <- b[16:]:
+			default:
+				go s.endSession(rs, "the guest is not reading")
 			}
 			continue
 		}
@@ -285,7 +297,8 @@ func (s *Server) serveHost(ctx context.Context, conn *websocket.Conn, key string
 			default:
 			}
 		case "close":
-			s.endSession(rs, "")
+			// Off this loop too: closing waits on the guest's side of the close handshake.
+			go s.endSession(rs, "")
 		}
 	}
 }
@@ -335,7 +348,8 @@ func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip s
 		sid := make([]byte, 16)
 		rand.Read(sid)
 		rs = &relaySession{sid: hex.EncodeToString(sid), sidBytes: sid, host: h, guest: conn,
-			guestKey: key, hostIP: hostIP, accepted: make(chan bool, 1)}
+			guestKey: key, hostIP: hostIP, accepted: make(chan bool, 1),
+			out: make(chan []byte, guestQueue)}
 		rs.last.Store(now.UnixNano())
 		h.sessions[rs.sid] = rs
 		s.sessions[rs.sid] = rs
@@ -369,6 +383,22 @@ func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip s
 	if err := rs.writeGuest(ctx, websocket.MessageText, mustJSON(Control{T: "opened", SID: rs.sid})); err != nil {
 		return
 	}
+
+	// The session's writer: the only place host frames reach this guest (#124). A guest that stops
+	// reading blocks here, on its own goroutine, and nowhere else.
+	go func() {
+		for {
+			select {
+			case b := <-rs.out:
+				if rs.writeGuest(ctx, websocket.MessageBinary, b) != nil {
+					s.endSession(rs, "")
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	idle := time.NewTicker(time.Second * 15)
 	defer idle.Stop()
