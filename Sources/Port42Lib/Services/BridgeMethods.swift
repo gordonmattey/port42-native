@@ -63,7 +63,8 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         ],
         // Runs until cancelled. On a request/response door that is a hang, so the caller is refused
         // there with a message naming the door that works.
-        endless: true
+        endless: true,
+        terminalTarget: "id"
     ) { _, args, yield in
         let id = try args.requireString("id")
         let ref = appState.resolvePortRef(id)

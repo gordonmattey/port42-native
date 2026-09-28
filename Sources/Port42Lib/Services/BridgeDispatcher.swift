@@ -555,6 +555,9 @@ extension AppState {
                 throw BridgeError.permissionDenied(perm.rawValue)
             }
         }
+        // APP-04: subscribing to a terminal is reading its output, which needs `.terminal`.
+        try await requireTerminalTarget(method.terminalTarget, args: args, principal: principal,
+                                        pregrant: pregrant, standing: method.endless)
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
         // with its own rules; a write is a write whichever registry serves it.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
