@@ -38,6 +38,10 @@ func TestTheInvitePageIsServedWithItsHeaders(t *testing.T) {
 	if !strings.Contains(FrameCSP, "default-src 'none'") || strings.Contains(FrameCSP, "connect-src") {
 		t.Errorf("a shared port's frame can reach the network: %s", FrameCSP)
 	}
+	// GST-01: default-src does not cover form submission, so without this a port posts a form out.
+	if directive(FrameCSP, "form-action") != "form-action 'none'" {
+		t.Errorf("a shared port's frame can post a form to any site: %s", FrameCSP)
+	}
 	if r := get("/dist/port42-guest.js"); r.StatusCode != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/javascript") {
 		t.Errorf("the script: %d %s", r.StatusCode, r.Header.Get("Content-Type"))
 	}

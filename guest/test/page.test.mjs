@@ -131,6 +131,7 @@ test('joining redeems the invite as the name given, then shows the port in a fra
   assert.equal(p.doc.getElementById('gate').hidden, true, 'the card stayed over the port');
   const frame = p.doc.getElementById('frame');
   assert.ok(!frame.getAttribute('sandbox').includes('allow-same-origin'), 'the frame can reach the page\'s storage');
+  assert.ok(!frame.getAttribute('sandbox').includes('allow-forms'), 'the frame can post a form to any site (GST-01)');
   assert.match(frame.getAttribute('src'), /^frame\.html/, 'the port is not loaded in its own document');
   const sent = p.app.frameState.html;
   assert.match(sent, /<p>the port<\/p>/);

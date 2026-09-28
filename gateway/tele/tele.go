@@ -16,9 +16,14 @@ const PageCSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline
 	"frame-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // FrameCSP is the frame's: what Port42 gives a port in the app (PortWindowManager), so a port runs the
-// same in a browser as in a tile, and can reach no network.
+// same in a browser as in a tile, plus no form submission and no <base> (GST-01). The port cannot
+// fetch, connect or post a form anywhere.
+//
+// It is NOT sealed from the network: no CSP directive stops a page navigating its own frame, so a
+// port can still carry data out in a URL it navigates to. Treat "can reach no network" as untrue
+// until navigation is blocked too.
 const FrameCSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; " +
-	"frame-ancestors 'self'"
+	"form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 
 // Handler serves the site in dir: invite.html at / and /invite.html, frame.html, dist/port42-guest.js.
 func Handler(dir string) http.Handler {
