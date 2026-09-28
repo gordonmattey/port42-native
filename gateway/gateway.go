@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -104,7 +105,11 @@ type Peer struct {
 	ID     string
 	Name   string
 	Conn   *websocket.Conn
-	IsHost bool // true if this is the Port42 app
+	IsHost bool // CLAIMED by the peer in identify; never a proof on its own
+	// hostProven is set only after the is_host claim was checked (GW-15). isHost and provenHost read
+	// this, never IsHost plus ID equality: an impostor that identifies under the host's ID with a
+	// wrong credential still has IsHost set and still matches globalHostID.
+	hostProven bool
 	// HostCredential as presented in `identify`, checked against the one the app handed over.
 	HostCredential string
 	// Credential is the CALLER's token as given once at `identify`, carried opaquely like every
@@ -120,7 +125,7 @@ type Peer struct {
 func (g *Gateway) isHost(p *Peer) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return p.IsHost && g.globalHostID == p.ID
+	return p.hostProven && g.globalHostID == p.ID
 }
 
 // rateOK returns true if the peer hasn't exceeded the frame rate limit.
@@ -157,8 +162,11 @@ type Gateway struct {
 	peers map[string]*Peer
 	// globalHostID is the peer ID of the Port42 app. Every call is forwarded to it.
 	globalHostID string
-	// httpCallbacks maps call_id -> reply channel for HandleHTTPCall
-	httpCallbacks map[string]chan Envelope
+	// httpCallbacks maps call_id -> reply channel, and the host the call went to, for HandleHTTPCall
+	httpCallbacks map[string]httpCallback
+	// inflight maps a forwarded call (caller id + call_id) to the host it went to. A response or stream
+	// frame is delivered only from that host, to that caller (GW-08).
+	inflight map[inflightKey]string
 	// httpCallSeq makes each HTTP call_id unique even when two calls land in the same nanosecond
 	// (a UnixNano-only id collides under concurrency, dropping one response; the SenderID is the
 	// fixed `local-http`, so the CallID is the only disambiguator).
@@ -218,14 +226,67 @@ func (g *Gateway) hostCredentialMatches(presented string) bool {
 	return g.hostCred.Matches(presented)
 }
 
+// httpCallback is where an HTTP /call waits, and the one host that may answer it.
+type httpCallback struct {
+	reply chan Envelope
+	host  string
+}
+
+// inflightKey names one forwarded call. Callers choose their call ids, so the caller is part of the key.
+type inflightKey struct {
+	caller string
+	callID string
+}
+
 func NewGateway() *Gateway {
-	return &Gateway{peers: make(map[string]*Peer)}
+	return &Gateway{peers: make(map[string]*Peer), inflight: make(map[inflightKey]string)}
+}
+
+// expectAnswer records that a call from caller went to host (GW-08).
+func (g *Gateway) expectAnswer(caller, callID, host string) inflightKey {
+	key := inflightKey{caller: caller, callID: callID}
+	g.mu.Lock()
+	g.inflight[key] = host
+	g.mu.Unlock()
+	return key
+}
+
+func (g *Gateway) forgetCall(key inflightKey) {
+	g.mu.Lock()
+	delete(g.inflight, key)
+	g.mu.Unlock()
+}
+
+// answeredBy reports whether sender is the host a call from target with this call_id went to. `done`
+// retires the call, for the frame that ends it. Any other peer's response or stream frame is dropped.
+func (g *Gateway) answeredBy(sender *Peer, target, callID string, done bool) bool {
+	key := inflightKey{caller: target, callID: callID}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	host, ok := g.inflight[key]
+	if !ok || host != sender.ID {
+		return false
+	}
+	if done {
+		delete(g.inflight, key)
+	}
+	return true
+}
+
+// forgetCallsOf drops the calls a gone caller made, or a gone host was answering. Caller holds g.mu.
+func (g *Gateway) forgetCallsOf(id string) {
+	for key, host := range g.inflight {
+		if key.caller == id || host == id {
+			delete(g.inflight, key)
+		}
+	}
 }
 
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
-	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
-	})
+	// No OriginPatterns (GW-05): the wildcard let any web page the user opened connect as a peer. The
+	// library's default refuses a browser Origin that differs from the request Host, and a loopback
+	// listener refuses every Origin before this point (loopbackOnly).
+	conn, err := websocket.Accept(w, req, nil)
 	if err != nil {
 		log.Printf("[gateway] accept error: %v", err)
 		return
@@ -268,9 +329,6 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		Credential:     ident.Credential,
 	}
 
-	g.addPeer(peer)
-	defer g.removePeer(peer)
-
 	// `is_host` NOW HAS TO BE PROVEN (slice-02 half two, D2/D8).
 	//
 	// It used to be believed: any peer claiming `is_host: true` became `globalHostID`, which is the
@@ -284,24 +342,51 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	// **When no credential was configured the claim is still honored**, deliberately: a gateway
 	// launched by hand has no pipe, and refusing hosts there would break the relay case (BR2/BR3)
 	// rather than close a hole. The credential is what an app-spawned gateway checks.
+	//
+	// The result is recorded as hostProven (GW-15). A refused claim used to be logged and nothing more,
+	// so an impostor under the host's ID kept IsHost, matched globalHostID, and was treated as the
+	// proven host: remote_call with this instance's key, relay state, no rate limit.
 	if peer.IsHost {
 		if g.hostCredentialConfigured() && !g.hostCredentialMatches(peer.HostCredential) {
 			log.Printf("[gateway] REFUSED is_host claim from %s: credential missing or wrong",
 				peer.ID[:min(8, len(peer.ID))])
 		} else {
-			g.mu.Lock()
-			g.globalHostID = peer.ID
-			g.mu.Unlock()
-			log.Printf("[gateway] global host set: %s", peer.ID[:min(8, len(peer.ID))])
+			peer.hostProven = true
 		}
+	}
+
+	// An unproven peer never takes the live host's ID (GW-15): installing it would route every call,
+	// with the caller's credential, to it.
+	g.mu.RLock()
+	liveHost, hostOnline := g.peers[g.globalHostID]
+	g.mu.RUnlock()
+	if !peer.hostProven && hostOnline && liveHost.ID == peer.ID {
+		log.Printf("[gateway] REFUSED %s: unproven peer under the live host's id", peer.ID[:min(8, len(peer.ID))])
+		conn.Close(websocket.StatusPolicyViolation, "peer id in use")
+		return
+	}
+
+	// A live peer's ID is not taken without proof (GW-02). addPeer closed whatever held the ID and
+	// installed the newcomer, so any local process could take a caller's ID, or the host's while its
+	// connection was being replaced.
+	if err := g.admitPeer(ctx, peer); err != nil {
+		log.Printf("[gateway] REFUSED %s: %v", peer.ID[:min(8, len(peer.ID))], err)
+		conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
+	defer g.removePeer(peer)
+
+	if peer.hostProven {
+		g.mu.Lock()
+		g.globalHostID = peer.ID
+		g.mu.Unlock()
+		log.Printf("[gateway] global host set: %s", peer.ID[:min(8, len(peer.ID))])
 	}
 
 	log.Printf("[gateway] peer connected: %s", peer.ID)
 	welcome := Envelope{Type: "welcome", SenderID: peer.ID}
 	// Only the proven host learns the instance's peer id this way; a caller has no use for it here.
-	g.mu.RLock()
-	provenHost := peer.IsHost && g.globalHostID == peer.ID
-	g.mu.RUnlock()
+	provenHost := g.isHost(peer)
 	if provenHost {
 		welcome.SelfPeer = g.selfPeerID()
 	}
@@ -327,7 +412,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		// one leaves a caller waiting until it times out. Measured with the real gateway and door:
 		// a burst of 300 calls got 30 answers (GatewayStallTests).
 		if !g.isHost(peer) && !peer.rateOK() {
-			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
+			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded", Code: CodeRateLimited})
 			log.Printf("[gateway] peer %s rate limited", peer.ID[:min(8, len(peer.ID))])
 			continue
 		}
@@ -370,23 +455,62 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (g *Gateway) addPeer(p *Peer) {
+// livenessProbeTimeout bounds how long admitPeer waits for the current holder of an ID to answer a
+// ping before treating its connection as dead.
+const livenessProbeTimeout = 2 * time.Second
+
+// admitPeer installs p under its ID, or refuses it because a LIVE peer already holds the ID (GW-02).
+//
+// The newcomer replaces the holder only when it proves the same identity (both are the proven host,
+// or both identified with the same client credential), or when the holder is dead: its connection
+// does not answer a ping within livenessProbeTimeout, which is what an ordinary reconnect meets.
+func (g *Gateway) admitPeer(ctx context.Context, p *Peer) error {
+	g.mu.RLock()
+	old, taken := g.peers[p.ID]
+	g.mu.RUnlock()
+
+	if taken && !sameIdentity(old, p) {
+		probeCtx, cancel := context.WithTimeout(ctx, livenessProbeTimeout)
+		err := old.Conn.Ping(probeCtx)
+		cancel()
+		if err == nil {
+			return fmt.Errorf("peer id in use")
+		}
+		log.Printf("[gateway] %s: holder did not answer a ping, replacing it", p.ID[:min(8, len(p.ID))])
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if old, ok := g.peers[p.ID]; ok {
+	if current, ok := g.peers[p.ID]; ok && current != old {
+		return fmt.Errorf("peer id in use") // taken while this one probed; that one passed the same check
+	}
+	if taken {
 		old.Conn.Close(websocket.StatusGoingAway, "replaced by new connection")
 	}
 	g.peers[p.ID] = p
+	return nil
+}
+
+// sameIdentity reports whether newcomer proved it is the peer holding the ID.
+func sameIdentity(old, newcomer *Peer) bool {
+	if old.hostProven && newcomer.hostProven {
+		return true
+	}
+	return old.Credential != "" &&
+		subtle.ConstantTimeCompare([]byte(old.Credential), []byte(newcomer.Credential)) == 1
 }
 
 func (g *Gateway) removePeer(p *Peer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Only the connection that still holds the ID gives it up, host slot included (GW-02). Clearing
+	// globalHostID by ID string let a replaced or refused connection blank the real host's routing.
 	if current, ok := g.peers[p.ID]; ok && current == p {
 		delete(g.peers, p.ID)
-	}
-	if g.globalHostID == p.ID {
-		g.globalHostID = ""
+		if g.globalHostID == p.ID {
+			g.globalHostID = ""
+		}
+		g.forgetCallsOf(p.ID)
 	}
 }
 
@@ -422,7 +546,7 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	if !online {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "host is offline"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "host is offline", "code": CodeHostOffline})
 		return
 	}
 
@@ -431,9 +555,9 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 
 	g.mu.Lock()
 	if g.httpCallbacks == nil {
-		g.httpCallbacks = make(map[string]chan Envelope)
+		g.httpCallbacks = make(map[string]httpCallback)
 	}
-	g.httpCallbacks[callID] = replyCh
+	g.httpCallbacks[callID] = httpCallback{reply: replyCh, host: hostID}
 	g.mu.Unlock()
 
 	defer func() {
@@ -494,7 +618,12 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if resp.Error != "" {
 			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": resp.Error})
+			// The host's code travels with its message: a caller branches on the code, never the text.
+			out := map[string]string{"error": resp.Error}
+			if resp.Code != "" {
+				out["code"] = resp.Code
+			}
+			json.NewEncoder(w).Encode(out)
 		} else if resp.Payload != nil {
 			var payload map[string]interface{}
 			if err := json.Unmarshal(resp.Payload, &payload); err == nil {
@@ -543,7 +672,9 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 	// identity, set once. Before this, a WS caller had to repeat its token on every envelope, and
 	// the browser guest, which gives it once, had its live subscription refused (audit F2).
 	env.Credential = sender.Credential
+	key := g.expectAnswer(sender.ID, env.CallID, hostID)
 	if err := hostPeer.Send(ctx, env); err != nil {
+		g.forgetCall(key)
 		log.Printf("[gateway] failed to send call to host %s: %v", hostID, err)
 		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", Code: CodeTransportFailed, CallID: env.CallID})
 	}
@@ -562,6 +693,10 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 func (g *Gateway) routeStream(ctx context.Context, sender *Peer, env Envelope) {
 	if env.TargetID == "" {
 		log.Printf("[gateway] stream from %s missing target_id", sender.ID)
+		return
+	}
+	if !g.answeredBy(sender, env.TargetID, env.CallID, false) {
+		log.Printf("[gateway] dropped a stream frame from %s: not the host of that call", sender.ID[:min(8, len(sender.ID))])
 		return
 	}
 
@@ -588,16 +723,22 @@ func (g *Gateway) routeResponse(ctx context.Context, sender *Peer, env Envelope)
 
 	// Check if this is a reply to an HTTP /call request
 	g.mu.Lock()
-	if ch, ok := g.httpCallbacks[env.CallID]; ok {
+	// Only the host the HTTP call went to may answer it (GW-08).
+	if cb, ok := g.httpCallbacks[env.CallID]; ok && cb.host == sender.ID {
 		delete(g.httpCallbacks, env.CallID)
 		g.mu.Unlock()
 		select {
-		case ch <- env:
+		case cb.reply <- env:
 		default:
 		}
 		return
 	}
 	g.mu.Unlock()
+
+	if !g.answeredBy(sender, env.TargetID, env.CallID, true) {
+		log.Printf("[gateway] dropped a response from %s: not the host of that call", sender.ID[:min(8, len(sender.ID))])
+		return
+	}
 
 	g.mu.RLock()
 	targetPeer, online := g.peers[env.TargetID]

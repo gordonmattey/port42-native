@@ -149,7 +149,8 @@ bus from the experience side; this doc names it from the mechanism side.
 
 ## Open (the keystone work, in order)
 
-1. **Address across instances.** Extend `port42://space/<id>/<portId>` to carry the instance, so a query
+1. **Address across instances.** DONE in nautilus Phase 4: a remote port is `port42://<peer>/<portId>`
+   beside the local `port42://space/<id>/<portId>` (`PortAddress.swift`), so a query
    reaches a port on another peer the same way it reaches a local one. This is the single foundational
    decision — get it right and subscription + location-transparency follow; get it wrong and multiplayer
    is bolted on.

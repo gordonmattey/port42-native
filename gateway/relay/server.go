@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,33 +61,45 @@ func helloText(relay, nonce, role string) []byte {
 
 // Limits bound what one host or guest can take from a relay.
 type Limits struct {
-	MaxFrame        int           // largest data frame, sid prefix included
-	SessionsPerHost int           // open sessions one host can have
-	SessionsPerKey  int           // open sessions one guest key can have
-	OpensPerIPMin   int           // session requests one IP may make a minute
-	OpensPerHostMin int           // session requests one host may receive a minute
-	AcceptTimeout   time.Duration // how long a host has to accept
-	Idle            time.Duration // a session with no frames either way is closed
+	MaxFrame        int // largest data frame, sid prefix included
+	SessionsPerHost int // open sessions one host can have
+	SessionsPerKey  int // open sessions one guest key can have
+	OpensPerIPMin   int // session requests one IP may make a minute
+	OpensPerHostMin int // session requests one host may receive a minute FROM ONE IP (REL-01)
+	// SessionsPerHostIP bounds the open sessions one IP holds with one host, so a single source
+	// cannot fill SessionsPerHost with sessions that never complete Noise (REL-01).
+	SessionsPerHostIP int
+	AcceptTimeout     time.Duration // how long a host has to accept
+	Idle              time.Duration // a session with no frames either way is closed
 }
 
 var DefaultLimits = Limits{MaxFrame: 64<<10 + 64, SessionsPerHost: 32, SessionsPerKey: 4,
-	OpensPerIPMin: 30, OpensPerHostMin: 10, AcceptTimeout: 15 * time.Second, Idle: 5 * time.Minute}
+	OpensPerIPMin: 30, OpensPerHostMin: 10, SessionsPerHostIP: 4,
+	AcceptTimeout: 15 * time.Second, Idle: 5 * time.Minute}
 
 // Server is a relay. The zero value is not usable; call NewServer.
 type Server struct {
 	limits Limits
 
-	mu       sync.Mutex
-	hosts    map[string]*hostConn     // by host key
-	sessions map[string]*relaySession // by sid
-	perKey   map[string]int           // open sessions per guest key
-	opensIP  map[string][]time.Time
-	opensTo  map[string][]time.Time
+	mu        sync.Mutex
+	hosts     map[string]*hostConn     // by host key
+	sessions  map[string]*relaySession // by sid
+	perKey    map[string]int           // open sessions per guest key
+	opensIP   map[string][]time.Time
+	opensTo   map[string][]time.Time // by host key + source IP (REL-01), never by host key alone
+	perHostIP map[string]int         // open sessions by host key + source IP
+
+	// TrustCloudflare takes the client's address from CF-Connecting-IP, which Cloudflare sets and
+	// overwrites, when the relay runs behind it. Otherwise the address is the connection's own.
+	// X-Forwarded-For is never read: its first entry is whatever the client wrote, so anyone could
+	// spend a victim's per-IP allowance, or dodge their own (REL-01).
+	TrustCloudflare bool
 }
 
 func NewServer(l Limits) *Server {
 	return &Server{limits: l, hosts: map[string]*hostConn{}, sessions: map[string]*relaySession{},
-		perKey: map[string]int{}, opensIP: map[string][]time.Time{}, opensTo: map[string][]time.Time{}}
+		perKey: map[string]int{}, opensIP: map[string][]time.Time{}, opensTo: map[string][]time.Time{},
+		perHostIP: map[string]int{}}
 }
 
 type hostConn struct {
@@ -109,6 +122,7 @@ type relaySession struct {
 	host     *hostConn
 	guest    *websocket.Conn
 	guestKey string
+	hostIP   string // host key + source IP, for perHostIP
 	accepted chan bool
 	gmu      sync.Mutex
 	last     atomic.Int64 // unix nanos of the last frame either way
@@ -183,15 +197,21 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	if hello.Role == "host" {
 		s.serveHost(ctx, conn, hello.Key)
 	} else {
-		s.serveGuest(ctx, conn, hello.Key, clientIP(r))
+		s.serveGuest(ctx, conn, hello.Key, s.clientIP(r))
 	}
 }
 
-func clientIP(r *http.Request) string {
-	if f := r.Header.Get("X-Forwarded-For"); f != "" {
-		return f
+// clientIP is the address rate limits count against (REL-01; see TrustCloudflare).
+func (s *Server) clientIP(r *http.Request) string {
+	if s.TrustCloudflare {
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); ip != nil {
+			return ip.String()
+		}
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
 	return host
 }
 
@@ -293,8 +313,9 @@ func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip s
 	now := time.Now()
 	s.mu.Lock()
 	var okIP, okTo bool
+	hostIP := open.To + "|" + ip
 	s.opensIP[ip], okIP = allow(s.opensIP[ip], s.limits.OpensPerIPMin, now)
-	s.opensTo[open.To], okTo = allow(s.opensTo[open.To], s.limits.OpensPerHostMin, now)
+	s.opensTo[hostIP], okTo = allow(s.opensTo[hostIP], s.limits.OpensPerHostMin, now)
 	h := s.hosts[open.To]
 	var refusal *Control
 	switch {
@@ -306,17 +327,20 @@ func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip s
 		refusal = &Control{T: "error", Code: CodeLimit, Message: "that instance has as many sessions as this relay allows"}
 	case s.perKey[key] >= s.limits.SessionsPerKey:
 		refusal = &Control{T: "error", Code: CodeLimit, Message: "you have as many open sessions as this relay allows"}
+	case s.limits.SessionsPerHostIP > 0 && s.perHostIP[hostIP] >= s.limits.SessionsPerHostIP:
+		refusal = &Control{T: "error", Code: CodeLimit, Message: "you have as many open sessions with that instance as this relay allows"}
 	}
 	var rs *relaySession
 	if refusal == nil {
 		sid := make([]byte, 16)
 		rand.Read(sid)
 		rs = &relaySession{sid: hex.EncodeToString(sid), sidBytes: sid, host: h, guest: conn,
-			guestKey: key, accepted: make(chan bool, 1)}
+			guestKey: key, hostIP: hostIP, accepted: make(chan bool, 1)}
 		rs.last.Store(now.UnixNano())
 		h.sessions[rs.sid] = rs
 		s.sessions[rs.sid] = rs
 		s.perKey[key]++
+		s.perHostIP[hostIP]++
 	}
 	s.mu.Unlock()
 	if refusal != nil {
@@ -395,6 +419,9 @@ func (s *Server) endSession(rs *relaySession, why string) {
 	s.perKey[rs.guestKey]--
 	if s.perKey[rs.guestKey] <= 0 {
 		delete(s.perKey, rs.guestKey)
+	}
+	if s.perHostIP[rs.hostIP]--; s.perHostIP[rs.hostIP] <= 0 {
+		delete(s.perHostIP, rs.hostIP)
 	}
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

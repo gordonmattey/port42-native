@@ -356,7 +356,7 @@ Nautilus completes as Port42 v1. What must be done, verified or decided before t
 | Seen in the imagine runs | Settled: the startup-stuck check removed; messages typed as a turn ended were lost (#6), fixed and verified live |
 | Test gate | `swift test` green before the release build (1296 tests at `3752063`, 2026-09-27) |
 | Voice input (GM, 2026-09-27: on the v1 list) | Feature-complete on `voice-input` (the "handoff: arrange" session, 2026-09-27): all five phases, confirmed by hand on Dev7, suite green (1351) merged against nautilus `e497a17`. Hold space past 0.2 s and speak; words stream into whatever has the keyboard (chat field, web port, terminal) and commit on release; other apps behind a setting and Accessibility. Parakeet TDT v3 on the Neural Engine via FluidAudio (new package, Apache 2.0). No migration, nothing in the bridge registry (a test pins that no port reaches the microphone or the typer). The 461 MB model is fetched on first use, not shipped; its CC BY 4.0 attribution goes in `THIRD-PARTY-LICENSES.txt` before release. Adds a Voice tab to Settings (`SignOutSheet`, which Phase 4 also changes). Voice starts from the app at launch, not `AppState.init`: starting it there doubled the suite and made a watch test flake |
-| Pairing and scoped tokens (GM, 2026-09-27) | v1, built after the Phase 4 merge. Design in `plan-pairing-scopes.md`; all four decisions made (GM) |
+| Pairing and scoped tokens (GM, 2026-09-27) | Designed (`plan-pairing-scopes.md`, all four decisions made by GM), not built. The push is set for the morning of 2026-09-28 regardless (GM), so it moves after 1.0.0 unless GM says otherwise. See `release-1.0.0.md` |
 | Version (GM, 2026-09-27) | Stays **1.0.0** until the push: no incremental versions. Every build until then says 1.0.0 (a `NO_PUBLISH` build does not record a release, so the version is not bumped) |
 | Daily-driver install | After the release scope is done (GM) |
 | The app's videos are not in git (found 2026-09-27) | `*.mp4` is gitignored, so `DolphinProtocolLoading`, `dream-architect`, `dreamscape` and `TheAquariumsDoorIsOpen` exist only on this Mac; a fresh clone builds without them. `.gitattributes` already sends `*.mp4` to Git LFS, so un-ignoring them is the fix. GM to decide |
@@ -599,6 +599,13 @@ Things that would be cool once the five scenarios hold.
 - **One way to close a sheet** (GM, 2026-09-27). Esc does not close the companion sheet, and sheets
   across the app mix an X button, an esc label and neither. Every sheet and box closes on Esc and shows
   the same close control.
+- **Embed a port in a web page** (GM, 2026-09-27). A snippet that puts a live, read-only port on any
+  site, as the invite page shows a shared one: the Issue Squad board published for anyone to watch. Builds
+  on the browser guest and the relay; needs a "see only, anyone" share that no one redeems.
+- **relay1 deploys from the published image** (GM, 2026-09-28). relay1's Railway service is an upload
+  (`railway up`), so a `relay-v*` tag does not reach it; relay-v1.0.0 was redeployed by hand. Make the
+  ghcr.io package public, point the service at `ghcr.io/gordonmattey/port42-relay`, and a release reaches
+  relay1 without a hand deploy. The same for tele.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

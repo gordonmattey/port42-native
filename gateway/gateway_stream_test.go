@@ -19,7 +19,7 @@ func TestRouteStreamDoesNotResolveHTTPCallback(t *testing.T) {
 
 	replyCh := make(chan Envelope, 4)
 	g.mu.Lock()
-	g.httpCallbacks = map[string]chan Envelope{"call-1": replyCh}
+	g.httpCallbacks = map[string]httpCallback{"call-1": {reply: replyCh, host: "host"}}
 	g.mu.Unlock()
 
 	// A stream frame naming a target nobody is connected as: it must drop, not resolve the callback.

@@ -6,8 +6,6 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
-	<key>com.apple.security.cs.disable-library-validation</key>
-	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
 	<!-- The hardened runtime (every notarized build) lets an app ask for the microphone or the camera
@@ -19,7 +17,10 @@
 	<true/>
 	<!-- GhosttyKit allocates executable memory at runtime (GPU/font stack);
 	     Apple Silicon kills the process without these. Matches Ghostty.app.
-	     Notarization permits these (Ghostty ships notarized with allow-jit). -->
+	     Notarization permits these (Ghostty ships notarized with allow-jit).
+	     No disable-library-validation (BLD-01): the only dynamically loaded code is Sparkle.framework,
+	     which build.sh re-signs with the Port42 team identity, so library validation passes, and any
+	     code this app loads would inherit its microphone, camera, screen and automation grants. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>

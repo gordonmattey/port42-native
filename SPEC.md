@@ -2,7 +2,10 @@
 
 **Last updated:** 2026-03-27
 
-**Status:** Working draft
+**Status:** Historical. This is the pre-1.0 product spec, kept for its reasoning. Much of it no longer
+describes the app (channels, the in-app model, ngrok sharing and the old messaging API are gone). For
+Port42 1.0 as it is, read [README.md](README.md), [docs/getting-started.md](docs/getting-started.md),
+[ARCHITECTURE.md](ARCHITECTURE.md) and the generated API reference, [llms.txt](llms.txt).
 
 ---
 

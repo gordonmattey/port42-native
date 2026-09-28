@@ -106,8 +106,9 @@ never on the message text — messages change. The set is closed:
   THE GATEWAY            no_host (Port42 is not running, or not connected to this gateway —
                          start it) · host_offline (it was there and its connection dropped;
                          retry shortly) · transport_failed (the gateway could not hand your call
-                         over; retry) — your call never reached Port42, so nothing was executed
-                         and nothing changed. Retrying is always safe
+                         over; retry) · rate_limited (too many frames in one second from you;
+                         slow down and send it again) — your call never reached Port42, so
+                         nothing was executed and nothing changed. Retrying is always safe
   DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
   SOMETHING FAILED       escape (path left the data directory) · io · device_error ·
                          browser_error · ai_error · script_error (your AppleScript/JXA) ·
@@ -334,7 +335,7 @@ Generated from the live method registry: every entry below is served exactly as 
         js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response, as {value, token}. A bare expression yields its value (multi-line is fine). A multi-statement body needs an explicit return: `foo(); 42` is a syntax error, `foo(); return 42;` works.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
   port.getDom(id, selector)
-      Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'expect' on your next write and it will be refused rather than clobber someone if the port moved in between.
+      Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'token' on your next write and it will be refused rather than clobber someone if the port moved in between.
         id (string, required): The port's UDID (from ports_list)
         selector (string): Optional CSS selector to read just one subtree. Omit for the whole document.
   port.getHtml(id, version)

@@ -60,14 +60,14 @@ public final class Port42AuthStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        KeychainGate.delete(deleteQuery as CFDictionary)
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data
         ]
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        let status = KeychainGate.add(addQuery as CFDictionary, nil)
         if status != errSecSuccess {
             p42log("[Port42] Failed to save secret '%@': %d", name, status)
         }
@@ -193,12 +193,12 @@ public final class Port42AuthStore {
 
     private func saveKeychainValue(_ value: String, account: String) {
         guard let data = value.data(using: .utf8) else { return }
-        SecItemDelete([
+        KeychainGate.delete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ] as CFDictionary)
-        let status = SecItemAdd([
+        let status = KeychainGate.add([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
@@ -219,7 +219,7 @@ public final class Port42AuthStore {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = KeychainGate.copyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data,
               let str = String(data: data, encoding: .utf8) else {
             return nil
@@ -240,7 +240,7 @@ public final class Port42AuthStore {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = KeychainGate.copyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return .missing }
         guard status == errSecSuccess, let data = result as? Data,
               let str = String(data: data, encoding: .utf8) else { return .unreadable(status) }
@@ -253,7 +253,7 @@ public final class Port42AuthStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
+        KeychainGate.delete(query as CFDictionary)
     }
 }
 

@@ -1,163 +1,188 @@
 # Contributing to Port42
 
-Port42 is open source (MIT) and we welcome contributions. Here's how to swim in.
+Port42 is open source under the MIT license. This guide covers building it, running a development
+instance, testing, the project's conventions, and how to propose larger changes. For how the code
+fits together, read [ARCHITECTURE.md](ARCHITECTURE.md) first.
 
-## Bug fixes
+## Prerequisites
 
-Found a bug? Fix it and open a PR. No process needed beyond:
+- A Mac with Apple silicon, running macOS 14 or later.
+- Xcode 16 or later (the Swift toolchain, and Swift Testing for the test suite).
+- Go 1.24 or later, for the gateway, the `port42` command and the hook shim.
+- Node.js with npm, for the browser guest in `guest/` and for the gateway's guest test.
+- Git LFS. The GhosttyKit terminal engine is vendored as an LFS file
+  (`vendor/GhosttyKit.xcframework.tar.gz`). Without it, `build.sh` downloads the same archive from a
+  pinned URL and verifies its checksum.
+- `envsubst` (`brew install gettext`), which `build.sh` uses to write `Info.plist`.
+- `rsvg-convert` (`brew install librsvg`), needed only when the app icon is regenerated from its SVG.
+- To run companions, Claude Code or Codex on your `PATH`.
 
-1. Fork the repo
-2. Create a branch
-3. Fix the bug
-4. Write a clear commit message explaining what broke and why
-5. Open a PR
+## Build and run
 
-If the fix is non-obvious, include steps to reproduce.
-
-## Small improvements
-
-Typos, docs, performance fixes, test coverage. Same as bug fixes. Just open a PR.
-
-## New features and major changes
-
-Major changes require a **Port42 Proposal (P42P)** before any code is written.
-
-Port42 is a communication protocol. Changes to the protocol affect everyone. A companion built today should still work tomorrow. P42Ps make sure we think before we ship.
-
-### What counts as major?
-
-- New user-facing features
-- Changes to the protocol (message format, encryption, handshake)
-- Changes to the port bridge API (`port42.*`)
-- Architectural changes (new modules, restructured data flow)
-- Removing or changing existing behavior
-
-### The P42P process
-
-1. **Open an issue** titled `[P42P] Your feature name`
-2. **Fill out the P42P template** (see below)
-3. **Discussion happens in the issue.** Ask questions, raise concerns, refine the idea.
-4. **Maintainer approval.** A maintainer will approve, request changes, or close with explanation.
-5. **Build it.** Once approved, implement and open a PR referencing the P42P issue.
-
-### P42P template
-
-A P42P has two parts: the **spec** (what it is) and the **implementation plan** (how to build it). Both are required.
-
-#### Part 1: Spec
-
-```markdown
-## Summary
-
-One paragraph. What are you proposing and why?
-
-## Status
-
-Draft | In Discussion | Approved | Building | Complete
-
-## User Flows
-
-For each distinct user interaction:
-
-### Flow N: Name
-
-    User does X
-    → System does Y
-    → User sees Z
-
-Target: One sentence describing the quality bar.
-
-## Architecture
-
-ASCII diagram showing where this fits in the system. How data flows
-through existing and new components. See ports-spec.md for reference.
-
-## Feature Registry
-
-Enumerate every discrete feature with an ID, description, priority, and
-"done when" acceptance criteria.
-
-| ID | Feature | Description | Priority | Done When |
-|----|---------|-------------|----------|-----------|
-| XX-100 | Feature name | What it does | High/Med/Low | Observable outcome |
-
-## Protocol Changes
-
-If the proposal changes the wire protocol, message format, bridge API,
-or encryption, specify the exact changes. Include method signatures,
-data shapes, and backwards compatibility notes.
-
-## Sandbox and Security
-
-How does this interact with the port sandbox, CSP, and permission model?
-What new permissions are required? What attack surface does this add?
-
-## Open Questions
-
-What needs more thought? What are the tradeoffs?
+```bash
+git lfs install
+git clone https://github.com/gordonmattey/port42-native.git
+cd port42-native
+./build.sh --run
 ```
 
-#### Part 2: Implementation Plan
+A debug build is an isolated development instance, **Port42 Dev**. It never touches an installed
+Port42:
 
-```markdown
-## Constraint
+| | Installed app | Dev instance |
+|---|---|---|
+| Bundle id | `com.port42.app` | `com.port42.dev` |
+| Data | `~/Library/Application Support/Port42` | `~/Library/Application Support/Port42Dev` |
+| Gateway | `127.0.0.1:4242` | `127.0.0.1:4243` |
+| Command | `port42` | `port42-dev` |
 
-What must NOT break. (e.g., "No breaking changes. All existing chat,
-swim, and sync functionality must continue working at every step.")
+The bundle is written to `.build/Port42Dev.app`, and its output is logged to
+`~/port42-build/Port42Dev.log`. More instances sit beside it, each with its own bundle id, data
+directory and gateway port: `--dev2` (4244), `--dev3` (4245), `--dev4` (4246), `--dev5` (4247),
+`--dev6` (4248) and `--dev7` (4249). Two instances on one Mac can share ports with each other through
+the relay.
 
-## Build Steps
+**Every build runs `swift test` first** and stops if a test fails, before anything is compiled,
+signed or launched. `SKIP_TESTS=1 ./build.sh --run` skips the gate when you need the app now.
 
-For each step:
+**Rebuild with `./build.sh`, never a bare `swift build`.** `swift build` updates only the loose
+binary; it does not assemble or sign the `.app`, so launching the bundle afterwards runs the old code.
+`build.sh` also builds the Go gateway, CLI and shim, and bundles them.
 
-### Step N: Name (Feature IDs)
+`build.sh` stops only an instance launched from its own build directory before replacing it, never
+the installed app.
 
-**Goal:** One sentence.
+**Releases** are for maintainers. `./build.sh --release` builds with a Developer ID, notarizes, and
+then publishes, pushing the Sparkle appcast and creating the GitHub release. `NO_PUBLISH=1
+./build.sh --release` stops after a signed, notarized DMG and publishes nothing.
 
-**Files to create:**
-- path/to/NewFile.swift — what it does
+## Test
 
-**Files to modify:**
-- path/to/ExistingFile.swift — what changes
+| Suite | Command |
+|---|---|
+| Swift (the app) | `swift test`, or `swift test --filter SuiteName` |
+| Gateway, relay, tele | `cd gateway && go test ./...` |
+| `port42` command | `cd cli && go test ./...` (`build.sh` runs this too) |
+| Hook shim | `cd shim && go test ./...` |
+| Browser guest | `cd guest && npm install && npm test` |
 
-**What to build:**
+The gateway's browser-guest test runs the guest code in Node, so run `npm install` in `guest/` first.
+It is skipped when Node is not installed.
 
-Numbered list of specific implementation tasks. Include method signatures,
-data structures, and integration points.
+After changing anything in `guest/src`, run `npm run build` in `guest/` and commit
+`dist/port42-guest.js` and `invite.html` together; `invite.html` names the bundle's hash, and
+`npm test` fails if either is stale.
 
-**Unit tests:**
-- testName — what it verifies
+### Swift Testing conventions
 
-**User test:**
-- Manual verification steps. What to try, what to observe.
+- `import Testing`, never `import XCTest`.
+- `@Suite("Name")` for a suite and `@Test("description")` for a test.
+- `#expect(condition)` for assertions, not `XCTAssert`.
+- Test functions `throw` rather than wrapping calls in no-throw assertions.
+- `DatabaseService(inMemory: true)` for an isolated database, and factories such as
+  `AppUser.createLocal(displayName:)` and `Space.create(name:)` for test data. Bridge suites build
+  an app over an in-memory database with `makeParityWorld()`.
 
-## Build Order Summary
+### Calibrate every new test
 
-ASCII timeline showing the dependency chain across steps.
+A test that has never failed has not shown that it can. For each new test or gate:
 
-    Step 1:  Feature name  → observable outcome  ← NEXT
-    Step 2:  Feature name  → observable outcome
-    Phase N complete ──────────────────────────
-```
+1. Break the code it guards (delete the check, flip the condition, drop the entry).
+2. Run the test and watch it fail, for the reason you expect.
+3. Restore the code and watch it pass.
 
-### Examples
+## Conventions
 
-See `docs/` for real P42Ps that shipped:
+- **macOS 14 is the floor.** `Package.swift` (`.macOS(.v14)`), `Info.plist`
+  (`LSMinimumSystemVersion` 14.0) and the README must agree. A macOS 15 API is reached through a
+  per-API `if #available` guard, never by raising the deployment target.
+- **No light mode.** Every color comes from `Port42Theme`.
+- **Fonts.** Always `Port42Theme.mono()` or `Port42Theme.monoBold()`. No system fonts.
+- **State.** All mutable state lives in `AppState`. Views render it and call methods on it.
+- **Persistence.** Everything goes through `DatabaseService`. No direct SQLite calls elsewhere.
+- **Observation.** Use GRDB `ValueObservation` for reactive data, not polling or manual refresh.
+- **No Combine in views.** Use `@Published` on `AppState` and `onChange` in views.
+- **Naming.** Models are plain structs, services are classes, views are structs.
+- **Migrations are append-only.** Never edit an existing migration; add a new `registerMigration`.
+- **Fix root causes, not symptoms,** and keep a fix to the change it needs.
+- **Injected bridge JS** (`PortBridge.swift`) is plain JavaScript with no frameworks.
 
-- `docs/ports-spec.md` — the ports feature spec
-- `docs/ports-implementation-plan.md` — the ports implementation plan
-- `docs/e2e-encryption-plan.md` — end-to-end encryption
-- `docs/openclaw-channel-adapter-spec.md` — OpenClaw integration
+## Add a bridge method
 
-## Code style
+Every bridge method is declared once, and every surface (port JS, the gateway, tool use) picks it up
+from the registry. There is no second place to wire it.
 
-- Swift: follow the existing patterns in the codebase
-- No SwiftLint or formatter enforced (yet), just be consistent
-- Port bridge JS: vanilla JS, no frameworks, keep it minimal
+1. **Declare it** in the register function for its family: `buildBridgeRegistry` in
+   `BridgeMethods.swift`, or the feature file that registers its namespace (for example
+   `registerChatMethods` in `PortChat.swift`). Give the `BridgeMethod` its `permission` (or nil),
+   `paramNames` in positional order, a `description`, an `inputSchema`, and the `run` body. A method
+   that streams goes in `buildBridgeStreamRegistry` as a `BridgeStreamMethod`.
+2. **If it writes a port,** set `writesTarget` to the argument that names the port. The registry
+   then adds the write token for you. Set `replacesState` if the write replaces what the port shows,
+   and `needsLiveSurface` if it delivers to a live surface. `BridgeParamConsistencyTests` catches a
+   write verb that does not declare its target.
+3. **Throw coded errors,** `BridgeError(code:)` with a `BridgeErrorCode`. A new code is a new case
+   there.
+4. **Decide whether another machine may call it.** Add it to `RemoteAccess.table` in
+   `RemoteAccess.swift`: on a named port with a given right, as a filtered listing, or `.never`.
+   `RemoteAccessTests` fails until it is classified.
+5. **Give it a skill** in `SkillCatalog.skill(for:)`. `SkillCatalogTests` fails for a method with no
+   skill.
+6. **Test it,** and calibrate the tests.
+7. **Regenerate the committed artifacts,** read each diff, and commit them with the change:
+
+   ```bash
+   PORT42_REGEN_GOLDEN=1 swift test --filter BridgeSchemaParityTests   # Tests/Fixtures/tool-definitions-golden.json
+   PORT42_REGEN_DOCS=1   swift test --filter BridgeDocsExportTests     # llms.txt
+   PORT42_REGEN_SKILLS=1 swift test --filter SkillCatalogTests         # skills/*/reference.md
+   PORT42_REGEN_GUEST=1  swift test --filter GuestMethodsTests         # guest/src/methods.json, port-page.json
+   ```
+
+   Without the variable each suite only verifies, and it fails while its artifact is stale.
+
+## Bug fixes and small changes
+
+Fix it and open a pull request. Explain what broke and why in the commit message, and include steps
+to reproduce if the fix is not obvious. Typos, docs, performance and test coverage follow the same
+path.
+
+## Major changes: Port42 Proposals
+
+A major change needs a **Port42 Proposal (P42P)** before code is written, because companions, ports
+and other instances depend on the API and the wire formats staying stable. Major means:
+
+- a new user-facing feature;
+- a change to a wire format (the gateway envelope, the relay or Noise session, invite coupons);
+- a change to the bridge API (`port42.*` and its methods);
+- an architectural change (new modules, restructured data flow);
+- removing or changing existing behavior.
+
+The process:
+
+1. Open an issue titled `[P42P] Your feature name`.
+2. Write the proposal in the issue (below).
+3. Discuss it there until a maintainer approves it, asks for changes, or closes it with a reason.
+4. Build it, and open a pull request that references the issue.
+
+A proposal has two parts.
+
+**The spec** covers the summary and status; each user flow (what the person does, what the system
+does, what they see); where it fits in the architecture, as a diagram; a feature table with an ID,
+priority and a "done when" condition for each feature; exact protocol or API changes with
+compatibility notes; the effect on the port sandbox, CSP, permissions and remote access; and open
+questions.
+
+**The implementation plan** covers what must not break; the build steps, each with its goal, the
+files it creates and modifies, the unit tests (and how each is calibrated) and a manual check; and
+the order of the steps.
+
+`docs/ports-spec.md` with `docs/ports-implementation-plan.md`, and `docs/design-phase4-relay.md` with
+`docs/plan-nautilus-phase4.md`, are spec and plan pairs from shipped work.
 
 ## Signing commits
 
-Not required but appreciated.
+Not required, but appreciated.
 
-## Questions?
+## Questions
 
-Open an issue or find us in a Port42 channel.
+Open an issue.

@@ -146,6 +146,9 @@ func TestRateLimiting(t *testing.T) {
 	for i := 0; i < rateLimitPerSec+10; i++ {
 		env := readEnvelope(t, ctx, conn)
 		if env.Type == "error" && env.Error == "rate limit exceeded" {
+			if env.Code != CodeRateLimited {
+				t.Fatalf("rate limit refusal carries code %q, want %q", env.Code, CodeRateLimited)
+			}
 			return
 		}
 	}
@@ -314,6 +317,12 @@ func TestTheHostIsNotRateLimited(t *testing.T) {
 	readEnvelope(t, ctx, host) // welcome
 	sub := identified(t, ctx, wsURL, "subscriber", false)
 	defer sub.CloseNow()
+	// The events answer a subscription, so the subscriber makes the call they belong to (GW-08: a
+	// stream frame is delivered only for a call the host was sent).
+	sendEnvelope(t, ctx, sub, Envelope{Type: "call", Method: "port.subscribe", CallID: "s1"})
+	if got := readEnvelope(t, ctx, host); got.Type != "call" || got.CallID != "s1" {
+		t.Fatalf("the host did not receive the subscription: %+v", got)
+	}
 
 	// A subscription's events arrive as a burst: twice the per-caller limit, from the host.
 	const burst = 2 * rateLimitPerSec

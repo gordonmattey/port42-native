@@ -25,8 +25,12 @@ const (
 	CodeMissingArg = "missing_arg"
 	// An envelope type the gateway has no handler for.
 	CodeUnknownMethod = "unknown_method"
+	// The caller sent more than the gateway takes in a second; the frame was dropped. Slow down and
+	// send it again. The host is never limited (its frames answer calls).
+	CodeRateLimited = "rate_limited"
 )
 
 // The channel and message path that once sat beside these ("not a member of this channel", "too many
-// active tokens") went with the hub in nautilus Phase 0 step 3. What is left uncoded is "rate limit
-// exceeded", which is a transport condition rather than a bridge result.
+// active tokens") went with the hub in nautilus Phase 0 step 3. "rate limit exceeded" was left uncoded
+// as a transport condition; it is coded now (2026-09-27), because a caller cannot tell a refusal it
+// can retry from any other without one.

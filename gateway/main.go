@@ -19,8 +19,12 @@ import (
 // Injected at build time via -ldflags
 var posthogAPIKey string
 
+// defaultAddr is loopback (GW-11). It was ":4242", every interface, so a gateway launched by hand with
+// no -addr was reachable from the network. The app always passes its own loopback address.
+const defaultAddr = "127.0.0.1:4242"
+
 func main() {
-	addr := flag.String("addr", ":4242", "listen address")
+	addr := flag.String("addr", defaultAddr, "listen address")
 	watchParent := flag.Bool("watch-parent", false, "exit when stdin (held by the parent app) closes at EOF")
 	relays := flag.String("relay", "", "comma-separated relay URLs (wss://host/v1) to register on and serve remote callers through")
 	flag.Parse()
@@ -40,11 +44,9 @@ func main() {
 
 	gw := NewGateway()
 
-	mux := newMux(gw)
-
 	srv := &http.Server{
 		Addr:    *addr,
-		Handler: mux,
+		Handler: serverHandler(*addr, gw),
 		// No read/write timeouts: WebSocket connections are long-lived
 		// and timeouts would kill them (especially through a reverse proxy)
 	}
@@ -194,6 +196,15 @@ const rootPage = `<!DOCTYPE html>
 </body>
 </html>
 `
+
+// serverHandler is what the listener on addr serves: the routes, behind the loopback guard when addr
+// is loopback (GW-05), so no web page the user opens reaches the gateway.
+func serverHandler(addr string, gw *Gateway) http.Handler {
+	if isLoopbackAddr(addr) {
+		return loopbackOnly(newMux(gw))
+	}
+	return newMux(gw)
+}
 
 // newMux is the gateway's routes: the WebSocket door, `/call`, `/health` and the root page. The old
 // `/port` browser-guest spike and its query-string token are gone (nautilus Phase 4, 4.7): a browser

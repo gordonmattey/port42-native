@@ -477,8 +477,10 @@ BRIDGE API REFERENCE:
       THE GATEWAY            no_host (Port42 is not running, or not connected to this gateway —
                              start it) · host_offline (it was there and its connection dropped;
                              retry shortly) · transport_failed (the gateway could not hand your
-                             call over; retry) — your call never reached Port42, so nothing was
-                             executed and nothing changed. Retrying is always safe
+                             call over; retry) · rate_limited (too many frames in one second
+                             from you; slow down and send it again) — your call never reached
+                             Port42, so nothing was executed and nothing changed. Retrying is
+                             always safe
       DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
       SOMETHING FAILED       escape (path left the data directory) · io · device_error ·
                              browser_error · ai_error · script_error (your AppleScript/JXA) ·

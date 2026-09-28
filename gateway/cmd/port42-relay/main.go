@@ -19,6 +19,11 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("[relay] listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, relay.NewServer(relay.DefaultLimits).Handler()))
+	srv := relay.NewServer(relay.DefaultLimits)
+	// Behind Cloudflare (relay1.port42.ai) every connection comes from a Cloudflare address, so the
+	// client's own is taken from CF-Connecting-IP. Set PORT42_RELAY_BEHIND_CLOUDFLARE=0 for a relay
+	// that is reached directly, where that header would be whatever the client sent (REL-01).
+	srv.TrustCloudflare = os.Getenv("PORT42_RELAY_BEHIND_CLOUDFLARE") != "0"
+	log.Printf("[relay] listening on :%s (client address from CF-Connecting-IP: %v)", port, srv.TrustCloudflare)
+	log.Fatal(http.ListenAndServe(":"+port, srv.Handler()))
 }

@@ -324,7 +324,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                    + "everything its JS has changed since load. Use this, not port_get_html, when you "
                    + "need current state: port_get_html returns the stored SOURCE, which does not "
                    + "reflect any port_exec or port_push that has run since. Returns {html, token}; "
-                   + "pass that token as 'expect' on your next write and it will be refused rather "
+                   + "pass that token as 'token' on your next write and it will be refused rather "
                    + "than clobber someone if the port moved in between.",
         inputSchema: [
             "type": "object",
