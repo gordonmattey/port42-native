@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,5 +196,40 @@ func TestOnlySecureRelaysAreDialled(t *testing.T) {
 	if _, err := connect(context.Background(), "ws://relay.example/v1", key, "guest"); err == nil ||
 		!strings.Contains(err.Error(), "REL-03") {
 		t.Fatalf("a plaintext relay was dialled: %v", err)
+	}
+}
+
+// Sources whose opens are all out of the window are dropped, so the limiter maps do not grow for the
+// life of the relay (REL-02).
+func TestTheRateLimitMapsAreSwept(t *testing.T) {
+	s := NewServer(DefaultLimits)
+	now := time.Now()
+	old := now.Add(-2 * time.Minute)
+	for i := 0; i < 50; i++ {
+		ip := "203.0.113." + strconv.Itoa(i)
+		s.opensIP[ip] = []time.Time{old}
+		s.opensTo["host|"+ip] = []time.Time{old}
+	}
+	s.opensIP["live"] = []time.Time{now}
+	s.sweepOpens(now)
+	if len(s.opensIP) != 1 || len(s.opensTo) != 0 {
+		t.Fatalf("after a sweep: %d ips, %d host pairs tracked; want only the live one", len(s.opensIP), len(s.opensTo))
+	}
+	// At most once a minute.
+	s.opensIP["stale"] = []time.Time{old}
+	s.sweepOpens(now.Add(30 * time.Second))
+	if _, kept := s.opensIP["stale"]; !kept {
+		t.Fatal("a second sweep inside the minute ran")
+	}
+}
+
+// Past the cap, a source the relay is not tracking is refused rather than added (REL-02).
+func TestANewSourcePastTheCapIsRefused(t *testing.T) {
+	s := NewServer(DefaultLimits)
+	for i := 0; i < maxTrackedSources; i++ {
+		s.opensIP[strconv.Itoa(i)] = nil
+	}
+	if !s.trackedFull("new-ip", "host|new-ip") {
+		t.Fatal("a new source was admitted past the cap")
 	}
 }

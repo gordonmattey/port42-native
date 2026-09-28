@@ -95,6 +95,7 @@ type Server struct {
 	opensTo   map[string][]time.Time // by host key + source IP (REL-01), never by host key alone
 	perHostIP map[string]int         // open sessions by host key + source IP
 	connsIP   map[string]int         // open connections by source IP (GW-12)
+	lastSweep time.Time              // when opensIP and opensTo were last pruned (REL-02)
 
 	// TrustCloudflare takes the client's address from CF-Connecting-IP, which Cloudflare sets and
 	// overwrites, when the relay runs behind it. Otherwise the address is the connection's own.
@@ -337,6 +338,35 @@ func allow(times []time.Time, limit int, now time.Time) ([]time.Time, bool) {
 	return append(times, now), true
 }
 
+// maxTrackedSources caps the entries in opensIP and opensTo together. Past it, a source the relay is
+// not already tracking is refused as rate limited until a sweep frees room (REL-02).
+const maxTrackedSources = 100_000
+
+// sweepOpens drops every source whose opens are all older than the one-minute window. At most once a
+// minute. Caller holds s.mu. Without it, every address and host+address pair that ever opened a
+// session stayed in memory for the life of the relay (REL-02).
+func (s *Server) sweepOpens(now time.Time) {
+	if now.Sub(s.lastSweep) < time.Minute {
+		return
+	}
+	s.lastSweep = now
+	cut := now.Add(-time.Minute)
+	for _, m := range []map[string][]time.Time{s.opensIP, s.opensTo} {
+		for k, times := range m {
+			if len(times) == 0 || times[len(times)-1].Before(cut) {
+				delete(m, k)
+			}
+		}
+	}
+}
+
+// trackedFull reports whether a new source would push the rate-limit maps past maxTrackedSources.
+func (s *Server) trackedFull(ip, hostIP string) bool {
+	_, knownIP := s.opensIP[ip]
+	_, knownTo := s.opensTo[hostIP]
+	return !(knownIP && knownTo) && len(s.opensIP)+len(s.opensTo) >= maxTrackedSources
+}
+
 func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip string) {
 	open, err := readControl(ctx, conn)
 	if err != nil || open.T != "open" {
@@ -346,8 +376,13 @@ func (s *Server) serveGuest(ctx context.Context, conn *websocket.Conn, key, ip s
 	s.mu.Lock()
 	var okIP, okTo bool
 	hostIP := open.To + "|" + ip
-	s.opensIP[ip], okIP = allow(s.opensIP[ip], s.limits.OpensPerIPMin, now)
-	s.opensTo[hostIP], okTo = allow(s.opensTo[hostIP], s.limits.OpensPerHostMin, now)
+	s.sweepOpens(now)
+	if s.trackedFull(ip, hostIP) {
+		okIP, okTo = false, false
+	} else {
+		s.opensIP[ip], okIP = allow(s.opensIP[ip], s.limits.OpensPerIPMin, now)
+		s.opensTo[hostIP], okTo = allow(s.opensTo[hostIP], s.limits.OpensPerHostMin, now)
+	}
 	h := s.hosts[open.To]
 	var refusal *Control
 	switch {
