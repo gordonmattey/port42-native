@@ -688,8 +688,18 @@ public final class AppState: ObservableObject {
                        + "Port42 Settings → Access. Do not use another tool's token file: the grant "
                        + "would land on that tool, not on you.")
         }
-        guard let clientId = ClientRegistry.verify(token: credential,
-                                                   secret: clientRegistry.rootSecret()) else {
+        // APP-13: verify at the client's CURRENT generation, so a token minted before its last
+        // revoke fails even after the client is restored. A genuine token from an earlier
+        // generation is recognized, so the refusal says it was retired rather than blaming
+        // another instance.
+        let secret = clientRegistry.rootSecret()
+        let claimed = ClientRegistry.claimedId(token: credential).flatMap { clientRegistry.client(id: $0) }
+        let generation = claimed?.generation ?? 0
+        let current = ClientRegistry.verify(token: credential, secret: secret, generation: generation)
+        let retired = current == nil && (0..<generation).contains {
+            ClientRegistry.verify(token: credential, secret: secret, generation: $0) != nil
+        }
+        guard let clientId = current ?? (retired ? claimed?.id : nil) else {
             // The one failure a caller CANNOT diagnose from outside: the token is real, and belongs
             // to a different instance. Naming which instance refused is what makes it diagnosable —
             // measured 2026-07-31 on a machine running four at once, where a session reached for
@@ -719,6 +729,12 @@ public final class AppState: ObservableObject {
                 message: "'\(client.name)' was revoked on \(here), so this token no longer works. "
                        + "That was a deliberate act by the person at this machine — ask them before "
                        + "retrying. They can restore it in Settings → Access.")
+        }
+        guard !retired else {
+            throw BridgeError(
+                code: .authRevoked,
+                message: "This token for '\(client.name)' was retired when the client was revoked on "
+                       + "\(here). Restoring it issued a new token file; use that one.")
         }
         touchClientIfDue(clientId)
         return (clientId, client.name)

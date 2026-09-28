@@ -35,6 +35,9 @@ public struct Port42Client: Equatable, Identifiable {
     /// For a `peer`: the other instance's peer id, which is how a call from it is recognized. nil for
     /// every other kind.
     public var peerKey: String? = nil
+    /// Mixed into the token MAC and bumped on every revoke (APP-13), so a revoked client's old token
+    /// never verifies again, even after the client is restored. 0 for every client minted before.
+    public var generation: Int = 0
 
     public enum Kind: String, Equatable {
         /// A caller Port42 did not spawn, approved by the user through pairing.
@@ -147,13 +150,20 @@ public final class ClientRegistry {
     /// The verifier recomputes the MAC and compares in constant time; it consults no table and
     /// stores nothing, which is what lets the gateway hold no client state and survive its own
     /// restart (NFR5).
-    public nonisolated static func token(id: String, secret: String) -> String {
-        "p42_\(id)_\(mac(id: id, secret: secret))"
+    ///
+    /// **The MAC also covers the client's generation** (APP-13). Without it a token was a pure
+    /// function of the id, so revoking a leaked token and restoring the client handed back the same
+    /// string. Generation 0 MACs the bare id, which keeps every token minted before this valid; a
+    /// later generation MACs `<id>.<generation>`, and `.` cannot occur in a slug, so the two inputs
+    /// never collide. The token's shape is unchanged.
+    public nonisolated static func token(id: String, secret: String, generation: Int = 0) -> String {
+        "p42_\(id)_\(mac(id: id, secret: secret, generation: generation))"
     }
 
-    nonisolated static func mac(id: String, secret: String) -> String {
+    nonisolated static func mac(id: String, secret: String, generation: Int = 0) -> String {
         let key = SymmetricKey(data: Data(secret.utf8))
-        let code = HMAC<SHA256>.authenticationCode(for: Data(id.utf8), using: key)
+        let input = generation == 0 ? id : "\(id).\(generation)"
+        let code = HMAC<SHA256>.authenticationCode(for: Data(input.utf8), using: key)
         return Data(code).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -164,13 +174,21 @@ public final class ClientRegistry {
     ///
     /// **Constant-time comparison** (NFR1): a byte-by-byte early return leaks how much of a forged
     /// MAC was correct, which is enough to forge one a byte at a time.
-    public nonisolated static func verify(token: String, secret: String) -> String? {
+    public nonisolated static func verify(token: String, secret: String,
+                                          generation: Int = 0) -> String? {
+        guard let id = claimedId(token: token) else { return nil }
+        let presented = String(token.split(separator: "_", maxSplits: 2)[2])
+        let expected = mac(id: id, secret: secret, generation: generation)
+        return constantTimeEquals(expected, presented) ? id : nil
+    }
+
+    /// The id a token CLAIMS, unverified: only for looking up which generation to verify it
+    /// against, never an identity on its own (APP-13).
+    public nonisolated static func claimedId(token: String) -> String? {
         let parts = token.split(separator: "_", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3, parts[0] == "p42" else { return nil }
-        let id = String(parts[1]), presented = String(parts[2])
-        guard isValidSlug(id) else { return nil }
-        let expected = mac(id: id, secret: secret)
-        return constantTimeEquals(expected, presented) ? id : nil
+        let id = String(parts[1])
+        return isValidSlug(id) ? id : nil
     }
 
     nonisolated static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
@@ -269,7 +287,8 @@ public final class ClientRegistry {
         let id = Self.slug(rawId)
         do {
             try db.upsertClient(id: id, name: name, kind: kind.rawValue)
-            let token = Self.token(id: id, secret: rootSecret())
+            let token = Self.token(id: id, secret: rootSecret(),
+                                   generation: (try? db.client(id: id))??.generation ?? 0)
             try writeTokenFile(id: id, token: token)
             return token
         } catch {

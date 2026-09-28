@@ -965,6 +965,16 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v65-client-token-generation") { db in
+            // APP-13. A token was a fixed MAC of the client id, so a leaked one could never be
+            // retired: revoking and restoring a client handed back the very same string. The
+            // generation is mixed into the MAC and bumped on every revoke. 0 keeps every token
+            // minted before this valid.
+            try db.alter(table: "clients") { t in
+                t.add(column: "generation", .integer).notNull().defaults(to: 0)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1011,7 +1021,7 @@ public final class DatabaseService {
     public func allClients() throws -> [Port42Client] {
         try dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                                      SELECT id, name, kind, createdAt, lastSeenAt, revokedAt
+                                      SELECT *
                                       FROM clients ORDER BY createdAt
                                       """).compactMap(Self.client(from:))
         }
@@ -1021,7 +1031,7 @@ public final class DatabaseService {
         try dbQueue.read { db in
             guard let row = try Row.fetchOne(
                 db, sql: """
-                         SELECT id, name, kind, createdAt, lastSeenAt, revokedAt
+                         SELECT *
                          FROM clients WHERE id = ?
                          """, arguments: [id]) else { return nil }
             return Self.client(from: row)
@@ -1030,7 +1040,8 @@ public final class DatabaseService {
 
     public func revokeClient(id: String) throws {
         try dbQueue.write { db in
-            try db.execute(sql: "UPDATE clients SET revokedAt = ? WHERE id = ?",
+            // Bumping the generation retires every token minted before this revoke (APP-13).
+            try db.execute(sql: "UPDATE clients SET revokedAt = ?, generation = generation + 1 WHERE id = ?",
                            arguments: [Date(), id])
         }
     }
@@ -1067,6 +1078,7 @@ public final class DatabaseService {
                              createdAt: row["createdAt"], lastSeenAt: row["lastSeenAt"],
                              revokedAt: row["revokedAt"])
         c.peerKey = row["peerKey"]
+        c.generation = row["generation"] ?? 0
         return c
     }
 
