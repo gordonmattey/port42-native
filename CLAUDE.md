@@ -4,62 +4,58 @@ Instructions for Claude Code when working on port42-native.
 
 ## Project Overview
 
-Port42 is a native macOS companion app for consciousness computing. Swift/SwiftUI frontend with a bundled Go WebSocket gateway. Sharing over the internet uses ngrok tunneling. E2E encrypted channels via AES-256-GCM.
+Port42 is a native macOS desktop for AI agents (1.0.0). Swift/SwiftUI and AppKit, with a bundled Go
+gateway. Agents (Claude Code, Codex) run as companions in terminal ports (Ghostty); the ports they make
+are live web surfaces beside them; every port and space has a chat. Sharing a port with another machine
+goes through a relay (Noise, end to end); a browser joins through the guest page at tele.port42.ai.
 
 ## Project Layout
 
 ```
 port42-native/
-  Package.swift              # SPM manifest (GRDB, PLCrashReporter, PostHog)
-  build.sh                   # Unified build script (debug/release)
+  Package.swift              # SPM manifest (GRDB, PLCrashReporter, PostHog, Sparkle, FluidAudio)
+  build.sh                   # Unified build script (test gate, dev instances, release)
   Info.plist                 # Bundle config (com.port42.app)
   Port42.entitlements        # Debug entitlements (has get-task-allow)
-  Port42.release.entitlements # Release entitlements (empty, for notarization)
-  gateway/
-    main.go                  # HTTP server (ws, health, invite landing page)
-    gateway.go               # WebSocket hub (routing, presence, store-and-forward)
-    go.mod / go.sum
-  Sources/Port42/
-    Port42App.swift          # @main entry, creates AppState, window config
+  Port42.release.entitlements # Release entitlements (hardened runtime: network, microphone, camera)
+  vendor/GhosttyKit.xcframework.tar.gz  # Terminal engine (Git LFS); build.sh unpacks it to GhosttyKit.xcframework
+  gateway/                   # Go: the local door (main.go, gateway.go), relay client (outbound.go)
+    relay/                   # The relay: Noise sessions, rate limits (served by cmd/port42-relay)
+    tele/                    # The invite page server (cmd/port42-tele, tele.port42.ai)
+    cmd/                     # port42-relay, port42-tele, p42peer
+  guest/                     # The browser guest (JS): invite page, frame, bundle in dist/, npm test
+  Sources/Port42/Port42App.swift   # @main entry
   Sources/Port42Lib/
-    Models/
-      AppUser.swift          # User identity with P256 signing keys (Keychain)
-      Channel.swift          # Chat channel with optional encryptionKey
-      Message.swift          # Chat message with syncStatus tracking
-      AgentConfig.swift      # Companion config: LLM/Command modes, triggers, provider
+    Models/                  # AppUser, AgentConfig, Space
     Views/
-      SetupView.swift        # First-launch: set display name
-      ShellView.swift        # THE app surface: shell root (zoom spine, galaxy, overlays)
-      ShellDesktop.swift     # Chrome + tiled port units + dock + park rail
-      ChatView.swift         # Chat surface (rendered inside a shell chat tile)
-      MessageView.swift      # Individual message (human/agent/system)
-      InputView.swift        # Text input with send
-      QuickSwitcher.swift    # Cmd+K shell overlay with fuzzy search, invite link pasting
-      NgrokSetupSheet.swift  # Ngrok auth token setup
-      SignOutSheet.swift     # Settings panel (gateway URL, sign out)
+      ShellView.swift        # THE app surface: zoom spine (galaxy, space, focus), overlays, voice
+      ShellDesktop.swift     # Tile chrome, port units, dock, port menu (pin, hide, share, move)
+      PortChatPanel.swift    # A port's or space's chat panel; presence strip
+      ChatTranscript.swift   # The transcript (AppKit NSTextView, TextKit 1)
+      ImagineBox.swift       # ⌘I; QuickSwitcher.swift is ⌘K
+      ShareBox.swift, SharePanel.swift, AcceptBox.swift   # Sharing
+      GhosttyTerminalView.swift  # Terminal ports
+      SignOutSheet.swift     # Settings (Access, Secrets, Remote, Display, Voice, Updates)
     Services/
       AppState.swift         # @MainActor ObservableObject, all app state
-      DatabaseService.swift  # SQLite via GRDB (schema, migrations, CRUD, observations)
-      SyncService.swift      # WebSocket sync with gateway
-      GatewayProcess.swift   # Bundled gateway subprocess lifecycle
-      TunnelService.swift    # Ngrok tunnel management
-      ChannelInvite.swift    # Invite link generation and parsing (port42:// and HTTPS)
-      ChannelCrypto.swift    # AES-256-GCM per-channel encryption
-      LLMEngine.swift        # Claude API streaming with tool use support
-      BridgeRegistry.swift   # BridgeMethod/BridgeStreamMethod types (self-describing registry)
-      BridgeMethods.swift    # buildBridgeRegistry: one implementation per bridge method
-      ToolDefinitions.swift  # 5 hand-written holdout tool schemas (browser_*, rest_call); the rest are generated
-      ToolExecutor.swift     # Executes tool calls (registry-first; old switch serves the holdouts)
-      AgentRouting.swift     # MentionParser + AgentRouter
-      AgentAuth.swift        # Claude Code OAuth (Keychain) + API key resolver
-      AgentInvite.swift      # port42://agent? invite link generate/parse
-      AgentProtocol.swift    # NDJSON encode/decode for command agent stdio
-      AgentProcess.swift     # Command agent subprocess lifecycle
-    Theme/
-      Port42Theme.swift      # Colors, fonts (dark theme, #00d4aa accent)
+      DatabaseService.swift  # SQLite via GRDB (schema, append-only migrations, CRUD, observations)
+      ShellState.swift       # Shell UI state (zoom, tiles, pins, boxes)
+      BridgeRegistry.swift, BridgeMethods.swift, BridgeDispatcher.swift  # The API
+      PermissionCoordinator.swift, ClientRegistry.swift, Principal.swift  # Who calls, what they may do
+      RemoteAccess.swift, Invites.swift, RemoteTile.swift  # Sharing: the remote gate, invites, mirrors
+      PortChat.swift, ChatPresence.swift, AgentRouting.swift  # Chats, presence, @mention routing
+      GhosttyTerminalController.swift, TerminalHooksService.swift, CLIHookProducer*.swift  # Companions
+      Imagine.swift, ImagineLink.swift  # /imagine and port42://imagine links
+      Voice*.swift           # Hold-to-talk (Parakeet via FluidAudio, on device)
+      GatewayProcess.swift   # Bundled gateway subprocess lifecycle, relays
+      SkillCatalog.swift     # Which skill teaches each method
+    Skills/port42-skills/    # The agent skills (generated references; tests enforce freshness)
+    Resources/               # ports-context.txt, llms-preamble.txt, echo-prompt.txt, videos (not in git)
+    Theme/Port42Theme.swift  # Colors, fonts (dark theme)
   Tests/Port42Tests/         # Swift Testing (@Test, #expect, @Suite)
+  llms.txt                   # Generated API reference
   dist/
-    Port42.app/              # Release app bundle (gitignored, rebuild from source)
+    Port42.app/              # Release app bundle
     Port42.dmg               # Notarized DMG (Git LFS tracked)
 ```
 
@@ -68,10 +64,12 @@ port42-native/
 ```
 Port42.app/Contents/
   MacOS/
-    Port42             # Swift/SwiftUI app (main binary)
-    port42-gateway     # Go WebSocket server
-  Resources/
-    *.bundle           # Swift package resource bundles
+    Port42              # The app
+    port42-gateway      # The Go gateway (local door; relay client when sharing)
+    port42-cli          # The `port42` command
+    port42-claude-shim  # Wraps the claude CLI for companions (hooks, instructions)
+  Frameworks/Sparkle.framework   # Updates
+  Resources/*.bundle    # Swift package resource bundles
   Info.plist
 ```
 
@@ -86,11 +84,17 @@ Port42.app/Contents/
 
 **Data lives in:** `~/Library/Application Support/Port42/port42.sqlite`
 
-**Gateway** runs as a subprocess inside the app bundle on port 4242. Self-hosted by default, remote gateway supported via UserDefaults "gatewayURL".
+**Gateway** runs as a subprocess inside the app bundle on 127.0.0.1:4242 (dev instances use their own
+ports). It is the door for local callers (the `port42` command, companions, scripts; each with its own
+token) and, when sharing, holds the relay connections through which other machines call.
 
-**Sync** uses WebSocket protocol: identify -> welcome -> join channels -> message routing. Messages are encrypted with per-channel AES-256-GCM keys before transmission.
-
-**Unified API** The port42 bridge API is registry-first. Every method is declared once in the `BridgeRegistry` (`BridgeMethods.swift`, `BridgeRegistry.swift`) with a self-describing description, JSON input schema, permission, and body; all calling surfaces (port JS, LLM tool use, gateway RPC) dispatch through `AppState.runBridgeMethod`. The LLM tool schemas are generated from the registry (`AppState.generatedToolDefinitions()`); `ToolDefinitions.swift` holds only the 5 hand-written holdouts (browser_open, browser_text, browser_capture, browser_close, rest_call) still on the old switch path. The `window.port42` JS surface in port webviews is a generic Proxy over the registry (`PortBridge.swift`). Services (keeper, storage) are declared as data via `ServiceManifest.swift`; the `ai` service registers its own module (`BridgeServiceAI.swift`). Every surface returns the same structured BridgeValue JSON.
+**Unified API** The bridge API is registry-first. Every method is declared once in the `BridgeRegistry`
+(`BridgeMethods.swift` and the per-area files) with a description, JSON input schema, permission and
+body; every surface (a port's JS through the generic proxy in `PortBridge.swift`, the gateway's `/call`,
+tool use) dispatches through `AppState.runBridgeMethod`. Tool schemas, `llms.txt`, the skills'
+references and the guest's method table are generated from the registry, and tests fail when a
+generated file is stale. A caller from another machine passes `RemoteAccess` first: denied unless an
+invite granted it a right on the port it names.
 
 ## Build Commands
 
@@ -104,10 +108,10 @@ Port42.app/Contents/
 **Every build runs `swift test` first and aborts on a red suite** (~15s). A break surfaces on the
 next build instead of at ship time. `SKIP_TESTS=1 ./build.sh --run` when you need the app now.
 
-> **IMPORTANT — always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
+> **IMPORTANT: always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
 > `swift build` only updates the loose `.build/debug/Port42` binary; it does **not** assemble or
 > re-sign `.build/Port42.app`. If you (or a test script) copy/launch `.build/Port42.app` after a
-> bare `swift build`, you run a **stale bundle** and your changes silently won't be there — you'll
+> bare `swift build`, you run a **stale bundle** and your changes silently won't be there, and you'll
 > chase a "fix didn't work" ghost. `./build.sh` recompiles, assembles the bundle, and code-signs it.
 > To confirm the bundle is current, the binary mtime should be newer than your last edit:
 > `stat -f '%Sm %N' .build/Port42.app/Contents/MacOS/Port42`.
@@ -183,7 +187,7 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 - `@Suite("Name")` for test suites, `@Test("description")` for individual tests
 - `#expect(condition)` for assertions (not `XCTAssert`)
 - `throws` on test functions for error handling (no `XCTAssertNoThrow`)
-- Factory methods like `AppUser.createLocal(displayName:)`, `Channel.create(name:)`, `Message.create(...)` for test data
+- `makeParityWorld()` for an AppState with a user, a space and a companion; `AppUser.createLocal(displayName:)` for a user
 - `DatabaseService(inMemory: true)` for isolated DB tests
 - Run tests with `swift test` or filter with `swift test --filter SuiteName`
 
@@ -198,9 +202,7 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 
 ## Milestones
 
-- **M1 (Local Chat Shell)**: Done
-- **M2 (Companions)**: Done (LLM agents, command agents, channel membership, invite links, Quick Switcher)
-- **M3 (Sync)**: In progress. Done: gateway, WebSocket sync, E2E encryption, typing indicators, remote identity, sender attribution, member list, cross-peer mentions, invite system, channel join tokens. Remaining: presence dots (F-505), relay auth (F-511), join/leave announcements bugfix (F-515), reply threading (F-303), message status (F-304), offline queue (F-504 partial)
-- **Ports**: Done (Phase 1-5 + the port-units refactor). Inline ports, desktop tile units (tiled/parked/peek/focus — no OS windows), generative ports, device APIs (terminal, audio, camera, screen, clipboard, files, notifications, browser, automation). Unified API: same bridge methods accessible from ports (JS) and conversation (tool use).
-- **Shell**: THE app surface (classic ContentView retired 2026-07-14). Zoom spine (galaxy ↔ space ↔ focus), port units, peeks, adoption persistence, ⌘K switcher.
-
+- **1.0.0 (nautilus)**: the shell as the only UI; companions in terminal ports; a chat on every port and
+  space, with presence; /imagine; sharing a port through a relay, from the app or a browser; voice input;
+  the registry-first API with generated references. Release state and the final step:
+  `docs/release-1.0.0.md`. What is next: the later list in `docs/plan-shell-only.md`.
