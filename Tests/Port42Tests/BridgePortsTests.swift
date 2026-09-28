@@ -218,6 +218,19 @@ struct BridgePortsTests {
         #expect(items.count == 1)
     }
 
+    @Test("port.setCapabilities refuses a platform-derived capability (APP-18)")
+    @MainActor
+    func selfSetCapabilitiesCannotClaimTerminal() async throws {
+        let w = try makeParityWorld()
+        let id = try makePort(w)
+        await #expect(throws: BridgeError.self) {
+            _ = try await callAsPort(w, "port.setCapabilities", portId: id, ["capabilities": ["terminal", "demo"]])
+        }
+        let listed = try await call(w, "ports.list", ["capabilities": ["terminal"]])
+        guard case let .array(items) = listed else { Issue.record("expected array"); return }
+        #expect(items.isEmpty)
+    }
+
     @Test("port.close closes the caller's own panel")
     @MainActor
     func selfClose() async throws {

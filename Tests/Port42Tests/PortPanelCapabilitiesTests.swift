@@ -30,6 +30,11 @@ struct PortPanelCapabilitiesTests {
         #expect(PortPanel.mergeCapabilities(["audio"], isTerminal: true) == ["terminal", "audio"])
     }
 
+    @Test("a web port's stored claim to 'terminal' is dropped, not listed (APP-18)")
+    func platformClaimDropped() {
+        #expect(PortPanel.mergeCapabilities(["terminal", "audio"], isTerminal: false) == ["audio"])
+    }
+
     @Test("empty + non-terminal stays empty")
     func emptyNonTerminal() {
         #expect(PortPanel.mergeCapabilities([], isTerminal: false) == [])

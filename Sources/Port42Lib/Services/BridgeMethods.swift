@@ -1809,6 +1809,10 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let caps = args.array("capabilities") as? [String] else {
             throw BridgeError.badArg("port.setCapabilities requires an array of strings")
         }
+        // APP-18: a port describes itself, it does not claim what Port42 derives.
+        if let claimed = caps.first(where: { PortPanel.platformCapabilities.contains($0) }) {
+            throw BridgeError.badArg("'\(claimed)' is set by Port42 from what a port is, and a port cannot declare it")
+        }
         let panel = try ownPanel(p)
         panel.bridge.storedCapabilities = caps
         appState.portWindows.setCapabilities(id: panel.udid, capabilities: caps)

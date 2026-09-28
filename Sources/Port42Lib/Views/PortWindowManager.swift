@@ -104,11 +104,18 @@ public struct PortPanel: Identifiable {
         return "port"
     }
 
+    /// Capabilities only Port42 can state, because it DERIVES them from what a port is (APP-18).
+    /// A port's own list is self-asserted, so a web port claiming "terminal" was listed beside real
+    /// terminals, and a caller looking for one could push commands into a page instead.
+    static let platformCapabilities: Set<String> = ["terminal"]
+
     /// Merge stored capabilities with the auto-detected "terminal" capability (a native
-    /// `terminal` port). Pure + unit-testable: ensures "terminal" appears exactly once, at front.
+    /// `terminal` port). Pure + unit-testable: ensures "terminal" appears exactly once, at front,
+    /// and ONLY on a real terminal: a stored claim to a platform capability is dropped, which also
+    /// cleans a claim restored from before `port.setCapabilities` refused it.
     static func mergeCapabilities(_ stored: [String], isTerminal: Bool) -> [String] {
-        guard isTerminal, !stored.contains("terminal") else { return stored }
-        return ["terminal"] + stored
+        let declared = stored.filter { !platformCapabilities.contains($0) }
+        return isTerminal ? ["terminal"] + declared : declared
     }
 
 }
