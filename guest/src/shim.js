@@ -2,6 +2,8 @@
 // with an opaque origin and no access to the guest's key or storage; every call it makes is a message
 // to the parent page, which sends it to the host as the guest, and the host's rights decide.
 
+import PAGE from './port-page.json' with { type: 'json' };
+
 /// The script put at the top of the port's page. `selfId` is the host's port id: the port the page is.
 export function shimScript(selfId) {
   return `<script>(function(){
@@ -44,58 +46,18 @@ export function shimScript(selfId) {
 })();</script>`;
 }
 
-/// The base style Port42 gives every port (the `<style data-port42>` block of the app's
-/// PortWebViewFactory.wrapHTML). A copy, kept identical by GuestPortWrapTests on the Swift side.
-export const BASE_CSS = `
-  :root { --color-accent: #00ff41; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-  background: #111;
-  color: #e0e0e0;
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 12px;
-  overflow: auto;
-  }
-  a { color: #00ff41; }
-  button, input, select, textarea {
-  font-family: inherit;
-  font-size: inherit;
-  color: #e0e0e0;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 4px;
-  padding: 6px 10px;
-  outline: none;
-  }
-  button {
-  cursor: pointer;
-  background: #00ff41;
-  color: #0a0a0a;
-  border: none;
-  font-weight: 600;
-  padding: 6px 14px;
-  }
-  button:hover { opacity: 0.85; }
-  input:focus, textarea:focus { border-color: #00ff41; }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-`;
-
-/// The port's page as the app gives it, so a shared port looks and runs the same in a browser (GM,
-/// 2026-09-27: a shared port rendered in Times with its data missing). The page is wrapped with the
-/// base style, and its scripts become ES modules as in the app: a page that awaits at top level, which
-/// most do to load their storage, is a syntax error as a classic script and never ran. The shim goes
-/// first, as a classic script, so `window.port42` exists before the page's modules run.
+/// The port's page for the frame, built as the app builds it (`port-page.json` is generated from
+/// PortWebViewFactory.wrapHTML): the port theme, the console hints and module scripts, with the shim
+/// first in the head so `window.port42` exists before the port's own scripts run.
 export function framedPage(selfId, html) {
-  const body = String(html).replace(/<script>/g, '<script type="module">');
-  return '<!DOCTYPE html><html><head><meta charset="utf-8">'
-    + '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    + shimScript(selfId)
-    + '<style data-port42>' + BASE_CSS + '</style></head><body>' + body + '</body></html>';
+  const body = html.split('<script>').join('<script type="module">');
+  return PAGE.before.replace('<head>', '<head>' + shimScript(selfId)) + body + PAGE.after;
 }
+
+/// Calls the host answers for the shared port, so they name it: its storage, and the space and
+/// companions a page reads at start. As `AppState.namesItsPort` does for a Port42 copy.
+export const namesItsPort = (method) =>
+  method.startsWith('storage.') || method === 'space.current' || method === 'companions.list';
 
 /// Positional arguments to named ones, as BridgeArgs(positional:names:) does in the app.
 export function named(args, names) {

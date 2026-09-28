@@ -40,7 +40,12 @@ public struct MirrorStatus: Equatable {
 extension AppState {
 
     /// Methods a mirrored tile answers for itself: they are about this desktop, not the port.
-    static let mirrorLocalMethods: Set<String> = ["presentation", "port.info"]
+    static let mirrorLocalMethods: Set<String> = ["presentation", "port.info", "user.get"]
+    /// Calls a shared port's page makes that the host answers for that port, so the copy names it: its
+    /// storage, and the space and companions it reads at start (4.7b). `user.get` is the viewer, here.
+    static func namesItsPort(_ method: String) -> Bool {
+        method.hasPrefix("storage.") || method == "space.current" || method == "companions.list"
+    }
 
     /// How long a mirror waits before trying again after its connection drops.
     static var mirrorRetry: TimeInterval = 5
@@ -73,8 +78,7 @@ extension AppState {
         var named = BridgeArgs(positional: args, names: names).dictionary
         // The page names its own port by the id it has here; the host knows it by its own.
         for (k, v) in named where (v as? String) == tile { named[k] = row.portKey }
-        // The page's storage is its port's, on the host: name the port (4.7b).
-        if method.hasPrefix("storage."), named["port"] == nil { named["port"] = row.portKey }
+        if Self.namesItsPort(method), named["port"] == nil { named["port"] = row.portKey }
         return Task { @MainActor in
             do {
                 let page = self.portWindows.panels.first { $0.id == tile }

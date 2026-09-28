@@ -317,6 +317,26 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("the tile page's start-up reads: space and companions name its port on the host; the user is the viewer, here")
+    func tileStartupReads() async throws {
+        let (state, gw) = try world()
+        state.currentUser = AppUser.createLocal(displayName: "Viewer")
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        let bridge = try #require(state.portWindows.panels.first { $0.id == tile }?.bridge)
+        let before = gw.calls.count
+        for m in ["companions.list", "space.current"] { _ = await bridge.handleMethod(m, args: []) }
+        let user = await bridge.handleMethod("user.get", args: []) as? [String: Any]
+        let sent = gw.calls.dropFirst(before)
+        for m in ["companions.list", "space.current"] {
+            let call = try #require(sent.first { $0["method"] as? String == m }, "\(m) did not go to the host")
+            #expect((call["args"] as? [String: Any])?["port"] as? String == "P", "\(m) did not name its port")
+        }
+        #expect(!sent.contains { $0["method"] as? String == "user.get" }, "user.get asked the host who is viewing")
+        #expect(user?["displayName"] as? String == "Viewer")
+        state.stopMirror(tile: tile)
+    }
+
     @Test("a tile whose host cannot be reached waits longer each time, up to a cap")
     func backsOff() async throws {
         #expect(AppState.mirrorDelay(failures: 1) == AppState.mirrorRetry)

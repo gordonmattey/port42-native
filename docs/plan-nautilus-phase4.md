@@ -846,6 +846,24 @@ above are as recommended.
    port panel's own `display` beat the `hidden` attribute and covered the page; `[hidden]` now wins,
    with a gate. Gates in `page.test.mjs` (ten), calibrated.
 
+**Found on GM's v1, fixed 2026-09-27: a shared port ran unstyled and empty in the browser.** GM's
+"Issue Squad" (an /imagine build) showed browser-default serif text, no accent, and every panel
+empty. Reproduced on Dev2 with the port's own HTML in headless Chrome: the frame ran the port's
+scripts as classic scripts, the port uses top-level `await`, and the whole script failed to parse
+("await is only valid in async functions and the top level bodies of modules"). The frame now builds
+the app's own page around the port: `guest/src/port-page.json` is generated from
+`PortWebViewFactory.wrapHTML` (the theme, the console hints, and `<script>` as a module), with the
+shim first in the head. `--color-accent`, which the manual teaches, was defined nowhere, in the app
+either; the theme now defines it. A page's start-up reads also work for another machine, in both
+lanes: `user.get` answers the viewer (the guest, or the Port42 copy's own user), and `space.current`
+and `companions.list` answer for the shared port's own space with `see` (the copy names its port;
+`space_id` and `*` do not widen it). Checked in headless Chrome against Dev2: before, "Times", no
+accent, the SyntaxError; after, SF Mono, `#00ff41`, the roster and board loaded, no exceptions.
+Gates: `page.test.mjs` (the app's page, module scripts, the shim first; start-up reads),
+`GuestMethodsTests` (port-page.json is the app's), `InviteTests` "a shared port's page reads its own
+space and companions…", `RemoteTileTests` "the tile page's start-up reads…", calibrated by nine
+breaks.
+
 **Deployed 2026-09-27.** `tele.port42.ai` runs as the Railway service `tele` in the project
 `port42-relay`, next to `relay`, with `RAILWAY_DOCKERFILE_PATH=tele.Dockerfile`. The deploy uploads a
 staged context (committed `gateway/`, `tele.Dockerfile`, `invite.html`, `frame.html`, the bundle), not

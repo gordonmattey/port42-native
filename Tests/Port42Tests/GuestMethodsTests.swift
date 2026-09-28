@@ -40,4 +40,29 @@ struct GuestMethodsTests {
         #expect(fresh.contains("\"port.push\""), "port.push is missing from what a guest can call")
         #expect(!fresh.contains("\"terminal.exec\""), "a method no other machine may call is in the guest's table")
     }
+
+    // MARK: - The port's document
+
+    /// The page around a port's HTML (the theme, the module rewrite, the console hints), as the app
+    /// builds it, split at the body. `guest/src/port-page.json`; the browser frame builds the same page.
+    static let pageURL = url().deletingLastPathComponent().appendingPathComponent("port-page.json")
+    static let bodyMark = "@@PORT42_BODY@@"
+
+    static func page() throws -> String {
+        let parts = PortWebViewFactory.wrapHTML(bodyMark).components(separatedBy: bodyMark)
+        let data = try JSONSerialization.data(withJSONObject: ["before": parts[0], "after": parts[1]],
+                                              options: [.prettyPrinted, .sortedKeys])
+        return String(decoding: data, as: UTF8.self) + "\n"
+    }
+
+    @Test("the browser frame wraps a port's HTML in the app's own page: theme, accent and module scripts")
+    func portPage() throws {
+        let fresh = try Self.page()
+        if ProcessInfo.processInfo.environment["PORT42_REGEN_GUEST"] == "1" {
+            try fresh.write(to: Self.pageURL, atomically: true, encoding: .utf8)
+        }
+        let committed = try String(contentsOf: Self.pageURL, encoding: .utf8)
+        #expect(committed == fresh, "guest/src/port-page.json is stale: PORT42_REGEN_GUEST=1 swift test --filter GuestMethodsTests")
+        #expect(fresh.contains("--color-accent") && fresh.contains("SF Mono"), "the port theme is not in the page")
+    }
 }
