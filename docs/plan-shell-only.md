@@ -426,6 +426,7 @@ them; an item leaves only when it is done and verified.
 | 18 | Web share: on the invite page in a browser the port's HTML area is about 20% of the height it should be (GM, 2026-09-27) | Open, Phase 4's (sent to it): should fill the whole area under the bar |
 | 19 | An invite opened in the browser first is then "already used" in Port42 (GM, 2026-09-27) | Open, Phase 4's: an invite binds to the first redeemer's key, and the browser and Port42 are two keys. Proposed: the page redeems only on "Open here", and "Open in Port42" from a joined browser hands the grant over |
 | 20 | On a remote machine, a shared port's chat shows no presence while the host's companion works (GM, 2026-09-27) | Open: presence is kept only on the host and never crosses a share. Fix: the host publishes presence changes on the port's topic, as it does chat, and the remote tile shows them under its chat |
+| 21 | Imagine ran Claude for the lead and one engineer whatever the person chose, and Codex for the other only if installed (GM, 2026-09-27: his brother chose Codex) | Done: the whole team runs on the agent picked at first run (recorded now; older installs read echo's), even with both installed; another only if the choice is no longer installed. In the next build |
 
 ## Future roadmap
 

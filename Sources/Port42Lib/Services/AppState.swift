@@ -91,6 +91,16 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
+    /// The agent CLI the person chose at first run ("claude", "codex"), which imagine teams run on
+    /// (GM, 2026-09-27). Installs from before it was recorded read echo's.
+    var preferredCLI: String? {
+        get {
+            UserDefaults.standard.string(forKey: "preferredAgentCLI")
+                ?? companions.first { $0.displayName == "echo" }?.command.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "preferredAgentCLI") }
+    }
+
     /// An imagine link that arrived before or during the first run, held until the person lands
     /// (ImagineLink). On disk, not in memory: an install often opens, quits and reopens the app, and
     /// the idea the person picked on the site must survive that (growth, 2026-09-27).
@@ -1299,6 +1309,7 @@ public final class AppState: ObservableObject {
     /// in its input; Codex takes the brief as its first turn and greets on its own.
     public func completeSetup(displayName: String, cli: String = "claude", imported: [SessionImport.Request] = []) {
         showDreamscape = false
+        preferredCLI = cli
 
         guard let user = currentUser else {
             print("[Port42] completeSetup called but no currentUser")
