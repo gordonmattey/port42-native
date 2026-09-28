@@ -427,6 +427,8 @@ them; an item leaves only when it is done and verified.
 | 19 | An invite opened in the browser first is then "already used" in Port42 (GM, 2026-09-27) | Open, Phase 4's: an invite binds to the first redeemer's key, and the browser and Port42 are two keys. Proposed: the page redeems only on "Open here", and "Open in Port42" from a joined browser hands the grant over |
 | 20 | On a remote machine, a shared port's chat shows no presence while the host's companion works (GM, 2026-09-27) | Open: presence is kept only on the host and never crosses a share. Fix: the host publishes presence changes on the port's topic, as it does chat, and the remote tile shows them under its chat |
 | 21 | Imagine ran Claude for the lead and one engineer whatever the person chose, and Codex for the other only if installed (GM, 2026-09-27: his brother chose Codex) | Done: the whole team runs on the agent picked at first run (recorded now; older installs read echo's), even with both installed; another only if the choice is no longer installed. In the next build |
+| 22 | In chat, my messages on the right had right-aligned lines, so a wrapped one was ragged on the left (GM, 2026-09-27) | Done: each of my messages is a right-hand block of left-aligned text, indented by the room its widest line leaves, laid out again when the chat is resized; checked in a real text layout. In the next build |
+| 23 | A flaky test: "the watcher's own write does not wake it" (`CompanionWatchTests`) failed once in a full run on 2026-09-27 and passes alone | Open: not root-caused. The voice session saw the same when voice started from `AppState.init`; look for per-AppState launch work or timing under load |
 
 ## Future roadmap
 
