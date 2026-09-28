@@ -1399,8 +1399,21 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let rowId = appState.portWindows.closedPortId(id) ?? id
         // APP-11: only a closed port from the caller's own space.
-        guard appState.canRead(portInSpace: (try? appState.db.fetchPortPanel(id: rowId))??.spaceId, by: p),
-              appState.portWindows.reopen(rowId) else { throw BridgeError.notFound("closed port '\(id)'") }
+        let row = (try? appState.db.fetchPortPanel(id: rowId)) ?? nil
+        guard appState.canRead(portInSpace: row?.spaceId, by: p) else {
+            throw BridgeError.notFound("closed port '\(id)'")
+        }
+        // NAU-05: reopening a terminal relaunches its stored command, and a browser reopens its page,
+        // so this is gated by the port's type exactly as `port.create` is. Without it, a caller with
+        // no grant could close a terminal and reopen it to run whatever command it stores.
+        let needed: PortPermission? = row?.portType == "terminal" ? .terminal
+                                    : row?.portType == "browser" ? .browser : nil
+        if let needed {
+            guard try await appState.ensurePermission(needed, for: p) else {
+                throw BridgeError.permissionDenied(needed.rawValue)
+            }
+        }
+        guard appState.portWindows.reopen(rowId) else { throw BridgeError.notFound("closed port '\(id)'") }
         let key = appState.portWindows.panels.first { $0.id == rowId }?.udid ?? id
         return .object(["ok": .bool(true), "id": .string(id),
                         PortActivity.tokenKey: .string(appState.portInput.token(for: key))])
@@ -1418,6 +1431,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let rowId = appState.portWindows.closedPortId(id),
               appState.canRead(portInSpace: (try? appState.db.fetchPortPanel(id: rowId))??.spaceId, by: p) else {
             throw BridgeError.notFound("closed port '\(id)' (close it first)")
+        }
+        // NAU-05: deleting for good is the port's creator's call, or the person's. Anyone else in the
+        // space could close a port (port.manage) and then erase it with its versions and chat.
+        if p.kind != .human {
+            let creator = ((try? appState.db.fetchPortPanel(id: rowId)) ?? nil)?.createdBy
+            guard let creator, creator == p.id else {
+                throw BridgeError(code: .permissionDenied,
+                                  message: "only the port's creator or the person can delete '\(id)' for good")
+            }
         }
         appState.portWindows.deleteForever(rowId)
         return .object(["ok": .bool(true)])
@@ -1578,6 +1600,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let html = try args.requireString("html")
         let target = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireRewritableCode(target)   // NAU-05
         try appState.requireCodeAuthority(over: target, by: p)   // APP-07
         appState.recordCodeWrite(to: target, by: p, replacesAll: true)   // NAU-02
         guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
@@ -1601,6 +1624,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let search = try args.requireString("search")
         let replace = try args.requireString("replace")
         let udid = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireRewritableCode(udid)   // NAU-05
         try appState.requireCodeAuthority(over: udid, by: p)   // APP-07
         guard let current = try? appState.db.fetchPortHtml(udid: udid) else {
             throw BridgeError.notFound("port '\(id)'")
@@ -1629,6 +1653,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let version = try args.requireInt("version")
         let udid = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireRewritableCode(udid)   // NAU-05
         try appState.requireCodeAuthority(over: udid, by: p)   // APP-07
         guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")

@@ -108,10 +108,15 @@ struct PortArchiveTests {
     @Test("port.delete refuses an open port and deletes a closed one")
     func portDelete() async throws {
         let w = try world()
-        await #expect(throws: BridgeError.self) { _ = try await call(w, "port.delete", ["id": "p"]) }
+        // As the person: a port with no creator is only theirs to delete (NAU-05).
+        let person = Principal.human(id: "alice", displayName: "Alice", spaceId: w.space.id)
+        let delete = { (id: String) async throws in
+            _ = try await w.state.runBridgeMethod("port.delete", principal: person, args: BridgeArgs(["id": id]))
+        }
+        await #expect(throws: BridgeError.self) { try await delete("p") }
         #expect(w.pw.panels.contains { $0.id == "p" }, "an open port is never deleted in one step")
         w.pw.close("p")
-        _ = try await call(w, "port.delete", ["id": "p"])
+        try await delete("p")
         #expect(try w.state.db.fetchPortPanel(id: "p") == nil)
         withExtendedLifetime(w.state) {}
     }
