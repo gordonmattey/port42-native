@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -309,7 +310,14 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	g.addPeer(peer)
+	// A live peer's ID is not taken without proof (GW-02). addPeer closed whatever held the ID and
+	// installed the newcomer, so any local process could take a caller's ID, or the host's while its
+	// connection was being replaced.
+	if err := g.admitPeer(ctx, peer); err != nil {
+		log.Printf("[gateway] REFUSED %s: %v", peer.ID[:min(8, len(peer.ID))], err)
+		conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
 	defer g.removePeer(peer)
 
 	if peer.hostProven {
@@ -391,23 +399,61 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (g *Gateway) addPeer(p *Peer) {
+// livenessProbeTimeout bounds how long admitPeer waits for the current holder of an ID to answer a
+// ping before treating its connection as dead.
+const livenessProbeTimeout = 2 * time.Second
+
+// admitPeer installs p under its ID, or refuses it because a LIVE peer already holds the ID (GW-02).
+//
+// The newcomer replaces the holder only when it proves the same identity (both are the proven host,
+// or both identified with the same client credential), or when the holder is dead: its connection
+// does not answer a ping within livenessProbeTimeout, which is what an ordinary reconnect meets.
+func (g *Gateway) admitPeer(ctx context.Context, p *Peer) error {
+	g.mu.RLock()
+	old, taken := g.peers[p.ID]
+	g.mu.RUnlock()
+
+	if taken && !sameIdentity(old, p) {
+		probeCtx, cancel := context.WithTimeout(ctx, livenessProbeTimeout)
+		err := old.Conn.Ping(probeCtx)
+		cancel()
+		if err == nil {
+			return fmt.Errorf("peer id in use")
+		}
+		log.Printf("[gateway] %s: holder did not answer a ping, replacing it", p.ID[:min(8, len(p.ID))])
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if old, ok := g.peers[p.ID]; ok {
+	if current, ok := g.peers[p.ID]; ok && current != old {
+		return fmt.Errorf("peer id in use") // taken while this one probed; that one passed the same check
+	}
+	if taken {
 		old.Conn.Close(websocket.StatusGoingAway, "replaced by new connection")
 	}
 	g.peers[p.ID] = p
+	return nil
+}
+
+// sameIdentity reports whether newcomer proved it is the peer holding the ID.
+func sameIdentity(old, newcomer *Peer) bool {
+	if old.hostProven && newcomer.hostProven {
+		return true
+	}
+	return old.Credential != "" &&
+		subtle.ConstantTimeCompare([]byte(old.Credential), []byte(newcomer.Credential)) == 1
 }
 
 func (g *Gateway) removePeer(p *Peer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Only the connection that still holds the ID gives it up, host slot included (GW-02). Clearing
+	// globalHostID by ID string let a replaced or refused connection blank the real host's routing.
 	if current, ok := g.peers[p.ID]; ok && current == p {
 		delete(g.peers, p.ID)
-	}
-	if g.globalHostID == p.ID {
-		g.globalHostID = ""
+		if g.globalHostID == p.ID {
+			g.globalHostID = ""
+		}
 	}
 }
 
