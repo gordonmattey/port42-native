@@ -8,14 +8,14 @@ that publishes.
 
 | Item | Status |
 |---|---|
-| Branch | `nautilus`, fast-forwarded into local `main` (nothing pushed). `origin/main` is at `43eea3e` (v0.5.50's line); the push carries 538 commits |
+| Branch | `main` pushed at `f9cc582` on 2026-09-27 (GM): `nautilus` fast-forwarded, the docs scrub on top. The update feed on `main` still lists v0.5.50, so nothing reaches installed copies until the release build |
 | Version | `VERSION` = 1.0.0. No `v1.0.0` tag or release exists on GitHub; the latest public release is v0.5.50 |
 | Tests | Full Swift suite green (1487 at `21d9f57`), guest tests 20/20, Go gateway suite green |
 | Update feed | Installed copies read `main`'s `dist/appcast.xml`, so the release runs from `main`. The built app's `SUPublicEDKey` matches the signing key in the keychain (`EEYKlz61…fbI=`); v0.5.50 installs will accept the update |
 | Secrets | The 538 outgoing commits (every added line, history included) scanned for API keys, tokens, private keys and analytics keys: none |
 | Notarized DMG | Build 2427 (NO_PUBLISH) notarized and installed on GM's Mac; the release build makes its own |
 | Invite page | `tele.port42.ai` live with the current guest bundle; its served page matches the committed one |
-| Security audit | The squad works on `squad/security-v1` from `nautilus`; its ledger lists 68 findings, 13 verified fixed on `nautilus`. What is merged by the morning ships; the rest follows in 1.0.x |
+| Security audit | The squad works on `squad/security-v1`. At 2026-09-27 evening: APP-07, GW-15, GW-02 and a test hygiene fix, plus its ledger (68 findings, 13 already fixed). In the morning, finished tickets that pass the suite and review are merged into `main` before the release; the ledger stays out of the public repo until its findings are fixed. The rest follows in 1.0.x |
 | Pairing and scoped tokens | Not built. Designed (`plan-pairing-scopes.md`), all decisions made. Moves after 1.0.0 unless GM says otherwise |
 | Presence in the API | On branch `presence-api` (`0056aad`), not in 1.0.0 |
 | macOS 14 on Sonoma hardware | Not verified; GM decided 14 ships |
@@ -27,8 +27,8 @@ From the main checkout, with nothing uncommitted outside `dist/`:
 
 ```
 git checkout main
-git merge --ff-only nautilus          # takes anything merged into nautilus overnight
-./build.sh --release                  # tests, build, sign, notarize, appcast, push main, GitHub release
+git merge <the squad's reviewed commits>   # optional, morning decision; never the ledger
+./build.sh --release                       # tests, build, sign, notarize, appcast, push main, GitHub release
 git add -f dist/Port42.app dist/Port42.dmg && git commit -m "Release: v1.0.0" && git push
 ```
 
