@@ -283,9 +283,10 @@ func (g *Gateway) forgetCallsOf(id string) {
 }
 
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
-	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
-	})
+	// No OriginPatterns (GW-05): the wildcard let any web page the user opened connect as a peer. The
+	// library's default refuses a browser Origin that differs from the request Host, and a loopback
+	// listener refuses every Origin before this point (loopbackOnly).
+	conn, err := websocket.Accept(w, req, nil)
 	if err != nil {
 		log.Printf("[gateway] accept error: %v", err)
 		return

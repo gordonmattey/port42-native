@@ -40,11 +40,9 @@ func main() {
 
 	gw := NewGateway()
 
-	mux := newMux(gw)
-
 	srv := &http.Server{
 		Addr:    *addr,
-		Handler: mux,
+		Handler: serverHandler(*addr, gw),
 		// No read/write timeouts: WebSocket connections are long-lived
 		// and timeouts would kill them (especially through a reverse proxy)
 	}
@@ -194,6 +192,15 @@ const rootPage = `<!DOCTYPE html>
 </body>
 </html>
 `
+
+// serverHandler is what the listener on addr serves: the routes, behind the loopback guard when addr
+// is loopback (GW-05), so no web page the user opens reaches the gateway.
+func serverHandler(addr string, gw *Gateway) http.Handler {
+	if isLoopbackAddr(addr) {
+		return loopbackOnly(newMux(gw))
+	}
+	return newMux(gw)
+}
 
 // newMux is the gateway's routes: the WebSocket door, `/call`, `/health` and the root page. The old
 // `/port` browser-guest spike and its query-string token are gone (nautilus Phase 4, 4.7): a browser
