@@ -590,6 +590,13 @@ Things that would be cool once the five scenarios hold.
 - **Move browser and terminal ports to another space** (GM, 2026-09-27). "Move to…" for a web port
   exists; a browser or terminal port should move across spaces the same way, keeping its session (the
   terminal keeps running, the browser keeps its page).
+- **Rename a port, and copy its name** (GM, 2026-09-27). A port's title set by hand from its "…" menu,
+  and its name copied from there, as a space's is.
+- **Rename a space from the top bar** (GM, 2026-09-27). A long press on the space pill in the top bar
+  renames it in place.
+- **One way to close a sheet** (GM, 2026-09-27). Esc does not close the companion sheet, and sheets
+  across the app mix an X button, an esc label and neither. Every sheet and box closes on Esc and shows
+  the same close control.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
