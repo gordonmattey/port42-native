@@ -440,18 +440,16 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # `$MACOS/port42` IS the app binary, so it re-signed that while the CLI stayed ad-hoc, and
     # notarization refused the DMG (2026-09-26).
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-cli"
-    # Sign Sparkle framework and all nested components (inside-out)
+    # Sign Sparkle inside-out, as Sparkle documents: its helpers get NO entitlements of ours (BLD-03).
+    # They used to get Sparkle.entitlements (JIT, unsigned memory, disable-library-validation, Apple
+    # Events), none of which they need; the installer runs with the user's authority over the app.
+    # Downloader.xpc keeps whatever entitlements upstream gave it.
     if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
-        SPARKLE_ENT="$DIR/Sparkle.entitlements"
-        # Sign nested executables first
-        find "$FRAMEWORKS/Sparkle.framework" -type f -perm +111 -not -name "*.plist" -not -name "*.h" -not -name "*.modulemap" | while read binary; do
-            codesign --force --sign "$SIGN_IDENTITY" --entitlements "$SPARKLE_ENT" --options runtime --timestamp "$binary"
-        done
-        # Sign nested bundles
-        find "$FRAMEWORKS/Sparkle.framework" \( -name "*.app" -o -name "*.xpc" \) | while read nested; do
-            codesign --force --sign "$SIGN_IDENTITY" --entitlements "$SPARKLE_ENT" --options runtime --timestamp "$nested"
-        done
-        # Sign the framework itself
+        SPARKLE_B="$FRAMEWORKS/Sparkle.framework/Versions/B"
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$SPARKLE_B/XPCServices/Installer.xpc"
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp --preserve-metadata=entitlements "$SPARKLE_B/XPCServices/Downloader.xpc"
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$SPARKLE_B/Autoupdate"
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$SPARKLE_B/Updater.app"
         codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$FRAMEWORKS/Sparkle.framework"
     fi
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
