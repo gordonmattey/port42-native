@@ -196,6 +196,12 @@ extension AppState {
             // APP-10 rule. Refused as `not_found`, and BEFORE the token checks, because
             // `token_required` and `stale_write` carry the port's current token, which would confirm
             // the port exists and hand an outsider what it needs to write.
+            //
+            // **The token is NOT an access control** (APP-21). It says "you composed against the
+            // current state", nothing about who you are: `ports.list` hands it to every caller that
+            // can see the port, and a refusal carries it back. Authorization is THIS check and the
+            // permission gate; a caller holding a perfectly valid token for a port outside its scope
+            // is refused here all the same. Never let a write rely on the token to keep anyone out.
             guard canRead(portInSpace: portSpaceId(ref), by: principal) else {
                 throw BridgeError.notFound("port '\(raw)'")
             }
