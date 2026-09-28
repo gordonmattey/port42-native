@@ -317,13 +317,20 @@ public final class ScreenBridge: PortOwnedResource {
 
     // MARK: - Private
 
+    /// Is this failure macOS's Screen Recording refusal? The user declined (`SCStreamError.userDeclined`),
+    /// or macOS reports no access right now. Pure, so the rule is testable without a real refusal.
+    nonisolated static func isScreenRecordingRefusal(_ error: Error, preflight: Bool) -> Bool {
+        let e = error as NSError
+        let declined = e.domain == SCStreamErrorDomain && e.code == SCStreamError.Code.userDeclined.rawValue
+        return declined || !preflight
+    }
+
     private func handleTCCError(_ error: Error, method: String) -> [String: Any] {
-        let nsError = error as NSError
-        if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamError" ||
-           nsError.localizedDescription.lowercased().contains("permission") ||
-           nsError.localizedDescription.lowercased().contains("denied") {
+        // Asked of macOS, not read out of the English (APP-17). The old test matched "permission" or
+        // "denied" in a localized string, and treated EVERY SCStreamError as a privacy refusal.
+        if Self.isScreenRecordingRefusal(error, preflight: CGPreflightScreenCaptureAccess()) {
             p42log("[Port42] %@: TCC permission denied: %@", method, error.localizedDescription)
-            return ["error": "screen recording permission denied. Check System Settings > Privacy & Security > Screen Recording", "code": BridgeErrorCode.permissionDenied.wire]
+            return ["error": "macOS denied Screen Recording. Allow Port42 in System Settings > Privacy & Security > Screen Recording", "code": BridgeErrorCode.osDenied.wire]
         }
         p42log("[Port42] %@: failed to get shareable content: %@", method, error.localizedDescription)
         return ["error": "screen capture failed: \(error.localizedDescription)"]

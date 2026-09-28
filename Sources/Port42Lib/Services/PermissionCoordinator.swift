@@ -33,8 +33,11 @@ import Combine
 public enum PermissionOutcome: Equatable {
     /// The person clicked Allow.
     case granted
-    /// The person said no, or the ask was dropped (the asker went away, the queue was torn down).
+    /// The person clicked Deny, or pressed Esc on the card.
     case denied
+    /// Nobody answered (APP-17): the asker went away (a port closed) or the queue was torn down.
+    /// Not a denial, so the caller is told to ask again rather than that the person said no.
+    case cancelled
     /// Nothing was asked: no card could be seen (locked, or not set up), so the caller retries later.
     case locked
 }
@@ -158,10 +161,10 @@ public final class PermissionCoordinator: ObservableObject {
         advance()
     }
 
-    /// Deny everything pending — the "get me out of here" path (Esc denies only the current card;
+    /// Resolve everything pending as CANCELLED (APP-17): nobody answered these cards. The "get me out of here" path (Esc denies only the current card;
     /// this is for teardown, e.g. the shell going away with asks outstanding).
     public func denyAll() {
-        withdrawAll(.denied)
+        withdrawAll(.cancelled)
     }
 
     /// Resolve everything pending with one outcome. Locking uses `.locked` (APP-16): the cards on
@@ -178,12 +181,12 @@ public final class PermissionCoordinator: ObservableObject {
     public func cancelRequests(from principalId: String) {
         queued.removeAll { req in
             guard req.principal.id == principalId else { return false }
-            req.resolve(.denied)
+            req.resolve(.cancelled)
             return true
         }
         if let c = current, c.principal.id == principalId {
             current = nil
-            c.resolve(.denied)
+            c.resolve(.cancelled)
             advance()
         }
     }

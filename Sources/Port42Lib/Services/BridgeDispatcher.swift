@@ -148,6 +148,8 @@ extension AppState {
         case .granted: return true
         case .denied:  return false
         case .locked:  throw BridgeError.locked(perm.rawValue)
+        // APP-17: nobody said no. Its own code, so the caller asks again instead of giving up.
+        case .cancelled: throw BridgeError.permissionCancelled(perm.rawValue)
         }
     }
 

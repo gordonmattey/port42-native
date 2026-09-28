@@ -7,6 +7,12 @@ import Foundation
 @MainActor
 public final class AutomationBridge {
 
+    /// Is this AppleScript error macOS refusing Automation (APP-17)? -1743 errAEEventNotPermitted,
+    /// -1744 errAEEventWouldRequireUserConsent. Anything else is the script's own failure.
+    nonisolated static func isAutomationRefusal(_ errorNumber: Int?) -> Bool {
+        errorNumber == -1743 || errorNumber == -1744
+    }
+
     static let defaultTimeout: TimeInterval = 30
     static let maxTimeout: TimeInterval = 120
 
@@ -34,6 +40,12 @@ public final class AutomationBridge {
 
                 if let error = errorDict {
                     let msg = error[NSAppleScript.errorMessage] as? String ?? "AppleScript execution failed"
+                    // APP-17: macOS Automation (a privacy grant) refused, not the script.
+                    if AutomationBridge.isAutomationRefusal(error[NSAppleScript.errorNumber] as? Int) {
+                        guard_.resumeOnce(["error": "macOS denied Automation: \(msg). Allow Port42 in System Settings > Privacy & Security > Automation",
+                                           "code": BridgeErrorCode.osDenied.wire])
+                        return
+                    }
                     guard_.resumeOnce(["error": msg])
                 } else {
                     let result = descriptor?.stringValue ?? ""
