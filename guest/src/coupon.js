@@ -1,6 +1,10 @@
 // The invite in a link's fragment, as InviteCoupon in Invites.swift makes it: base64url JSON naming the
 // host's peer id, its relays, one port, the rights, a one-time nonce, an expiry and display names.
 
+// A relay is reached over wss://, or ws:// only to this machine, for a relay run locally (REL-03).
+export const secureRelay = (r) => typeof r === 'string'
+  && (/^wss:\/\//.test(r) || /^ws:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(r));
+
 export function decodeCoupon(fragment) {
   const raw = (fragment ?? '').replace(/^#/, '');
   if (!raw) return null;
@@ -10,7 +14,7 @@ export function decodeCoupon(fragment) {
     json = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
   } catch { return null; }
   const ok = json && json.v === 1 && typeof json.host === 'string' && json.host.length === 52
-    && Array.isArray(json.relays) && json.relays.length > 0 && json.relays.every((r) => /^wss:\/\/|^ws:\/\//.test(r))
+    && Array.isArray(json.relays) && json.relays.length > 0 && json.relays.every(secureRelay)
     && typeof json.port === 'string' && typeof json.nonce === 'string' && Array.isArray(json.rights);
   return ok ? json : null;
 }

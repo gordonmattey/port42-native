@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -79,12 +80,33 @@ type Refusal struct{ Code, Message string }
 
 func (r *Refusal) Error() string { return r.Code + ": " + r.Message }
 
+// SecureRelayURL reports whether a relay may be dialled: wss://, or ws:// to this machine for a relay
+// run locally (REL-03). A plaintext relay named in an invite exposed the relay hello and let anyone on
+// the path see who talks to whom; Noise still protected the calls themselves.
+func SecureRelayURL(u *url.URL) bool {
+	if u.Scheme == "wss" {
+		return true
+	}
+	if u.Scheme != "ws" {
+		return false
+	}
+	h := u.Hostname()
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
 // connect dials a relay and proves this key: it signs the relay's challenge, bound to the relay it
 // meant to reach, so a signature cannot be replayed at another relay.
 func connect(ctx context.Context, relayURL string, key ed25519.PrivateKey, role string) (*websocket.Conn, error) {
 	u, err := url.Parse(relayURL)
 	if err != nil {
 		return nil, err
+	}
+	if !SecureRelayURL(u) {
+		return nil, fmt.Errorf("refusing relay %q: a relay is reached over wss:// (REL-03)", relayURL)
 	}
 	conn, _, err := websocket.Dial(ctx, relayURL, nil)
 	if err != nil {

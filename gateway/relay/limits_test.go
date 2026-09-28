@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +173,27 @@ func TestOneAddressHoldsBoundedConnections(t *testing.T) {
 	}
 	if err := dial("203.0.113.2"); err != nil {
 		t.Fatalf("another address was refused: %v", err)
+	}
+}
+
+// A relay is dialled over wss://, or ws:// only to this machine (REL-03).
+func TestOnlySecureRelaysAreDialled(t *testing.T) {
+	for _, c := range []struct {
+		url string
+		ok  bool
+	}{
+		{"wss://relay1.port42.ai/v1", true}, {"ws://127.0.0.1:8080/v1", true}, {"ws://localhost/v1", true},
+		{"ws://[::1]:9/v1", true}, {"ws://relay.example/v1", false}, {"ws://localhost.evil.example/v1", false},
+		{"http://relay.example/v1", false},
+	} {
+		u, _ := url.Parse(c.url)
+		if SecureRelayURL(u) != c.ok {
+			t.Errorf("%s: secure=%v, want %v", c.url, !c.ok, c.ok)
+		}
+	}
+	key := newKey(t)
+	if _, err := connect(context.Background(), "ws://relay.example/v1", key, "guest"); err == nil ||
+		!strings.Contains(err.Error(), "REL-03") {
+		t.Fatalf("a plaintext relay was dialled: %v", err)
 	}
 }
