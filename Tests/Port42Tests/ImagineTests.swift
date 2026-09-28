@@ -66,7 +66,7 @@ struct ImagineTests {
         let team = try await w.state.startImagine(line: "a clock made of light", versions: 3, person: person,
                                                   testCommand: "true")
         let space = try #require(w.state.spaces.first { $0.id == team.spaceId } ?? (try w.state.db.getAllSpaces()).first { $0.id == team.spaceId })
-        #expect(space.name == "a-clock-made-of-light")
+        #expect(space.name == "clock-made-light")
         let members = Set(try w.state.db.getAgentsForSpace(spaceId: team.spaceId).map(\.displayName))
         #expect(members == Set(team.members), "the team is not in its space: \(members)")
         #expect(Set(team.members).count == 3, "codenames collided")
@@ -262,5 +262,22 @@ struct ImagineTests {
         #expect(shell.zoom == .space)
         shell.toggleGalaxy()
         #expect(shell.zoom == .galaxy)
+    }
+
+    @Test("a short space name from the line: the asking and the filler dropped, a few words kept")
+    func shortSpaceName() {
+        #expect(Imagine.spaceName(from: "a starfield you can steer with the mouse") == "starfield steer mouse")
+        #expect(Imagine.spaceName(from: "I want you to run a full security audit on main branch, we") == "run full security")
+        #expect(Imagine.spaceName(from: "make me a shader that reacts to music") == "shader reacts music")
+        #expect(Imagine.spaceName(from: "create a mini crm for managing contacts") == "mini crm managing")
+        #expect(Imagine.spaceName(from: "   ") == Imagine.title(from: "   "))
+    }
+
+    @Test("the team is named by role after the space, and a taken name gets a number")
+    func roleNames() {
+        let t = Imagine.teamNames(for: "starfield steer mouse", taken: [])
+        #expect(t.lead == "starfield-lead" && t.eng1 == "starfield-eng-1" && t.eng2 == "starfield-eng-2")
+        let again = Imagine.teamNames(for: "starfield steer mouse", taken: ["starfield-lead", "starfield-eng-1", "starfield-eng-2"])
+        #expect(again.lead == "starfield-lead-2" && again.eng2 == "starfield-eng-2-2")
     }
 }

@@ -58,6 +58,40 @@ public enum Imagine {
         return out.isEmpty ? String(line.prefix(60)) : out
     }
 
+    /// A short space name from the line (GM, 2026-09-27: spaces were the line's first 60 characters,
+    /// typos and all): its first few meaningful words, the asking and the filler dropped.
+    /// "a starfield you can steer with the mouse" → "starfield steer mouse".
+    public static func spaceName(from line: String) -> String {
+        let lead = ["i want you to", "i want", "can you", "could you", "please", "make me", "make",
+                    "build me", "build", "create", "give me", "imagine", "show me", "write"]
+        var t = line.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var changed = true
+        while changed {
+            changed = false
+            for p in lead where t.hasPrefix(p + " ") { t = String(t.dropFirst(p.count + 1)); changed = true }
+        }
+        let filler: Set<String> = ["a", "an", "the", "that", "which", "you", "can", "could", "with", "of", "for",
+                                   "to", "and", "or", "on", "in", "my", "me", "i", "it", "is", "are", "be",
+                                   "so", "by", "from", "as", "at", "your", "our", "some", "into", "using"]
+        let words = t.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+            .filter { !filler.contains($0) && $0.count > 1 }
+        let picked = words.prefix(3).joined(separator: " ")
+        return picked.isEmpty ? title(from: line) : picked
+    }
+
+    /// The team's names, by role, after the space's first word, so the terminals, the mentions and the
+    /// presence line say who does what (GM, 2026-09-27: codenames like "calm-moth" said nothing).
+    /// A name already taken gets a number.
+    public static func teamNames(for space: String, taken: Set<String>) -> (lead: String, eng1: String, eng2: String) {
+        let base = space.split { !$0.isLetter && !$0.isNumber }.first.map(String.init)?.lowercased() ?? "team"
+        func free(_ n: String) -> String {
+            var name = n, k = 2
+            while taken.contains(name.lowercased()) { name = "\(n)-\(k)"; k += 1 }
+            return name
+        }
+        return (free(base + "-lead"), free(base + "-eng-1"), free(base + "-eng-2"))
+    }
+
     /// The CLI an imagine team runs on: the one the person chose, while it is installed; else the first
     /// installed; else the choice as it stands (the terminal then says it is missing).
     public static func teamCLI(chosen: String?, installed: [String]) -> String {
@@ -184,17 +218,15 @@ extension AppState {
     @discardableResult
     func startImagine(line: String, versions: Int = Imagine.defaultVersions, person: AppUser,
                       testCommand: String? = nil) async throws -> ImagineTeam {
-        let title = Imagine.title(from: line)
-        guard let space = createSpace(name: title, select: testCommand == nil) else {
+        let title = Imagine.title(from: line)          // the port keeps the fuller title
+        var roomName = Imagine.spaceName(from: line), k = 2
+        let spaceNames = Set(spaces.map { $0.name.lowercased() })
+        while spaceNames.contains(AppState.spaceName(roomName)) { roomName = Imagine.spaceName(from: line) + " \(k)"; k += 1 }
+        guard let space = createSpace(name: roomName, select: testCommand == nil) else {
             throw BridgeError.badArg("could not make a space for '\(title)'")
         }
         let taken = Set(companions.map { $0.displayName.lowercased() })
-        var names: [String] = []
-        while names.count < 3 {
-            let n = CompanionCodename.generate(seed: UUID().uuidString)
-            if !taken.contains(n.lowercased()) && !names.contains(n) { names.append(n) }
-        }
-        let (lead, eng1, eng2) = (names[0], names[1], names[2])
+        let (lead, eng1, eng2) = Imagine.teamNames(for: roomName, taken: taken)
         // The port first, so the brief can name it and the work has a chat from the start.
         let made = try await runBridgeMethod("port.create",
                                              principal: .human(id: person.id, displayName: person.displayName, spaceId: space.id),
