@@ -35,11 +35,18 @@ struct BridgeRequiredArgTests {
         Principal.companion(id: "tester", displayName: "tester", spaceId: nil)
     }
 
-    func call(_ state: AppState, _ method: String, _ args: [String: Any]) async throws -> BridgeValue {
+    func call(_ state: AppState, _ method: String, _ args: [String: Any],
+              as caller: Principal? = nil) async throws -> BridgeValue {
         guard let m = state.bridgeRegistry[method] else {
             throw BridgeError(code: .unknownMethod, message: method)
         }
-        return try await m.run(principal(), BridgeArgs(args))
+        return try await m.run(caller ?? principal(), BridgeArgs(args))
+    }
+
+    /// A companion working IN `spaceId`: a space's working directory is set only by a caller acting
+    /// in that space (APP-11).
+    func member(of spaceId: String) -> Principal {
+        Principal.companion(id: "tester", displayName: "tester", spaceId: spaceId)
     }
 
     /// The wire code a call actually failed with, or nil if it succeeded. `BridgeError.code` is the
@@ -131,7 +138,7 @@ struct BridgeRequiredArgTests {
         // Option B (GM, 2026-07-31): one verb, and PRESENCE decides. Clearing stays reachable over
         // the API, matching the UI's own two acts ("Choose…" and "Clear (use home)"), but it now
         // requires the caller to say null rather than to say nothing.
-        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": NSNull()])
+        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": NSNull()], as: member(of: id))
         #expect(state.spaces.first(where: { $0.id == id })?.workingDirectory == nil)
     }
 
@@ -144,7 +151,7 @@ struct BridgeRequiredArgTests {
 
         // `Space.normalizeWorkingDirectory` has always folded "" to nil. Pinned so the presence
         // check does not accidentally change what a value MEANS while changing what is required.
-        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": ""])
+        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": ""], as: member(of: id))
         #expect(state.spaces.first(where: { $0.id == id })?.workingDirectory == nil)
     }
 
@@ -154,7 +161,7 @@ struct BridgeRequiredArgTests {
         state.createSpace(name: "demo")
         let id = state.spaces.first(where: { $0.name == "demo" })!.id
 
-        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": "/tmp"])
+        _ = try await call(state, "space.setWorkingDirectory", ["space_id": id, "path": "/tmp"], as: member(of: id))
         #expect(state.spaces.first(where: { $0.id == id })?.workingDirectory == "/tmp")
     }
 }

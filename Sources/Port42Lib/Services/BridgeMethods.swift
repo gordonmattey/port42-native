@@ -379,10 +379,13 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "action": ["type": "string", "description": "One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)"]
             ],
             "required": ["id", "action"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let action = try args.requireString("action")
-        guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id) else { throw BridgeError.notFound("port '\(id)'") }
+        // APP-11: only a port the caller may see. Checked here as well as at the dispatcher's write
+        // seam, because this lookup also matches a TITLE, which `resolvePortRef` does not.
+        guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id),
+              appState.canRead(portInSpace: panel.spaceId, by: p) else { throw BridgeError.notFound("port '\(id)'") }
         switch action {
         case "focus":
             appState.portWindows.bringToFront(panel.id)
@@ -1227,10 +1230,22 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "type": "object",
             "properties": ["space_id": ["type": "string", "description": "The space to delete (from space_list)."]],
             "required": ["space_id"],
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("space_id")
-        guard let space = appState.spaces.first(where: { $0.id == id }) else {
+        // APP-11: only a space the caller acts in, and never without the person. Deleting a space
+        // cannot be undone, so anyone but the person asks every time, naming the space, and a yes
+        // is never kept.
+        guard let space = appState.spaces.first(where: { $0.id == id }),
+              appState.canRead(portInSpace: id, by: p) else {
             throw BridgeError.notFound("space '\(id)'")
+        }
+        if p.kind != .human {
+            let ports = appState.portWindows.panels.filter { $0.spaceId == id }.count
+            guard await appState.permissions.request(
+                .deleteSpace, from: p,
+                detail: "Delete the space '\(space.name)' and its chat, closing its \(ports) port\(ports == 1 ? "" : "s")") else {
+                throw BridgeError.permissionDenied(PortPermission.deleteSpace.rawValue)
+            }
         }
         appState.deleteSpace(space)
         return .object(["deleted": .string(id), "name": .string(space.name)])
@@ -1246,7 +1261,10 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return .object(["ok": .bool(true)])
     }
 
-    r["space.setWorkingDirectory"] = BridgeMethod(permission: nil, paramNames: ["space_id", "path"], toolExposed: false,
+    // APP-11: `.filesystem`, because it points every companion spawned in the space at a directory
+    // of the caller's choosing; and only for a space the caller acts in. The UI's Choose and Clear
+    // call AppState directly and are unaffected.
+    r["space.setWorkingDirectory"] = BridgeMethod(permission: .filesystem, paramNames: ["space_id", "path"], toolExposed: false,
         description: "Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.",
         inputSchema: [
             "type": "object",
@@ -1274,7 +1292,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         } else {
             throw BridgeError.badArg("path must be a string, or null to clear the working directory")
         }
-        guard appState.setSpaceWorkingDirectory(path, spaceId: id) else {
+        // APP-11: after the arguments (a malformed call is still `missing_arg`), before the write.
+        guard appState.canRead(portInSpace: id, by: p),
+              appState.setSpaceWorkingDirectory(path, spaceId: id) else {
             throw BridgeError.notFound("space '\(id)'")
         }
         let resolved = appState.spaces.first(where: { $0.id == id })?.workingDirectory
@@ -1359,10 +1379,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "type": "object",
             "properties": ["id": ["type": "string", "description": "The closed port's id."]],
             "required": ["id"],
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let rowId = appState.portWindows.closedPortId(id) ?? id
-        guard appState.portWindows.reopen(rowId) else { throw BridgeError.notFound("closed port '\(id)'") }
+        // APP-11: only a closed port from the caller's own space.
+        guard appState.canRead(portInSpace: (try? appState.db.fetchPortPanel(id: rowId))??.spaceId, by: p),
+              appState.portWindows.reopen(rowId) else { throw BridgeError.notFound("closed port '\(id)'") }
         let key = appState.portWindows.panels.first { $0.id == rowId }?.udid ?? id
         return .object(["ok": .bool(true), "id": .string(id),
                         PortActivity.tokenKey: .string(appState.portInput.token(for: key))])
@@ -1374,9 +1396,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "type": "object",
             "properties": ["id": ["type": "string", "description": "The closed port's id."]],
             "required": ["id"],
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
-        guard let rowId = appState.portWindows.closedPortId(id) else {
+        // APP-11: only a closed port from the caller's own space. Deleting is for good.
+        guard let rowId = appState.portWindows.closedPortId(id),
+              appState.canRead(portInSpace: (try? appState.db.fetchPortPanel(id: rowId))??.spaceId, by: p) else {
             throw BridgeError.notFound("closed port '\(id)' (close it first)")
         }
         appState.portWindows.deleteForever(rowId)

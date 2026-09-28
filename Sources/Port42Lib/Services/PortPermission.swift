@@ -16,6 +16,7 @@ public enum PortPermission: String, Hashable {
     case automation    // automation.runAppleScript, automation.runJXA
     case rest          // rest.call — HTTP requests to external APIs
     case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
+    case deleteSpace   // space.delete by anyone but the person: asked every time, never kept (APP-11)
 
     // The method-to-permission mapping lives on each method's registry declaration
     // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
@@ -39,6 +40,7 @@ public enum PortPermission: String, Hashable {
         case .automation: return "gearshape.2"
         case .rest: return "network"
         case .share: return "person.2.wave.2"
+        case .deleteSpace: return "trash"
         }
     }
 
@@ -104,6 +106,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Share a Port",
                 message: "This wants to make invite links that let someone on another machine open one of your ports. Allow?"
+            )
+        case .deleteSpace:
+            return (
+                title: "Delete a Space",
+                message: "This wants to delete a space: its ports and terminals close, and the space and its chat are gone. This cannot be undone. Allow?"
             )
         }
     }

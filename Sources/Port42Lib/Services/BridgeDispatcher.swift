@@ -184,7 +184,14 @@ extension AppState {
                                args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
            let ref = resolvePortRef(raw), let key = PortRef.key(ref) {
-            // LIVENESS, FIRST — before CAS and before the token moves.
+            // SCOPE, before anything (APP-11). A caller writes only to a port it may READ, by the
+            // APP-10 rule. Refused as `not_found`, and BEFORE the token checks, because
+            // `token_required` and `stale_write` carry the port's current token, which would confirm
+            // the port exists and hand an outsider what it needs to write.
+            guard canRead(portInSpace: portSpaceId(ref), by: principal) else {
+                throw BridgeError.notFound("port '\(raw)'")
+            }
+            // LIVENESS — before CAS and before the token moves.
             //
             // A write that delivers to a surface must have a surface to deliver to. `.unknown` is
             // precisely "a known port with no live surface" (the DB row outlived the process), which

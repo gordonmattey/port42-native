@@ -90,6 +90,8 @@ List all spaces the user belongs to
 
 ## space.setWorkingDirectory
 
+_needs the filesystem permission_
+
 Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.
 
         path (required): Absolute directory path. Send null or "" to clear it and fall back to home. Required: omitting it is refused with missing_arg, so a malformed call cannot silently clear the setting.
