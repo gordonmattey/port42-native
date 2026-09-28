@@ -433,6 +433,7 @@ them; an item leaves only when it is done and verified.
 | 24 | Clicking the space name in the top-left pill only stepped up one level: from a focused port it went to the space, not the galaxy (GM, 2026-09-27) | Done: the pill and ⌘G share one toggle, straight to the galaxy from any level and back to the space |
 | 25 | Ports resized only by their corners, with no sign they could (GM, 2026-09-27: drag the sides too, and show it) | Done: the four sides drag too (one axis each), and every resize place shows a resize cursor: arrows on the sides, diagonal on corners (macOS 15; crosshair on 14), also on the chats' drag edges |
 | 26 | The invite page fix live on `tele.port42.ai` (GM, 2026-09-27) | Done: deployed from nautilus to the Railway service `tele`; the live page carries the fix, its CSP holds, and the bundle matches the committed one byte for byte. relay1 already ran the current relay |
+| 27 | Upgrading to v1 left every port that saved data empty (found by app-dev on GM's install, 2026-09-27: Drafts, Moments, the switch counter). `ba78120` moved a port's storage from its creator's key to `port:<udid>` with nothing to carry it | Done (`f5fac9f`): the first time a port touches a scope in v1, its creator's 0.5.x keys are copied into its own bucket, keeping what it already has, with a hidden marker so it happens once and a later delete stays deleted. Test calibrated. Must be in any build that upgrades an existing install |
 
 ## Future roadmap
 
