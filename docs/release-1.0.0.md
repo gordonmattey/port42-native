@@ -15,11 +15,13 @@ that publishes.
 | Secrets | The 538 outgoing commits (every added line, history included) scanned for API keys, tokens, private keys and analytics keys: none |
 | Notarized DMG | Build 2427 (NO_PUBLISH) notarized and installed on GM's Mac; the release build makes its own |
 | Invite page | `tele.port42.ai` live with the current guest bundle; its served page matches the committed one |
-| Security audit | The squad works on `squad/security-v1`. At 2026-09-27 evening: APP-07, GW-15, GW-02 and a test hygiene fix, plus its ledger (68 findings, 13 already fixed). In the morning, finished tickets that pass the suite and review are merged into `main` before the release; the ledger stays out of the public repo until its findings are fixed. The rest follows in 1.0.x |
+| Security audit | In 1.0.0 from `squad/security-v1`, reviewed and suite-green on `main`: SEC (tests never read the keychain), GW-15, GW-02, SEC-03, GW-08, GW-05, BLD-01, REL-01 (relay; ships with the relay redeploy), GW-11. Held for 1.0.1: APP-07 (it would stall an imagine team once the port holds a grant the engineers lack; needs a team-aware rule). The ledger stays out of the public repo until its findings are fixed |
+| PostHog keys (GM) | SEC-03 found two personal `phx_` keys committed to `Info.plist` in March and shipped in the 9-10 March DMGs; the history is public. Revoke both in PostHog (Settings, Personal API keys). Builds now refuse any key but the public `phc_` one |
+| Smoke test | Build 2428 (NO_PUBLISH, first three audit fixes): GM on 2026-09-28, sharing panel, companions, gateway calls all good. Build 2428 with all nine: GM to smoke test before the release |
 | Pairing and scoped tokens | Not built. Designed (`plan-pairing-scopes.md`), all decisions made. Moves after 1.0.0 unless GM says otherwise |
 | Presence in the API | On branch `presence-api` (`0056aad`), not in 1.0.0 |
 | macOS 14 on Sonoma hardware | Not verified; GM decided 14 ships |
-| Live sharing checks (v1-live-checks.md, I) | Unit-tested today (two machines per link, stop sharing withdraws the link); the two-instance run is still to do |
+| Live sharing checks (v1-live-checks.md, I) | Unit-tested (two machines per link, stop sharing withdraws the link); on 2026-09-28 GM saw the link stay open after a browser join in build 2428. The two-instance run is still to do |
 
 ## The final step
 
