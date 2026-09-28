@@ -121,14 +121,22 @@ extension AppState {
     /// OBJECT = port 0. Every capability gated here is a machine capability (clipboard, filesystem,
     /// terminal, screen, …), which is precisely what port 0 names. A grant about a specific port
     /// becomes expressible at slice-02's wire half; nothing local produces one yet.
+    ///
+    /// **The object is a parameter** (APP-02). A capability used THROUGH a port names that port, so
+    /// a yes covers that port and no other: allowing a caller into one terminal no longer lets it into
+    /// every terminal. A grant on port 0 still covers every port, because a machine-wide capability is
+    /// a superset of any one port's. `detail` names the object on the card.
     func ensurePermission(_ perm: PortPermission, for principal: Principal,
+                          on object: PortObject = .machine, detail: String? = nil,
                           pregrant: Set<PortPermission> = []) async -> Bool {
-        var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
-            .union(pregrant)
-        if granted.contains(perm) { return true }
-        guard await permissions.request(perm, from: principal) else { return false }
+        var granted = grants(grantee: principal.id, on: object, zone: principal.spaceId)
+        let covered = granted.union(pregrant)
+            .union(object == .machine ? [] : grants(grantee: principal.id, on: .machine,
+                                                    zone: principal.spaceId))
+        if covered.contains(perm) { return true }
+        guard await permissions.request(perm, from: principal, detail: detail) else { return false }
         granted.insert(perm)
-        saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
+        saveGrants(granted, grantee: principal.id, on: object, zone: principal.spaceId)
         return true
     }
 

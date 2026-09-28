@@ -115,11 +115,11 @@ struct PortTerminalGateTests {
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
         appState.saveGrants([.terminal], grantee: p.id, on: .machine, zone: nil)
 
-        _ = try await appState.runBridgeMethod(
-            "port.push", principal: p,
-            args: BridgeArgs(["id": "term-2", "data": "ls\n",
-                              PortActivity.expectParam: appState.portInput.token(for: "term-2")]))
-        #expect(appState.permissions.current == nil, "a held grant must raise no card")
+        // A machine-wide .terminal covers every terminal (APP-02 keeps port 0 as a superset).
+        let (asked, _, _) = await answering(appState, grant: false) {
+            try await self.push(appState, p, "term-2")
+        }
+        #expect(!asked, "a held machine-wide grant must raise no card")
         #expect(typed.count > 0, "the granted push did not reach the shell")
     }
 
@@ -183,5 +183,49 @@ struct PortTerminalGateTests {
         #expect(w.state.permissions.current == nil, "a non-terminal target must raise no card")
         #expect(w.state.notifyBus.hasSubscribers("port:WEBPORT"))
         task.cancel()
+    }
+
+    // MARK: - APP-02, the grant names the terminal
+
+    func push(_ appState: AppState, _ p: Principal, _ key: String) async throws -> BridgeValue {
+        try await appState.runBridgeMethod(
+            "port.push", principal: p,
+            args: BridgeArgs(["id": key, "data": "ls\n",
+                              PortActivity.expectParam: appState.portInput.token(for: key)]))
+    }
+
+    @Test("a yes to one terminal is kept for that terminal, not for every terminal")
+    func grantIsPerTerminal() async throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        liveTerminal(appState, key: "term-a", typed: Typed())
+        liveTerminal(appState, key: "term-b", typed: Typed())
+        let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
+
+        let first = await answering(appState, grant: true) { try await self.push(appState, p, "term-a") }
+        #expect(first.asked, "the first push into a terminal must ask")
+        let again = await answering(appState, grant: true) { try await self.push(appState, p, "term-a") }
+        #expect(!again.asked, "the yes to term-a must be remembered for term-a")
+        let other = await answering(appState, grant: false) { try await self.push(appState, p, "term-b") }
+        #expect(other.asked, "a yes to term-a let the caller into term-b without asking")
+
+        #expect(appState.grants(grantee: p.id, on: .port("term-a"), zone: nil).contains(.terminal))
+        #expect(!appState.grants(grantee: p.id, on: .machine, zone: nil).contains(.terminal),
+                "the yes to one terminal was stored as machine-wide")
+    }
+
+    @Test("the card names the terminal it is about")
+    func cardNamesTheTerminal() async throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        liveTerminal(appState, key: "term-c", typed: Typed())
+        let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
+        let task = Task { @MainActor in try? await self.push(appState, p, "term-c") }
+        var detail: String?
+        for _ in 0..<400 {
+            if let card = appState.permissions.current { detail = card.detail; break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        appState.permissions.resolveCurrent(granted: false)
+        _ = await task.value
+        #expect(detail?.contains(Self.config.companionName) == true, "card said: \(detail ?? "nothing")")
     }
 }

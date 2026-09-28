@@ -32,12 +32,19 @@ extension AppState {
         }
     }
 
-    /// Refuse a local call whose declared target is a terminal unless the caller holds `.terminal`.
+    /// Refuse a local call whose declared target is a terminal unless the caller holds `.terminal`
+    /// on THAT terminal, or on the whole machine (APP-02). A yes to one terminal is kept for that
+    /// terminal only.
     func requireTerminalTarget(_ param: String?, args: BridgeArgs, principal: Principal,
                                pregrant: Set<PortPermission>, standing: Bool) async throws {
         guard principal.kind != .remote, let param, let raw = args.string(param) else { return }
-        guard Self.terminalTargetNeedsGrant(resolvePortRef(raw)?.kind, standing: standing) else { return }
-        guard await ensurePermission(.terminal, for: principal, pregrant: pregrant) else {
+        let ref = resolvePortRef(raw)
+        guard Self.terminalTargetNeedsGrant(ref?.kind, standing: standing) else { return }
+        let key = ref?.key ?? raw
+        let name = terminalControllers[key]?.config.companionName ?? raw
+        guard await ensurePermission(.terminal, for: principal, on: .port(key),
+                                     detail: "Type into and read the terminal '\(name)'",
+                                     pregrant: pregrant) else {
             throw BridgeError.permissionDenied(PortPermission.terminal.rawValue)
         }
     }
