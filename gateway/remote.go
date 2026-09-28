@@ -117,6 +117,7 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	defer func() {
 		g.mu.Lock()
 		delete(g.remotes, id)
+		g.forgetCallsOf(id)
 		g.mu.Unlock()
 		s.Close()
 	}()
@@ -168,7 +169,9 @@ func (g *Gateway) routeRemoteCall(ctx context.Context, c *remoteConn, id, peer s
 	env.Credential = ""
 	env.RemotePeer = peer
 	env.RemoteAttest = Attest(key, peer)
+	callKey := g.expectAnswer(id, env.CallID, hostID)
 	if err := hostPeer.Send(ctx, env); err != nil {
+		g.forgetCall(callKey)
 		c.send(ctx, Envelope{Type: "error", Error: "failed to reach host", Code: CodeTransportFailed, CallID: env.CallID})
 	}
 }

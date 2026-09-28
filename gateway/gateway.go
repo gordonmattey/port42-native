@@ -162,8 +162,11 @@ type Gateway struct {
 	peers map[string]*Peer
 	// globalHostID is the peer ID of the Port42 app. Every call is forwarded to it.
 	globalHostID string
-	// httpCallbacks maps call_id -> reply channel for HandleHTTPCall
-	httpCallbacks map[string]chan Envelope
+	// httpCallbacks maps call_id -> reply channel, and the host the call went to, for HandleHTTPCall
+	httpCallbacks map[string]httpCallback
+	// inflight maps a forwarded call (caller id + call_id) to the host it went to. A response or stream
+	// frame is delivered only from that host, to that caller (GW-08).
+	inflight map[inflightKey]string
 	// httpCallSeq makes each HTTP call_id unique even when two calls land in the same nanosecond
 	// (a UnixNano-only id collides under concurrency, dropping one response; the SenderID is the
 	// fixed `local-http`, so the CallID is the only disambiguator).
@@ -223,8 +226,60 @@ func (g *Gateway) hostCredentialMatches(presented string) bool {
 	return g.hostCred.Matches(presented)
 }
 
+// httpCallback is where an HTTP /call waits, and the one host that may answer it.
+type httpCallback struct {
+	reply chan Envelope
+	host  string
+}
+
+// inflightKey names one forwarded call. Callers choose their call ids, so the caller is part of the key.
+type inflightKey struct {
+	caller string
+	callID string
+}
+
 func NewGateway() *Gateway {
-	return &Gateway{peers: make(map[string]*Peer)}
+	return &Gateway{peers: make(map[string]*Peer), inflight: make(map[inflightKey]string)}
+}
+
+// expectAnswer records that a call from caller went to host (GW-08).
+func (g *Gateway) expectAnswer(caller, callID, host string) inflightKey {
+	key := inflightKey{caller: caller, callID: callID}
+	g.mu.Lock()
+	g.inflight[key] = host
+	g.mu.Unlock()
+	return key
+}
+
+func (g *Gateway) forgetCall(key inflightKey) {
+	g.mu.Lock()
+	delete(g.inflight, key)
+	g.mu.Unlock()
+}
+
+// answeredBy reports whether sender is the host a call from target with this call_id went to. `done`
+// retires the call, for the frame that ends it. Any other peer's response or stream frame is dropped.
+func (g *Gateway) answeredBy(sender *Peer, target, callID string, done bool) bool {
+	key := inflightKey{caller: target, callID: callID}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	host, ok := g.inflight[key]
+	if !ok || host != sender.ID {
+		return false
+	}
+	if done {
+		delete(g.inflight, key)
+	}
+	return true
+}
+
+// forgetCallsOf drops the calls a gone caller made, or a gone host was answering. Caller holds g.mu.
+func (g *Gateway) forgetCallsOf(id string) {
+	for key, host := range g.inflight {
+		if key.caller == id || host == id {
+			delete(g.inflight, key)
+		}
+	}
 }
 
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
@@ -454,6 +509,7 @@ func (g *Gateway) removePeer(p *Peer) {
 		if g.globalHostID == p.ID {
 			g.globalHostID = ""
 		}
+		g.forgetCallsOf(p.ID)
 	}
 }
 
@@ -498,9 +554,9 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 
 	g.mu.Lock()
 	if g.httpCallbacks == nil {
-		g.httpCallbacks = make(map[string]chan Envelope)
+		g.httpCallbacks = make(map[string]httpCallback)
 	}
-	g.httpCallbacks[callID] = replyCh
+	g.httpCallbacks[callID] = httpCallback{reply: replyCh, host: hostID}
 	g.mu.Unlock()
 
 	defer func() {
@@ -615,7 +671,9 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 	// identity, set once. Before this, a WS caller had to repeat its token on every envelope, and
 	// the browser guest, which gives it once, had its live subscription refused (audit F2).
 	env.Credential = sender.Credential
+	key := g.expectAnswer(sender.ID, env.CallID, hostID)
 	if err := hostPeer.Send(ctx, env); err != nil {
+		g.forgetCall(key)
 		log.Printf("[gateway] failed to send call to host %s: %v", hostID, err)
 		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", Code: CodeTransportFailed, CallID: env.CallID})
 	}
@@ -634,6 +692,10 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 func (g *Gateway) routeStream(ctx context.Context, sender *Peer, env Envelope) {
 	if env.TargetID == "" {
 		log.Printf("[gateway] stream from %s missing target_id", sender.ID)
+		return
+	}
+	if !g.answeredBy(sender, env.TargetID, env.CallID, false) {
+		log.Printf("[gateway] dropped a stream frame from %s: not the host of that call", sender.ID[:min(8, len(sender.ID))])
 		return
 	}
 
@@ -660,16 +722,22 @@ func (g *Gateway) routeResponse(ctx context.Context, sender *Peer, env Envelope)
 
 	// Check if this is a reply to an HTTP /call request
 	g.mu.Lock()
-	if ch, ok := g.httpCallbacks[env.CallID]; ok {
+	// Only the host the HTTP call went to may answer it (GW-08).
+	if cb, ok := g.httpCallbacks[env.CallID]; ok && cb.host == sender.ID {
 		delete(g.httpCallbacks, env.CallID)
 		g.mu.Unlock()
 		select {
-		case ch <- env:
+		case cb.reply <- env:
 		default:
 		}
 		return
 	}
 	g.mu.Unlock()
+
+	if !g.answeredBy(sender, env.TargetID, env.CallID, true) {
+		log.Printf("[gateway] dropped a response from %s: not the host of that call", sender.ID[:min(8, len(sender.ID))])
+		return
+	}
 
 	g.mu.RLock()
 	targetPeer, online := g.peers[env.TargetID]
