@@ -84,7 +84,7 @@ public struct QuickSwitcher: View {
                         return .handled
                     }
 
-                KeyCap(label: "esc")
+                KeyCap(label: "esc") { isPresented = false }
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 18)

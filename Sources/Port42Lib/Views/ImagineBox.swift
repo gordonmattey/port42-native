@@ -38,7 +38,7 @@ struct ImagineBox: View {
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
-                KeyCap(label: "esc")
+                KeyCap(label: "esc") { isPresented = false }
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 12) {

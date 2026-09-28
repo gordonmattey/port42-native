@@ -93,6 +93,11 @@ struct ShellLayoutTests {
         #expect(!ShellState.shouldYieldKey(isEditor: false, keyCode: esc, focusedPortIsTerminal: false))
         // Esc also yields to a plain editing field.
         #expect(ShellState.shouldYieldKey(isEditor: true, keyCode: esc, focusedPortIsTerminal: false))
+        // With a command box open (⌘K, imagine, …) Esc closes the box, even with its own field or a
+        // terminal holding the keyboard; other keys still reach the field (GM, 2026-09-27).
+        #expect(!ShellState.shouldYieldKey(isEditor: true, keyCode: esc, focusedPortIsTerminal: false, commandBoxOpen: true))
+        #expect(!ShellState.shouldYieldKey(isEditor: false, keyCode: esc, focusedPortIsTerminal: true, commandBoxOpen: true))
+        #expect(ShellState.shouldYieldKey(isEditor: true, keyCode: up, focusedPortIsTerminal: false, commandBoxOpen: true))
     }
 
     @Test("focusedPortIsTerminal reads the focused panel's portType")

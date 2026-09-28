@@ -934,10 +934,18 @@ public final class ShellState: ObservableObject {
     /// wants, including ⌘-combos while typing, passes through). **Esc** additionally yields whenever
     /// the focused port is a **terminal** — vim/less/any TUI needs its Esc (a non-terminal focused
     /// port still lets Esc peel back out of focus). Everything else drives the ladder.
+    /// `commandBoxOpen`: ⌘K, imagine or the session list is up. Esc then closes it, even with its own
+    /// field holding the keyboard (GM, 2026-09-27: Esc did nothing in them; the field editor took it as
+    /// "cancel" before the box's own handler).
     nonisolated public static func shouldYieldKey(isEditor: Bool, keyCode: UInt16,
-                                                  focusedPortIsTerminal: Bool) -> Bool {
-        if keyCode == 53 { return isEditor || focusedPortIsTerminal }   // 53 = Esc
+                                                  focusedPortIsTerminal: Bool, commandBoxOpen: Bool = false) -> Bool {
+        if keyCode == 53 { return !commandBoxOpen && (isEditor || focusedPortIsTerminal) }   // 53 = Esc
         return isEditor
+    }
+
+    /// A command box is up: ⌘K, imagine, the session list, sharing a port or accepting an invite.
+    public var commandBoxOpen: Bool {
+        showQuickSwitcher || showImagine || showImportSessions || shareTarget != nil || pendingInvite != nil
     }
 
     /// The port currently in focus is a terminal (its Esc must reach it, not the ladder).

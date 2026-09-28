@@ -415,15 +415,16 @@ public struct ShellView: View {
         // Permission is topmost and BLOCKING — Esc is an explicit deny (a caller is suspended on
         // the answer; there is no "close without answering").
         if permissions.current != nil { permissions.resolveCurrent(granted: false); return true }
-        if shell.showSettings { shell.showSettings = false; return true }
-        if shell.spaceChatOpen { shell.spaceChatOpen = false; return true }
-        if shell.showNewCompanion { shell.showNewCompanion = false; return true }
-        if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
+        // A command box sits over everything else the shell draws, the space chat included.
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
         if shell.showImagine { shell.showImagine = false; return true }
         if shell.showImportSessions { shell.showImportSessions = false; return true }
         if shell.shareTarget != nil { shell.shareTarget = nil; return true }
         if shell.pendingInvite != nil { shell.pendingInvite = nil; return true }
+        if shell.showSettings { shell.showSettings = false; return true }
+        if shell.spaceChatOpen { shell.spaceChatOpen = false; return true }
+        if shell.showNewCompanion { shell.showNewCompanion = false; return true }
+        if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
         return false
     }
 
@@ -685,7 +686,8 @@ public struct ShellView: View {
 
             let isEditor = Self.responderIsEditor(e.window?.firstResponder)
             if ShellState.shouldYieldKey(isEditor: isEditor, keyCode: e.keyCode,
-                                         focusedPortIsTerminal: shell.focusedPortIsTerminal) {
+                                         focusedPortIsTerminal: shell.focusedPortIsTerminal,
+                                         commandBoxOpen: shell.commandBoxOpen) {
                 return e                                          // hand the key to the field/port
             }
 

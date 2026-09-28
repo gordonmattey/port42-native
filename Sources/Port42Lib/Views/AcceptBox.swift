@@ -25,7 +25,7 @@ struct AcceptBox: View {
                 Text(coupon.map { "\($0.hostName)'s \($0.portTitle)" } ?? "an invite")
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
                 Spacer()
-                KeyCap(label: "esc")
+                KeyCap(label: "esc") { link = nil }
             }
             if let c = coupon {
                 Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their machine."

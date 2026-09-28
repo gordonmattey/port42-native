@@ -41,7 +41,17 @@ struct CommandBackdrop: View {
 /// A key cap: `esc`, `↵`.
 struct KeyCap: View {
     let label: String
+    /// When set, the cap is a button doing what its key does (GM, 2026-09-27: "esc" looked clickable
+    /// and was not).
+    var action: (() -> Void)? = nil
     var body: some View {
+        if let action {
+            Button(action: action) { cap }.buttonStyle(.plain).help(label == "esc" ? "Close (Esc)" : label)
+        } else {
+            cap
+        }
+    }
+    private var cap: some View {
         Text(label)
             .font(Port42Theme.mono(10))
             .foregroundStyle(Port42Theme.textSecondary)

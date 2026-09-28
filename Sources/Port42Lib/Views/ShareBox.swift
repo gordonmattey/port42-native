@@ -36,7 +36,7 @@ struct ShareBox: View {
                     .shadow(color: Port42Theme.accent.opacity(0.8), radius: 6)
                 Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
                 Spacer()
-                KeyCap(label: "esc")
+                KeyCap(label: "esc") { portKey = nil }
             }
             if let made {
                 result(made)

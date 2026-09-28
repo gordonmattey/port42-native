@@ -20,7 +20,7 @@ struct SessionImportBox: View {
                 Text("claude code and codex sessions running on this Mac")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
-                KeyCap(label: "esc")
+                KeyCap(label: "esc") { isPresented = false }
             }
             if looking {
                 Text("> looking…").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
