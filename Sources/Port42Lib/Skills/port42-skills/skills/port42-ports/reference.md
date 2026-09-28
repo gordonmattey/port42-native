@@ -229,7 +229,7 @@ List active ports. Each port has an id (UDID), title, capabilities array, status
 
         capabilities (array): Filter to ports that have all of these capabilities. Examples: "terminal", "claude-code", "browser". Omit to list all ports.
         include_closed (boolean): Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen.
-        space_id (string): List only this space's ports. Omit to list every space's.
+        space_id (string): List only this space's ports. Omit to list every space you can see (a port or companion sees only its own space).
 
     port42 ports.list capabilities=… space_id=… include_closed=…
 

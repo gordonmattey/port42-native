@@ -2060,6 +2060,16 @@ public final class DatabaseService {
         }
     }
 
+    /// The space a stored port belongs to, for a port with no live surface (APP-10's read scope).
+    /// nil when there is no panel row, so a caller acting in a space is refused it.
+    public func fetchPortSpaceId(udid: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db,
+                sql: "SELECT spaceId FROM port_panels WHERE udid = ?",
+                arguments: [udid])
+        }
+    }
+
     /// Fetch the HTML for a specific version of a port. Returns nil if not found.
     public func fetchPortVersionHtml(udid: String, version: Int) throws -> String? {
         try dbQueue.read { db in

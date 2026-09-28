@@ -1006,7 +1006,7 @@
           "type" : "boolean"
         },
         "space_id" : {
-          "description" : "List only this space's ports. Omit to list every space's.",
+          "description" : "List only this space's ports. Omit to list every space you can see (a port or companion sees only its own space).",
           "type" : "string"
         }
       },

@@ -16,7 +16,10 @@ struct PortCreatorNameTests {
         let caller = Principal.peer(id: id, displayName: id)
         _ = try await w.state.runBridgeMethod("port.create", principal: caller,
                                               args: BridgeArgs(["type": "web", "title": "made by otter",
-                                                                "html": "<title>made by otter</title>"]))
+                                                                "html": "<title>made by otter</title>",
+                                                                // In the lister's space: since APP-10 a
+                                                                // companion lists only its own space.
+                                                                "space_id": w.space.id]))
         guard case let .array(list) = try await w.state.runBridgeMethod(
             "ports.list", principal: w.principal, args: BridgeArgs([:])) else {
             Issue.record("ports.list should return a list"); return

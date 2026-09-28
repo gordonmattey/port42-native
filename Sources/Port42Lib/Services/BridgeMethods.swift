@@ -334,7 +334,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "selector": ["type": "string", "description": "Optional CSS selector to read just one subtree. Omit for the whole document."]
             ],
             "required": ["id"]
-        ]) { _, args in
+        ]) { p, args in
         // A READ, and `writesTarget` is deliberately nil so it neither bumps the activity token nor
         // records presence. That is the whole reason it exists.
         //
@@ -347,7 +347,9 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // fixed here, so a caller cannot smuggle a mutation through a read verb — the classification
         // is enforced by the method's shape, not by trusting the caller.
         let id = try args.requireString("id")
-        guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser,
+        // APP-10: a port outside the caller's space is not found, the same as a missing one.
+        let ref = try appState.requireReadablePort(id, by: p)
+        guard ref.kind == .web || ref.kind == .browser,
               let wv = webView(ref.id ?? ref.messageId ?? id) else {
             throw BridgeError.notFound("web port '\(id)'")
         }
@@ -1391,13 +1393,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                     "items": ["type": "string"],
                     "description": "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports."
                 ] as [String: Any],
-                "space_id": ["type": "string", "description": "List only this space's ports. Omit to list every space's."],
+                "space_id": ["type": "string", "description": "List only this space's ports. Omit to list every space you can see (a port or companion sees only its own space)."],
                 "include_closed": ["type": "boolean", "description": "Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen."]
             ]
         ]) { p, args in
         let filterCaps = (args.array("capabilities") as? [String]) ?? []
         let filterSpace = args.string("space_id")
         let registered = appState.portWindows.allPorts()
+        // APP-10: the listing shows only what the caller may read by id, through the same rule.
+        let readable = { (spaceId: String?) in appState.canRead(portInSpace: spaceId, by: p) }
 
         // Snapshot the counters once, before building the list. A value type, so every entry reports
         // the same instant — a listing whose rows were read at different moments would hand out
@@ -1424,6 +1428,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                    surfaceBound: Bool?) {
             if !filterCaps.isEmpty && !filterCaps.allSatisfy({ capabilities.contains($0) }) { return }
             if let filterSpace, spaceId != filterSpace { return }
+            if !readable(spaceId) { return }
             // A caller on another machine sees only the ports it holds a right on, and nothing about
             // where they sit on this machine: no space, creator, directory or position.
             let remote = remotePorts != nil
@@ -1483,10 +1488,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "version": ["type": "integer", "description": "Optional version number (from port_history). Omit for current HTML."]
             ],
             "required": ["id"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         // Phase L0: resolve a udid/title/name to the canonical udid for the DB read.
-        let udid = appState.resolvePortRef(id)?.udid ?? id
+        // APP-10: and only for a port the caller may read.
+        let udid = try appState.requireReadablePort(id, by: p).udid ?? id
         if let version = args.int("version") {
             guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
                 throw BridgeError.notFound("version \(version) for port '\(id)'")
@@ -1505,9 +1511,9 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "id": ["type": "string", "description": "The port's UDID (from ports_list)"]
             ],
             "required": ["id"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
-        let udid = appState.resolvePortRef(id)?.udid ?? id
+        let udid = try appState.requireReadablePort(id, by: p).udid ?? id
         let versions = (try? appState.db.fetchPortVersions(portUdid: udid)) ?? []
         let iso = ISO8601DateFormatter()
         return .array(versions.map { v in
@@ -1683,11 +1689,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "tail": ["type": "integer", "description": "How many recent lines to return (default 20 for problems, 50 for all)."]
             ],
             "required": ["id"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         // Resolve through the same seam every other port verb uses, so a name, a panel id and a udid
-        // all work here exactly as they do for port.push.
-        guard let key = appState.resolvePortRef(id)?.key else {
+        // all work here exactly as they do for port.push. APP-10: scoped like every other read.
+        guard let key = try appState.requireReadablePort(id, by: p).key else {
             throw BridgeError(code: .notFound, message: "no port \(id)")
         }
         let isTerminal = appState.portWindows.panels.first { $0.udid == key || $0.id == key }?.portType == "terminal"
