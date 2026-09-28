@@ -1745,6 +1745,18 @@ public final class DatabaseService {
         }
     }
 
+    /// Copy every key of one bucket into another, keeping what the target already has. Used once per
+    /// port to carry its storage from its creator's bucket (0.5.x) into its own (v1).
+    public func copyPortStorageBucket(scope: String, from: String, to: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO port_storage (portKey, spaceId, creatorId, value, updatedAt)
+                SELECT portKey, spaceId, ?, value, updatedAt FROM port_storage
+                WHERE spaceId = ? AND creatorId = ?
+                """, arguments: [to, scope, from])
+        }
+    }
+
     public func listPortStorageKeys(scope: String, creatorId: String) throws -> [String] {
         try dbQueue.read { db in
             try String.fetchAll(db, sql: """

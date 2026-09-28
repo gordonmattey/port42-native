@@ -68,6 +68,9 @@ private let sharedArg: [String: Any] = ["type": "boolean",
 private let portArg: [String: Any] = ["type": "string",
     "description": "For a copy of a port shared from another machine: that port's id, to reach its own storage there."]
 
+/// The key that records a port's 0.5.x storage was carried over (`carryLegacy`). Never listed.
+let legacyMarker = "__port42_carried_from_creator__"
+
 @MainActor
 func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
 
@@ -92,8 +95,11 @@ func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
         }
         // A port's page stores under the port itself, in its own space.
         if p.kind == .port, let own = p.portId, let key = appState.resolvePortRef(own)?.key {
-            let space = appState.portWindows.panels.first(where: { $0.udid == key })?.spaceId ?? p.spaceId
+            let panel = appState.portWindows.panels.first(where: { $0.udid == key })
+            let space = panel?.spaceId ?? p.spaceId
             guard let space else { throw BridgeError.badArg("storage requires space context for space-scoped storage") }
+            let scope = global ? "__global__" : space
+            if !shared { try carryLegacy(scope: scope, port: key, creator: panel?.createdBy) }
             if global { return ("__global__", shared ? "__shared__" : "port:" + key, nil) }
             return (space, shared ? "__shared__" : "port:" + key, shared ? nil : key)
         }
@@ -106,6 +112,20 @@ func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
             throw BridgeError.badArg("storage requires space context for space-scoped storage")
         }
         return (scope, shared ? "__shared__" : p.id, nil)
+    }
+
+    /// ONCE PER PORT, carry its storage over from where 0.5.x kept it (2026-09-27). A port's page used to
+    /// store under its creator's id; v1 gives each port its own bucket, and nothing moved the old data,
+    /// so every port that had saved state opened empty after the upgrade (GM's Drafts). The first time
+    /// a port touches a scope, its creator's keys are copied into its own bucket, keeping anything it
+    /// already has, and a marker makes it the last time, so a key it later deletes stays deleted.
+    /// Every port a companion made shared one bucket before, so each gets a copy of it, as it saw then.
+    func carryLegacy(scope: String, port key: String, creator: String?) throws {
+        let own = "port:" + key
+        guard let creator, !creator.isEmpty,
+              try appState.db.getPortStorage(key: legacyMarker, scope: scope, creatorId: own) == nil else { return }
+        try appState.db.copyPortStorageBucket(scope: scope, from: creator, to: own)
+        try appState.db.setPortStorage(key: legacyMarker, value: "1", scope: scope, creatorId: own)
     }
 
     /// A port's storage changed: every copy hears it, the port's own page and those subscribed to it
@@ -161,6 +181,7 @@ func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
         "storage.list": { p, args in
             let s = try scope(p, args)
             let keys = try appState.db.listPortStorageKeys(scope: s.scope, creatorId: s.creator)
+                .filter { $0 != legacyMarker }
             return .object(["keys": .array(keys.map { .string($0) })])
         },
     ]
