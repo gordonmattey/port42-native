@@ -599,6 +599,9 @@ Things that would be cool once the five scenarios hold.
 - **One way to close a sheet** (GM, 2026-09-27). Esc does not close the companion sheet, and sheets
   across the app mix an X button, an esc label and neither. Every sheet and box closes on Esc and shows
   the same close control.
+- **Embed a port in a web page** (GM, 2026-09-27). A snippet that puts a live, read-only port on any
+  site, as the invite page shows a shared one: the Issue Squad board published for anyone to watch. Builds
+  on the browser guest and the relay; needs a "see only, anyone" share that no one redeems.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
