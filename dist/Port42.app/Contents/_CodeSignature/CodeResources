@@ -134,11 +134,11 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/manual.md</key>
 		<data>
-		lrAFYZGmC2TdpjCRiijnlXrfjSE=
+		ooJ75KnDhTP7BxcIl+lWGQj716o=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/reference.md</key>
 		<data>
-		6JGT9X/Qtq3rjdQsMe0TjQMVcG0=
+		CL3AOhT1xJq2VM99iJNoobN+dlM=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
 		<data>
@@ -154,11 +154,11 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42/reference.md</key>
 		<data>
-		NMwtEAYJ4th11LcLwBspRIKciLk=
+		RVf/Z8WTLXdeHzNAqzr2adS4XRk=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		dDCQjWtvfo4nDqDKRDWxItPSpcU=
+		vtQdWonsFKInog6ImT30lmNhS3Q=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<data>
@@ -184,7 +184,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			IAb+tQKvRUp7/FgU2PiKam4mwfk=
+			fvC/N15PeG+Al3e4omGBlWhkKus=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-claude-shim" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -193,7 +193,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			obSAelbC4vPfv+S1Sd64MwO9sWw=
+			z1xWOMQU0ZObe4BIjduLcvOfWxk=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-cli" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -202,7 +202,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			a7XBrWMKUUU94VngO2VoQgnfHPU=
+			cnyj4gQ61Fxy3myU0XRz8ITd/ME=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -435,14 +435,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			zPi2Jo4BzLF4HT1ZxMf+EDNcWiTImccZxvudnKqHh2s=
+			vC8Po02HXjkTiTscwlJfmYqEdgkdnJHF6pxdUWc3Rwk=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/reference.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			QeF3AV3s/PftDZrCEU36KrbG//s/mnlM3l5OMpBdI04=
+			4T6kijkUvOIB/PAwBE04HjX9gBFw/PkqVHjt1gjdJug=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
@@ -470,14 +470,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			FAAKKoDRvDZ83Aopi4sLEEfSQxt41wPxaAvU+HtmODI=
+			67RH/n2uYFh1WFX1gjicovNRxZLh1L8Vgys1a4caGYA=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			7Ytisx0v/UFv8Yp/I2jtjjuscRtS1vpyU4i9HwUiLCY=
+			BYUQp5QaUOpIcb3hs4wUVagiRdCllM6zGBqcdpYpbnY=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>

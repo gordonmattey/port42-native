@@ -1,0 +1,1061 @@
+PORTS: Create a port with port_create({type:"web", html}) or port_create({type:"terminal", command}), the one primitive for every port type. It returns the port's id and token, and the port appears as a live tile on the user's desktop. Do not answer with a ```port code fence: a fence is not a port until someone opens it, and fences are being removed. Every example below is the html you pass to port_create.
+
+A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, parked or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
+
+THEME: The port42 dark theme is auto-injected (black bg, green accent as var(--color-accent), SF Mono font), in Port42 and on the browser invite page alike. No <html> or <body> tags needed. Just write the content that goes inside <body>.
+
+SCRIPTS RUN AS ES MODULES: every <script> in a port executes as a module. Top-level await works
+directly (no wrapper needed). The trap: module declarations are NOT window globals, so inline
+handler attributes like onclick="doThing()" CANNOT see your functions and fail with
+"Can't find variable". Attach handlers with addEventListener (see the pattern below), or expose a
+function explicitly with window.doThing = doThing. Never use inline onclick/onchange attributes.
+
+VERSIONING: Always include a <title> and a version meta tag in every port. The <title> sets the initial display name and is used as a fallback — call port42.port.setTitle() from JS to set or update the name at runtime (preferred for dynamic titles). The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
+
+  <title>My Dashboard</title>
+  <meta name="version" content="1">
+
+When updating an existing port, read the current version with port_get_html first, then bump the version number in your updated HTML.
+
+PORT AUTHORING DISCIPLINE — READ THIS BEFORE EVERY PORT UPDATE:
+
+  The most common failure mode is doing a full rewrite when only one thing needs
+  to change. Full rewrites break working code. Always follow this sequence:
+
+  1. Call port_get_html(id) — read the exact current HTML before touching anything
+  2. Identify the MINIMUM change that fixes the problem
+  3. Make only that change — preserve everything else exactly
+  4. Bump the version meta tag
+  5. Call port_update(id, html)
+
+  NEVER rewrite the whole port to fix one bug. NEVER guess at the current state —
+  always read it. If you are creating a port for the first time, build it from the
+  STATEFUL APP PATTERN below — not from scratch.
+
+STATEFUL APP PATTERN — use this structure for any port with persistent state:
+
+  The pattern: one state object, one render function, save on every mutation.
+  All state lives in one place. Rendering is pure: always called after state changes.
+  Storage is loaded on init, saved on every write, and loaded again when it changes.
+  A port's storage is its own, and a port may be open in several places at once (shared
+  with other machines, or in a browser): every copy reads and writes the same storage, and
+  each hears a 'storage' event when any copy changes it. No scattered variables.
+
+  ```
+  // 1. State object — single source of truth
+  let state = { items: [], filter: 'all' };
+
+  // 2. Save — call after every mutation
+  async function save() {
+    await port42.storage.set('state', state);
+  }
+
+  // 3. Load — call once on init (storage.get returns { value })
+  async function load() {
+    const { value } = await port42.storage.get('state');
+    if (value) state = value;
+  }
+
+  // 4. Render — pure function, always called after state changes
+  function render() {
+    // rebuild UI from state
+  }
+
+  // 5. Actions — mutate state, save, render
+  async function addItem(text) {
+    state.items.push({ id: Date.now(), text, done: false });
+    await save();
+    render();
+  }
+
+  // 6. Init — load then render, and load again whenever any copy of this port saves
+  async function init() {
+    await load();
+    render();
+    port42.on('storage', async ({ key }) => { if (key === 'state') { await load(); render(); } });
+  }
+
+  init();
+  ```
+
+  NEVER do this:
+  - Scattered variables for different pieces of state
+  - DOM reads to determine current state (read state object instead)
+  - Saving to storage in some places but not others
+  - Re-querying `document.getElementById` inside event handlers that run often
+
+COMPLETE WORKING EXAMPLE — stateful todo port with persistence (pass as the html of port_create):
+
+```html
+<title>tasks</title>
+<meta name="version" content="1">
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { padding: 16px; }
+  h2 { font-size: 13px; color: var(--color-accent); margin-bottom: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .input-row input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; padding: 7px 10px; font-family: inherit; font-size: 13px; outline: none; }
+  .input-row input:focus { border-color: var(--color-accent); }
+  .input-row button { background: var(--color-accent); color: #000; border: none; padding: 7px 14px; font-family: inherit; font-size: 12px; font-weight: bold; cursor: pointer; letter-spacing: 0.04em; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; }
+  .filters button { background: none; border: 1px solid #333; color: #666; padding: 4px 10px; font-family: inherit; font-size: 11px; cursor: pointer; }
+  .filters button.active { border-color: var(--color-accent); color: var(--color-accent); }
+  .list { display: flex; flex-direction: column; gap: 4px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #111; border: 1px solid #222; }
+  .item:hover { border-color: #333; }
+  .item input[type=checkbox] { accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
+  .item .text { flex: 1; font-size: 13px; color: #ccc; word-break: break-word; }
+  .item .text.done { text-decoration: line-through; color: #444; }
+  .item .del { background: none; border: none; color: #444; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+  .item .del:hover { color: #ff4444; }
+  .empty { color: #444; font-size: 12px; padding: 16px 0; text-align: center; }
+  .footer { margin-top: 12px; font-size: 11px; color: #444; display: flex; justify-content: space-between; }
+  .footer button { background: none; border: none; color: #444; font-family: inherit; font-size: 11px; cursor: pointer; padding: 0; }
+  .footer button:hover { color: #888; }
+</style>
+
+<h2 id="title">tasks</h2>
+<div class="input-row">
+  <input id="new-task" placeholder="add a task..." autocomplete="off">
+  <button id="add-btn">ADD</button>
+</div>
+<div class="filters">
+  <button data-filter="all" class="active">all</button>
+  <button data-filter="active">active</button>
+  <button data-filter="done">done</button>
+</div>
+<div class="list" id="list"></div>
+<div class="footer">
+  <span id="count"></span>
+  <button id="clear-done">clear done</button>
+</div>
+
+<script>
+  // ── state ──────────────────────────────────────────────────────────
+  let state = { items: [], filter: 'all' };
+
+  // ── persistence ────────────────────────────────────────────────────
+  async function save() {
+    try { await port42.storage.set('tasks-state', state); } catch(e) {}
+  }
+
+  async function load() {
+    try {
+      const { value } = await port42.storage.get('tasks-state');
+      if (value && Array.isArray(value.items)) state = value;
+    } catch(e) {}
+  }
+
+  // ── render ─────────────────────────────────────────────────────────
+  function render() {
+    const visible = state.items.filter(item => {
+      if (state.filter === 'active') return !item.done;
+      if (state.filter === 'done') return item.done;
+      return true;
+    });
+
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+
+    if (visible.length === 0) {
+      list.innerHTML = '<div class="empty">' + (state.filter === 'done' ? 'nothing done yet' : 'nothing here') + '</div>';
+    } else {
+      visible.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML = `
+          <input type="checkbox" data-id="${item.id}" ${item.done ? 'checked' : ''}>
+          <span class="text ${item.done ? 'done' : ''}">${escHtml(item.text)}</span>
+          <button class="del" data-id="${item.id}">×</button>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    const active = state.items.filter(i => !i.done).length;
+    document.getElementById('count').textContent = active + ' remaining';
+
+    document.querySelectorAll('.filters button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.filter === state.filter);
+    });
+  }
+
+  // ── actions ────────────────────────────────────────────────────────
+  async function addTask(text) {
+    text = text.trim();
+    if (!text) return;
+    state.items.push({ id: Date.now(), text, done: false });
+    await save();
+    render();
+  }
+
+  async function toggleTask(id) {
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+    item.done = !item.done;
+    await save();
+    render();
+  }
+
+  async function deleteTask(id) {
+    state.items = state.items.filter(i => i.id !== id);
+    await save();
+    render();
+  }
+
+  async function setFilter(f) {
+    state.filter = f;
+    await save();
+    render();
+  }
+
+  async function clearDone() {
+    state.items = state.items.filter(i => !i.done);
+    await save();
+    render();
+  }
+
+  // ── helpers ────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── events ─────────────────────────────────────────────────────────
+  document.getElementById('add-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-task');
+    addTask(input.value);
+    input.value = '';
+  });
+
+  document.getElementById('new-task').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      addTask(e.target.value);
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('list').addEventListener('click', e => {
+    const id = Number(e.target.dataset.id);
+    if (!id) return;
+    if (e.target.type === 'checkbox') toggleTask(id);
+    if (e.target.classList.contains('del')) deleteTask(id);
+  });
+
+  document.querySelectorAll('.filters button').forEach(btn => {
+    btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+  });
+
+  document.getElementById('clear-done').addEventListener('click', clearDone);
+
+  // ── init ───────────────────────────────────────────────────────────
+  try {
+    const space = await port42.space.current();
+    if (space) document.getElementById('title').textContent = space.name + ' / tasks';
+    await load();
+    render();
+  } catch(e) {
+    document.getElementById('list').innerHTML = '<div class="empty">error: ' + e.message + '</div>';
+    console.error('port init failed:', e);
+  }
+</script>
+```
+
+LAYOUT: Ports render at varying sizes. You do not know the viewport size at build time. Always build responsive layouts using relative units (%, vw, vh, flex, grid). Never use fixed pixel widths for containers. Use CSS media queries or JS resize detection if you need breakpoint behavior.
+
+IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use these APIs instead of hardcoding values. The APIs are async and return real data from the running app.
+
+BRIDGE API REFERENCE:
+
+  port42.companions.list()
+    Returns: [{id, name, model, trigger}]
+    Lists all companions in this port42 instance.
+
+  port42.companions.get(id)
+    Returns: {id, name, model, systemPrompt}
+    Get a single companion by ID. Rejects if the companion is not found.
+
+  port42.user.get()
+    Returns: {id, displayName}
+    Get the current user.
+
+  port42.chat.read(port, after?, limit?)
+    Returns: {entries: [{seq, at, text, from: {id, name, kind}}], last}
+    Read a port's chat, oldest first. Every port has one: pass a port id, a space id, or 0 for
+    the desktop. Pass `after` (a seq you have seen) to get only what is newer.
+
+  port42.chat.post(port, text)
+    Post to a port's chat, attributed to this port. An @mention wakes that companion.
+
+  port42.space.current()
+    Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}
+    Get the current space context. type is the space type — e.g. 'direct' for a 1:1 DM, 'team'.
+    Pass space_id to inspect any space. members includes humans and companions ('human'/'agent').
+    Rejects if there is no space context.
+
+  port42.space.list()
+    Returns: [{id, name}]
+    List all spaces the user belongs to.
+
+  port42.space.switchTo(id)
+    Switches the app to the given space by ID. Returns {ok: true}; rejects on an unknown id.
+
+  port42.on(event, callback)
+    Subscribe to live events. Events:
+    - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
+    - 'companion.activity': fires when companion typing state changes. Payload: {activeNames: [...]}
+    - 'presentation': fires when this port's presentation changes. Payload: {state, visible, w, h} (see port42.presentation() below)
+
+  port42.connection.status()
+    Returns: 'connected' or 'disconnected'
+    Check if the push event connection is alive.
+
+  port42.connection.onStatusChange(callback)
+    Fires when connection status changes. Callback receives 'connected' or 'disconnected'.
+    Use this to show a visual indicator so the user knows if live updates are working.
+
+  port42.viewport.width / port42.viewport.height
+    The current port dimensions in pixels. Updated live on resize.
+    Also available as CSS variables: var(--port-width), var(--port-height).
+    Use these to make responsive layouts that adapt to the chat size.
+
+  port42.viewport.on('resize', callback)
+    Fires when the port is resized. Callback receives { width, height }.
+    Use this to reflow content when the port changes size.
+
+  port42.presentation()  /  port42.on('presentation', callback)
+    This port's presentation state: { state, visible, w, h }.
+    - state: "focused" | "tiled" | "peek" | "parked" | "background" | "hidden" — your placement/mode ("background" is the desktop wallpaper; "hidden" runs with no tile).
+    - visible: true only when your pixels are actually on screen right now. False when off-desktop
+      (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
+      port's focus. This is the one authoritative "render now" flag.
+    - w, h: your on-screen content size in points (0 when not visible).
+    Call presentation() for the current value at startup (no race). Use on('presentation', cb) for
+    updates; the same value also arrives as a window CustomEvent 'port42:presentation' (e.detail).
+    DISCIPLINE (do this if you animate): gate your requestAnimationFrame loop on visible — cancel it on
+    visible:false, resume on visible:true — so a hidden port burns no CPU. Scale fidelity to state and
+    size: full when focused; reduced (cap fps, cap devicePixelRatio, fewer particles) when tiled/peek
+    or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
+    before your webview is dropped, so you re-mount clean rather than blank.
+
+  port42.self.id
+    This page's own port id, ready before your script runs. Use it whenever the page acts on
+    itself: port42.port.push(port42.self.id, data, token), port.patch, port.publish targets.
+    Never write a port id into the page and never find yourself by title: a fork or a move gives
+    the port a new id and a new title, and a page that names its old one keeps driving the old one.
+
+  port42.port.info()
+    Returns: {messageId, createdBy, spaceId}
+    Get metadata about this port (which message spawned it, which companion created it).
+    messageId is port42.self.id.
+
+  port42.port.setTitle(title)
+    Set this port's display name. Overrides the <title> tag. Use for dynamic titles
+    (e.g. a terminal port showing the current working directory as the user navigates).
+    Returns: {ok: true}
+
+  port42.port.setCapabilities(caps)
+    Declare this port's capabilities. Stored and returned by ports.list.
+    caps: array of strings, e.g. ["terminal", "claude-code"]
+    Well-known values: "terminal", "claude-code", "browser", "audio", "camera"
+    "terminal" is auto-detected from active sessions — no need to declare it.
+    Use well-known values for things that need to be discoverable by other ports or companions.
+    Returns: {ok: true}
+
+  port42.port.rename(id, title)
+    Rename another port by its UDID. Use id from ports.list.
+    Returns: {ok: true}
+
+  port42.port.close()
+    Close this port.
+
+  port42.port.resize(w, h)
+    Resize this port to the given width and height in pixels.
+
+  port42.port.move(id, x, y)
+    Move a port's tile to the given desktop coordinates.
+    Returns: {ok: true}
+
+    COORDINATE SYSTEM: macOS uses bottom-left origin. Y=0 is the bottom of the screen.
+    Increasing Y moves the window UP, decreasing Y moves it DOWN.
+    To move a window down, subtract from Y. To move it up, add to Y.
+    Use port42.screen.displays() to get display bounds for positioning.
+
+  port42.port.position(id)
+    Get the current position and size of a port's tile.
+    Returns: {x, y, width, height} in desktop points; rejects if it has no position yet.
+    Y is in macOS coordinates (0 = bottom of screen, increases upward).
+
+  port42.ports.list(opts?)
+    Returns: [{id, title, capabilities, status, createdBy, cwd?, x?, y?}]
+    List all active ports. opts: { capabilities: ['terminal'] } to filter.
+    status is 'tiled', 'parked' or 'docked'. Use id for all subsequent calls.
+    cwd is present on ports with an active terminal session (updated in real-time via OSC 7).
+    capabilities merges stored (from setCapabilities) and auto-detected (terminal, etc).
+    x, y are present for positioned ports (desktop coordinates of the tile origin).
+
+  port42.port.update(id, html)
+    Replace a port's full HTML. Returns {ok: true} on success.
+    Always call port42.port.getHtml(id) first — never guess at current state.
+    RELOADS the port: update (and patch) re-render the webview, so all runtime-only state resets —
+    toggles, in-memory variables, live subscriptions, and any behavior injected earlier with exec.
+    Persist anything that must survive (port42.storage) and re-establish subscriptions on load.
+
+  port42.port.getHtml(id, version?)
+    Returns the current HTML of a port, or a specific historical version.
+
+  port42.port.patch(id, search, replace)
+    Targeted string replacement — safer than update for bug fixes.
+    Rejects if the search string is not found. Returns {ok: true} on success.
+
+  port42.port.history(id)
+    Returns: [{version, createdBy, createdAt}]
+    Version history for a port.
+
+  port42.port.manage(id, action)
+    action: 'focus' | 'close' | 'dock' | 'undock'
+    Manage another port's window state. Returns {ok: true}.
+    'undock' on a docked port restores it to the desktop (no reload; DOM/JS state is
+    preserved). 'close' archives a port: port42.port.reopen(id) brings back the same port,
+    and ports.list({include_closed: true}) lists closed ones with status 'closed'. 'dock' backgrounds a port (off the desktop, still running).
+
+  port42.port.restore(id, version)
+    Restore a port to a specific earlier version. Returns {ok: true} on success.
+
+  WRITING TO A PORT REQUIRES ITS TOKEN (R5)
+    Every write verb (push, exec, update, patch, rename, move, restore, manage) must say
+    what state it composed against, by passing the port's `token` as `token`. A write
+    without one is refused with code 'token_required'.
+
+    This is not bureaucracy. Without it, whether YOUR work survives depends on whether the
+    OTHER caller bothered to declare state — a careless writer overwrites a careful one and
+    the careful one cannot defend itself.
+
+    You never need an extra round trip:
+      • ports.list returns each port's token
+      • port.create returns the new port's token
+      • EVERY write returns the token it produced, so you can keep writing
+
+    const { id, token } = await port42.port.create({ type: 'web', html });
+    let t = token;
+    ({ token: t } = await port42.port.push(id, data, t));   // t is now current again
+    ({ token: t } = await port42.port.push(id, more, t));   // no read in between
+
+    If a write is refused, the error carries `current` — retry once with that instead of
+    clobbering whoever moved it:
+      catch (e) { if (e.code === 'token_required' || e.code === 'stale_write') retry(e.current); }
+
+    Keep the error OBJECT. `current` and `code` live on it, not in the message text, so
+    re-wrapping — `throw new Error(e.message)`, or `new Error(code + ': ' + msg)` — destroys
+    the retry before it can run. The refusal carries its own fix; stringifying it throws the
+    fix away and turns a one-retry self-correction into a dead end.
+
+    EVERY error carries a `code` you can branch on, and a `message` for a human. The codes are a
+    closed set, so matching one is safe:
+      RETRY WITH e.current   token_required · stale_write
+      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · too_large (the result
+                             would not fit in one frame (2 MB): ask for less, e.g. a tail, a
+                             limit or a selector) · js_syntax
+      THE TARGET             not_found (no such port/session/window) · no_surface (it exists but
+                             has nothing live to write to yet — wait or respawn) · port_paused
+      CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
+                             session limit reached — stop or close one, then call again)
+      ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a
+                             path they never picked: they pick a file) · not_granted (you are on
+                             another machine and your invite does not cover this; the host sends
+                             a new one) · invite_invalid (the invite is used, expired, withdrawn
+                             or needs the right code; ask for a new one) · budget_spent (an
+                             imagine team's version budget: the lead posts DONE, or the person
+                             raises it)
+      ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
+                             client in Settings -> Access and you send it as `Authorization:
+                             Bearer <token>`) · auth_revoked (it knew you and the user withdrew
+                             it; ask them, do not retry — the credential is real, so re-sending
+                             it will never help)
+      WAIT OR ALLOW LONGER   ai_timeout · js_timeout (usually means you returned a long-lived
+                             promise from port_exec — return a plain value instead) · timed_out
+      THE GATEWAY            no_host (Port42 is not running, or not connected to this gateway —
+                             start it) · host_offline (it was there and its connection dropped;
+                             retry shortly) · transport_failed (the gateway could not hand your
+                             call over; retry) · rate_limited (too many frames in one second
+                             from you; slow down and send it again) — your call never reached
+                             Port42, so nothing was executed and nothing changed. Retrying is
+                             always safe
+      DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
+      SOMETHING FAILED       escape (path left the data directory) · io · device_error ·
+                             browser_error · ai_error · script_error (your AppleScript/JXA) ·
+                             js_error · method_failed
+      RARELY SEEN            no_body · no_user · no_messages · not_llm — each names a specific
+                             absence: no in-process implementation, no signed-in user, no
+                             conversation, or no LLM companion
+
+    Branch on the CODE, never on the message text: messages are written for people and change.
+
+    A HUMAN typing into a port holds the current token by construction: their keystroke is
+    what moves it. You are not at the surface, so you carry one explicitly.
+
+    TWO CASES WHERE A TOKEN GOES STALE WITH NOBODY WRITING, both because the port changed on
+    its own after you were answered. Read once more; do not treat it as a conflict.
+      • A TERMINAL you just created: its startup command types itself into the shell after
+        port.create has returned, so the token in that response is one behind.
+      • A BROWSER port that navigates: a new URL is a new document, so it counts. Any write
+        that follows a link is answered before the page has gone anywhere.
+
+  port42.port.push(id, data, token)
+    Push data to a live port via CustomEvent. The target port receives a 'port42:data'
+    event with the data in event.detail. Use this to feed live data into ports from
+    other ports or from companion tool calls.
+    id: port UDID (from ports.list)
+    data: any JSON-serializable value
+    token: the port's token (REQUIRED — see above)
+    Returns: {ok: true, token}
+
+    Receiving port listens with:
+      window.addEventListener('port42:data', (e) => {
+        const data = e.detail;  // the pushed data
+        updateDashboard(data);
+      });
+
+  port42.port.subscribe(id, onEvent)
+    Subscribe to another port's live event stream. This is how you READ a port as it changes —
+    use this, not port.exec, to observe another port's state.
+    id: port UDID (from ports.list), or its title/address
+    onEvent: called with each parsed envelope. Its fields:
+      topic    `port:<id>` — which port emitted this
+      kind     the event name: a system kind, or a port's own under `port.`
+      payload  the body. Any JSON value; binary arrives as base64
+      token    the port's state token AT THAT MOMENT — write straight back with it, no re-read
+    Returns: a promise carrying a .cancel() that unsubscribes. Keep it in a variable. Do NOT
+    `return` it from a port.exec body — it never resolves and would hang the exec.
+    You automatically receive: 'push' (whenever anyone port.push-es the target), the target's
+    own port.publish events, and terminal.output / console / browser events by port type.
+
+  port42.port.publish(kind, payload)
+    Emit YOUR OWN state or event on your own port's Notify topic, for consumers watching via
+    port.subscribe. The port broadcasting AS itself — the counterpart to port.push (input sent
+    INTO a port). There is no target argument: a port can only publish as itself.
+    kind: a short event kind you choose, e.g. 'state', 'progress', 'result'
+    payload: any JSON-serializable value
+    Returns: {ok: true}
+
+    YOUR KIND IS NAMESPACED UNDER `port.` — you publish 'state', subscribers see 'port.state'.
+    Not decoration: Port42's own events share this topic, and without the prefix a port could
+    emit an envelope indistinguishable from one the system sent. Match on the prefixed name.
+
+    The system kinds you may also receive on a port's topic:
+      audio.data · audio.transcription · browser.error · browser.load · browser.redirect
+      camera.frame · chat · companion.activity · console · driver · filedrop · message
+      presentation · push · screen.frame · state · storage · terminal.output
+      a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
+
+  CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):
+    A port is an actor: input goes IN via port.push, state comes OUT via port.publish, and
+    consumers watch via port.subscribe. To let others read your state, PUBLISH it — do NOT make
+    them reach in with port.exec to pull a getState(). Every consumer then reads you the same
+    way through the interface — a human render, another port, an AI companion, a peer on another
+    machine — with no code path into your internals.
+    - Producer: on each state change, and on a periodic heartbeat for late joiners, call
+        port42.port.publish('state', getState());
+    - DO NOT `await` port.subscribe: the promise IS the stream and resolves only on cancel, so
+      awaiting it hangs your script. Registration is still a round trip, so a port that subscribes
+      and publishes in the same breath can miss its own first event. Subscribe at load; publish
+      when there is something to say.
+    - Consumer: const sub = port42.port.subscribe(id, e => {
+        if (e.kind === 'port.state') render(e.payload);   // 'state' published → 'port.state' seen
+      });
+    - Agree on the payload shape once: publisher and subscriber must expect the SAME envelope.
+      If you publish getState() directly, the subscriber reads e.payload (not e.payload.state).
+    - Behavior that publishes must live in the port's SOURCE HTML. Injecting it later with
+      port.exec is scaffolding that is LOST on refresh/relaunch.
+
+  port42.port.exec(id, js)
+    Execute arbitrary JavaScript on another port's webview context. Reserve this for one-off
+    pokes: to READ a port's live state use port.subscribe, to feed it data use port.push, and to
+    install lasting behavior put it in the port's source HTML (exec-injected behavior dies on
+    reload).
+    id: port UDID (from ports.list)
+    js: JavaScript string to evaluate
+    Returns: {value, token} when the JS returns a value, or {ok: true, token} when it returns
+      nothing. The token is the port's state AFTER your exec — thread it into your next write
+      and you never re-read the port just to write to it again.
+    A bare expression yields its value; write `return` when you want statements. Multi-line
+    expressions are fine.
+    TWO FOOTGUNS, each reported with a code you can branch on:
+    - `js_syntax`: a multi-statement body needs an explicit `return`. A bare `foo(); 42` is
+      wrapped as `return (foo(); 42)`, a syntax error. Write `foo(); return 42;` instead. The
+      error carries `ran`, the body that was actually executed.
+    - `js_timeout`: never `return` a long-lived promise (e.g. a port.subscribe stream). exec
+      awaits the value and it never resolves. Start it in a variable and return a plain value.
+
+  port42.rest.call(url, opts?)
+    Make an HTTP request with optional secret injection from the host's Keychain.
+    url: the request URL
+    opts: { method, headers, body, secret }
+    secret: name of a stored secret — the host resolves it and injects the auth header.
+    The secret value never reaches the port — only the response data.
+    Returns: { status, headers, body }
+    Requires REST permission.
+
+RESILIENCE: All bridge APIs are async, and a failed call REJECTS its promise (there is no
+resolved {error} convention). Wrap your init in try/catch so one failed call doesn't kill
+the whole port, and degrade gracefully (show "unavailable" instead of crashing).
+space.current() rejects when there is no space context.
+
+ERRORS: console.log/error/warn are piped to the native app log. Use console.error() to
+report problems. Unhandled exceptions and promise rejections are also captured. If your
+port shows blank, check that your top-level await calls don't throw uncaught errors.
+
+EXAMPLE PORT (pass as the html of port_create):
+
+```html
+<div id="app">loading...</div>
+<script>
+  const app = document.getElementById('app');
+  try {
+    const [user, companions, space] = await Promise.all([
+      port42.user.get(),
+      port42.companions.list(),
+      port42.space.current()
+    ]);
+
+    app.innerHTML = '';
+
+    // Greet user
+    const h = document.createElement('div');
+    h.textContent = (user?.displayName || 'you') + ' + ' + companions.map(c => c.name).join(', ');
+    h.style.color = '#00ff41';
+    app.appendChild(h);
+
+    // Show context (space.current rejects when there is no space; caught below)
+    if (space) {
+      const ch = document.createElement('div');
+      ch.textContent = 'in #' + space.name;
+      ch.style.opacity = '0.5';
+      app.appendChild(ch);
+    }
+
+    // Live updates
+    port42.on('companion.activity', (data) => {
+      if (data.activeNames.length > 0) {
+        h.textContent = data.activeNames.join(', ') + ' thinking...';
+      }
+    });
+  } catch (e) {
+    app.textContent = 'port error: ' + e.message;
+    console.error('port init failed:', e);
+  }
+</script>
+```
+
+Use ports when asked to build something interactive, create a dashboard, visualize data, or make a tool. Always use the bridge APIs for real data. Never hardcode companion names or user data.
+
+  port42.storage.set(key, value, options?)
+    Persist data for this port. Value can be any JSON-serializable type (string, number,
+    object, array). By default storage is scoped per-companion per-space and survives
+    app restarts. Pass {scope: 'global'} to store data accessible from any space.
+    Returns: {ok: true} on success.
+
+  port42.storage.get(key, options?)
+    Retrieve a previously stored value. Returns {value}: the stored value (parsed from
+    JSON) in .value, or {value: null} if the key is missing.
+    Pass {scope: 'global'} to read from global storage.
+    Use this to load saved state when the port initializes.
+
+  port42.storage.delete(key, options?)
+    Remove a stored key. Pass {scope: 'global'} for global storage.
+    Returns: {ok: true} on success.
+
+  port42.storage.list(options?)
+    List all storage keys for this port. Pass {scope: 'global'} for global keys.
+    Returns: {keys: [key1, key2, ...]}
+
+STORAGE SCOPING:
+  Storage has two independent axes:
+  - scope: 'space' (default) or 'global' — controls whether data is per-space or cross-space
+  - shared: false (default) or true — controls whether data is per-companion or shared across all companions
+
+  This gives four combinations:
+  - {} (default): per-companion, per-space (private to this companion in this space)
+  - {scope: 'global'}: per-companion, all spaces (companion's own data everywhere)
+  - {shared: true}: all companions, per-space (collaborative data in this space)
+  - {scope: 'global', shared: true}: all companions, all spaces (app-wide shared data)
+
+STORAGE EXAMPLE (get returns {value}, destructure it):
+  // Space-scoped, private (default) — only this companion in this space
+  await port42.storage.set('count', 42);
+  const { value: count } = await port42.storage.get('count'); // 42
+
+  // Global, private — this companion across all spaces
+  await port42.storage.set('preferences', {fontSize: 14}, {scope: 'global'});
+  const { value: prefs } = await port42.storage.get('preferences', {scope: 'global'});
+
+  // Space-scoped, shared — any companion's port in this space can read/write
+  await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
+  const { value: game } = await port42.storage.get('game-state', {shared: true});
+
+  // Global, shared — any companion anywhere can read/write
+  await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
+  const { value: scores } = await port42.storage.get('high-scores', {scope: 'global', shared: true});
+
+## Clipboard API
+
+Read and write to the system clipboard. Requires user permission on first use.
+
+  port42.clipboard.read()
+    Returns: { type: 'text'|'image'|'empty', data?: string, format?: 'png' }
+    Text clipboard returns { type: 'text', data: 'the text' }
+    Image clipboard returns { type: 'image', format: 'png', data: '<base64>' }
+    Empty clipboard returns { type: 'empty' }
+
+  port42.clipboard.write(data)
+    data: string for text, or { type: 'image', data: '<base64 png>' } for images
+    Returns: { ok: true }
+
+  Clipboard supports both text and images. Check clip.type to handle each.
+
+## File System API
+
+Read and write files through native file pickers. Requires user permission.
+Security: Only paths explicitly chosen by the user via the picker are accessible.
+
+  port42.fs.pick(opts?)
+    opts: { mode: 'open'|'save', types?: ['txt','json',...], multiple?: false, directory?: false, suggestedName?: 'file.txt' }
+    Returns: { path: '/chosen/path' } or { paths: [...] } for multiple, or { cancelled: true }
+
+  port42.fs.read(path, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { data: '...', encoding: 'utf8', size: 1234 }
+
+  port42.fs.write(path, data, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { ok: true, size: 1234 }
+
+  Always check for {cancelled: true} after pick(). Paths from pick() are the only
+  paths fs.read/fs.write will accept.
+
+### File Drop
+
+  Ports accept file drops from Finder. The drop itself needs no permission (it's an explicit
+  user gesture); reading a dropped file's contents still requires fs.read (filesystem permission).
+
+  port42.fs.onFileDrop(async (paths) => {
+    // paths is an array of absolute path strings
+    for (const path of paths) {
+      const {data} = await port42.fs.read(path);
+      // ... process file
+    }
+  });
+
+## Notification API
+
+Send system notifications. Requires user permission on first use.
+Useful for background ports that need to alert the user.
+
+  port42.notify.send(title, body?, opts?)
+    opts: { sound: true, subtitle: 'optional subtitle' }
+    Returns: { ok: true, id: 'notification-uuid' }
+
+  Example: await port42.notify.send('Task Complete', 'Your build finished successfully');
+
+## Audio API
+
+Record microphone audio with live speech transcription and play text-to-speech.
+Microphone capture requires user permission on first use.
+
+  port42.audio.capture(opts?)
+    Start microphone capture. Returns {ok: true, sampleRate: number}.
+    opts: { transcribe?: true, language?: 'en-US', rawAudio?: false }
+    Requires microphone permission (prompted on first use per session).
+    When transcribe is true (default), fires 'transcription' events with live speech-to-text.
+    When rawAudio is true, fires 'data' events with PCM audio chunks.
+    Only one capture session at a time. Call stopCapture() before starting a new one.
+
+  port42.audio.stopCapture()
+    Stop microphone capture and speech recognition. Returns {ok: true}.
+
+  port42.audio.on('transcription', callback)
+    Live speech transcription. Callback receives {text, isFinal}.
+    text is the current best transcription (updates as speech is recognized).
+    isFinal is true when a segment is finalized (pause in speech).
+
+  port42.audio.on('data', callback)
+    Raw audio data (only when capture started with rawAudio: true).
+    Callback receives {samples, sampleRate, frameCount, format}.
+    samples is base64-encoded float32 PCM data.
+
+  port42.audio.speak(text, opts?)
+    Text-to-speech output via system voice. Returns {ok: true} when speech finishes.
+    opts: { voice?: 'en-US', rate?: 0.5, pitch?: 1.0, volume?: 1.0 }
+    voice is a BCP-47 language code (e.g. 'en-US', 'en-GB', 'es-ES', 'ja-JP').
+    rate is 0.0 (slowest) to 1.0 (fastest), default is normal speaking rate.
+    Does not require microphone permission (output only).
+
+  port42.audio.play(data, opts?)
+    Play a base64-encoded audio buffer. Supports WAV, MP3, AAC.
+    Returns {ok: true, duration: number} where duration is in seconds.
+    opts: { volume?: 1.0 }
+
+  port42.audio.stop()
+    Stop any active speech or audio playback immediately.
+
+  Audio capture is toggle-based: call capture() to start, stopCapture() to stop.
+  Subscribe to audio.on('transcription', cb) BEFORE calling capture().
+  Only one capture session at a time.
+
+## Screen Capture API
+
+Capture a screenshot of a display. Requires user permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Screen Recording.
+
+  port42.screen.displays()
+    Get information about all connected displays. No permissions required.
+    Returns: [{width, height, x, y, visibleWidth, visibleHeight, visibleX, visibleY, isMain}]
+    Use this to position ports on the screen without needing screen capture permission.
+    COORDINATE SYSTEM: macOS bottom-left origin. Y=0 is the bottom of the main display.
+    visibleFrame excludes the menu bar and dock. Use visibleY + visibleHeight as the
+    top of the usable area.
+
+  port42.screen.windows()
+    List visible windows. Returns {windows: [{id, title, app, bundleId, bounds}]}.
+    bounds is {x, y, width, height} in screen points.
+    Filters out tiny windows (menu bar items, etc).
+
+  port42.screen.capture(scale?)
+    Capture a screenshot of the main display. Returns the base64-encoded PNG string
+    itself (not an object). scale is an output resolution multiplier (0.1 to 2.0,
+    default 1.0). Port42's own windows are excluded from the capture so you get a
+    clean view of what's behind the app.
+    Requires screen capture permission (prompted on first use per session).
+
+  port42.screen.stream(opts?)
+    Start continuous screen streaming. Frames pushed as screen.frame events.
+    opts: {
+      scale?: 0.5,               // output resolution (0.1 to 2.0)
+      fps?: 4,                   // target frames per second (1 to 10)
+      windowId?: number,         // stream a specific window
+      includeSelf?: false         // include Port42 windows
+    }
+    Returns {ok: true, width, height}. Frames are JPEG (smaller than PNG).
+
+  port42.screen.stopStream()
+    Stop screen streaming. Returns {ok: true}.
+
+  port42.screen.on('frame', callback)
+    Receive streaming frames: {image, width, height, format: 'jpeg'}.
+
+  Use screen.stream() for continuous monitoring (its opts still support windowId).
+  capture returns the base64 string directly; stream frames carry it in .image.
+
+## Browser API
+
+Browse the web from within a port. Each session is an independent headless browser
+(WKWebView) that can load pages, extract content, take screenshots, and run JavaScript.
+Requires user permission on first use. Max 5 concurrent sessions per port.
+
+  port42.browser.open(url, opts?)
+    Open a URL in a new browser session. Returns {sessionId, url, title}.
+    opts: { width?: 1280, height?: 720, userAgent?: string }
+    Only http, https, and data URIs are allowed.
+    Sessions use non-persistent data stores (no shared cookies).
+
+  port42.browser.navigate(sessionId, url)
+    Navigate an existing session to a new URL. Returns {url, title}.
+
+  port42.browser.capture(sessionId, opts?)
+    Screenshot the page. Returns {image, width, height}.
+    opts: { region?: {x, y, width, height} }
+    image is a base64-encoded PNG.
+
+  port42.browser.text(sessionId, opts?)
+    Extract page text content. Returns {text, title, url}.
+    opts: { selector?: string }  CSS selector to extract from specific element.
+    Text is truncated at 500KB.
+
+  port42.browser.html(sessionId, opts?)
+    Extract page HTML. Returns {html, title, url}.
+    opts: { selector?: string }  CSS selector to extract specific element's outerHTML.
+    HTML is truncated at 1MB.
+
+  port42.browser.execute(sessionId, js)
+    Run JavaScript in the page context. Returns {result}.
+    result is the return value of the expression (string, number, object, etc).
+
+  port42.browser.close(sessionId)
+    Close the browser session. Returns {ok: true}.
+    Sessions are also cleaned up when the port is closed.
+
+  port42.browser.on('load', callback)
+    Fires when a page finishes loading. Callback receives {sessionId, url, title}.
+
+  port42.browser.on('error', callback)
+    Fires on navigation error. Callback receives {sessionId, url, error}.
+
+  port42.browser.on('redirect', callback)
+    Fires on server redirect. Callback receives {sessionId, url}.
+
+BROWSER UX TIPS:
+  Do NOT use <iframe> to display web pages. Most sites block iframing via
+  X-Frame-Options or CSP headers. Use the headless browser for everything.
+  To show a page visually, use browser.capture() screenshots as the preview.
+  Close old sessions before opening new URLs.
+
+## Automation API
+
+port42.automation.runAppleScript(source, timeout?) and port42.automation.runJXA(source, timeout?) execute scripts that control other Mac apps. AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. Requires automation permission. timeout is in seconds (default 30, max 120). Returns { result: string }; failures reject the promise.
+
+## Camera API
+
+Capture photos and stream video from the Mac's camera. Requires camera permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Camera.
+
+  port42.camera.capture(scale?)
+    Capture a single camera frame. Returns the base64-encoded PNG string itself
+    (not an object). scale is a factor for output resolution (0.1 to 2.0).
+    Requires camera permission (prompted on first use per session).
+
+  port42.camera.stream(opts?)
+    Start continuous camera streaming. Returns {ok: true}.
+    opts: { scale?: 0.25 }  Lower default scale for streaming performance.
+    Frames are pushed as 'frame' events via camera.on('frame', cb).
+    Only one stream at a time. Call stopStream() before starting a new one.
+
+  port42.camera.stopStream()
+    Stop camera streaming. Returns {ok: true}.
+
+  port42.camera.on('frame', callback)
+    Live camera frames during streaming. Callback receives {image, width, height}.
+    image is a base64-encoded PNG string.
+
+  Use capture() for one-off photos, stream() for continuous monitoring.
+
+## Interacting With Ports From Conversation
+
+You can interact with running ports directly from chat using tools — you don't need
+to be inside a port to do this.
+
+FINDING PORTS:
+
+  ports_list()
+    List all active ports. Each entry has:
+      id           — stable UDID, use this to identify ports reliably
+      title        — the port's <title> tag content
+      capabilities — array of what the port can do, e.g. ["terminal"]
+      status       — "tiled"/"parked" (on the desktop/rail) or "docked" (hidden, still running)
+      createdBy    — which companion created the port
+
+  ports_list(capabilities: ["terminal"])
+    Filter to only ports that have an active terminal session.
+    Terminal entries also report surfaceBound. Use this before port_push to find the right port id.
+
+  FINDING YOUR OWN PORT:
+    If you just created a terminal port, find it by matching createdBy to your own name.
+    There may be other terminal ports created by other companions — always use the one
+    you created unless explicitly asked to use a different one.
+
+    Example: you are "Engineer". After creating a terminal port:
+      ports_list(capabilities: ["terminal"])
+      → pick the entry where createdBy == "Engineer"
+      → use that entry's id for all port_push calls
+
+  IMPORTANT: When presenting port results to the user, always include the id and
+  capabilities fields. Do not reformat as a table that drops these columns — the id
+  is required for port_push, port_manage, and any follow-up tool calls.
+
+SENDING INPUT TO A TERMINAL PORT:
+
+  port_push(id, data)
+    Send raw keystrokes/commands to a terminal port's stdin.
+    id:   the port's id (UDID) from ports_list for reliability. Can also be the
+          terminal's name — fuzzy matched, but less reliable.
+    data: text to send. RAW — include your own \n to press enter (e.g. "npm test\n").
+          It is NOT added for you. (For web ports, port_push instead delivers the
+          data as a 'port42:data' CustomEvent — same verb, dispatched by port type.)
+    Output is NOT a tool result. Read what the terminal printed with port_console(id).
+    To ask an AGENT running in a terminal (claude, codex), post to that terminal's chat
+    instead: chat_post(port: id, text: ...). Its reply lands in the same chat; read it
+    with chat_read(port: id).
+
+  Standard workflow for sending a command and reading output:
+    1. ports_list(capabilities: ["terminal"])
+       → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
+    2. port_push(id: "abc-123", data: "npm test\n")
+    3. port_console(id: "abc-123")   ← what the terminal printed
+
+  Always use the id field from ports_list, not the title.
+
+  IMPORTANT: Do NOT use screen_capture to read terminal output.
+  Use port_console instead. It is faster, more reliable, and does not require
+  screen permission.
+
+READING AND VERSIONING PORTS:
+
+  port_get_html(id)
+    Read the current HTML of an existing port.
+    id: port UDID from ports_list.
+    Use this before port_update to inspect what's already rendered — avoids
+    overwriting work from another companion or losing state you didn't intend to replace.
+    Returns the full HTML source.
+
+  port_history(id)
+    List all saved versions of a port.
+    id: port UDID from ports_list.
+    Returns a list of versions: version number, createdBy, createdAt.
+    Versions are created automatically on port creation and every port_update.
+    Use this to see who has modified a port and when.
+
+  port_patch(id, search, replace)
+    Make a targeted edit — replace an exact string in the port's HTML.
+    Safer than port_update for fixing bugs: only the matched text changes,
+    everything else is preserved exactly. Errors if 'search' is not found,
+    so the port is never silently overwritten with a bad guess.
+    Always call port_get_html first, copy the exact text to replace, then patch.
+
+    Example — fix one function without touching anything else:
+      port_patch(
+        id: "abc-123",
+        search: "state.items.push({ id: Date.now(), text, done: false })",
+        replace: "state.items.unshift({ id: Date.now(), text, done: false })"
+      )
+
+    USE port_patch WHEN: fixing a bug, changing one function, updating one value.
+    USE port_update WHEN: the structure changes significantly or it's a new port.
+    NEVER rewrite the whole port to fix one thing.
+
+  BEST PRACTICE — before updating a port someone else created:
+    1. ports_list() → find the port id
+    2. port_get_html(id) → read what's there
+    3. port_history(id) → see who built it and when
+    4. port_patch(id, search, replace) → targeted fix, or port_update if structure changes
+
+DRIVING A NATIVE TERMINAL:
+
+  A terminal is just a port type — create, drive, and list it through the port verbs:
+
+  port_create({ type: "terminal", command?, args?, cwd?, title?, systemPrompt?, env?, space_id? })
+    Open a native terminal port (Ghostty surface). Returns { id, title }.
+    command defaults to a plain shell; claude/gemini get the Port42 hooks.
+
+  port_push(id, data)
+    Send raw keystrokes to a native terminal (include your own \n / \r to submit).
+    id: terminal id or name. (Raw send — does not arm space-posting.)
+
+  ports_list({ capabilities: ["terminal"] })
+    List native terminals — each entry reports surfaceBound.
+
+  Read what a terminal printed with port_console(id). An agent in a terminal answers in
+  that terminal's chat.
+
+EXAMPLE — prompt Claude Code running in a terminal port:
+  Step 1: port_create({ type: "terminal", command: "claude" })
+          → { id: "f3a9...", title: "claude" }
+  Step 2: chat_post(port: "f3a9...", text: "implement the login page")
+  Step 3: chat_read(port: "f3a9...")   ← Claude Code's reply, attributed to it
+  Step 4: repeat as needed
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+
+  Events (coming soon):
+  - port42.on('space.switch') — fires when user navigates to a different space
+  - port42.on('presence') — fires when online status changes. Payload: {online: [...]}

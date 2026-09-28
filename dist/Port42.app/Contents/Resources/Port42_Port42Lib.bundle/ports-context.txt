@@ -2,7 +2,7 @@ PORTS: Create a port with port_create({type:"web", html}) or port_create({type:"
 
 A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, parked or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
 
-THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
+THEME: The port42 dark theme is auto-injected (black bg, green accent as var(--color-accent), SF Mono font), in Port42 and on the browser invite page alike. No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
 SCRIPTS RUN AS ES MODULES: every <script> in a port executes as a module. Top-level await works
 directly (no wrapper needed). The trap: module declarations are NOT window globals, so inline
