@@ -4,7 +4,7 @@
 
 import { connect as realConnect, Refusal } from './client.js';
 import { identity, newSeed } from './peer.js';
-import { framedPage, named } from './shim.js';
+import { framedPage, named, namesItsPort } from './shim.js';
 import METHODS from './methods.json' with { type: 'json' };
 
 const SEED_KEY = 'port42.guest.seed';
@@ -106,12 +106,13 @@ export class Guest {
 
   /// A call from the port's page, positional as the page makes it. The host's own rights decide.
   async frameCall(method, args) {
+    // The user a page greets is whoever is viewing it: this guest, answered here.
+    if (method === 'user.get') return { id: this.me.id, displayName: this.name ?? 'a guest' };
     if (!this.session) throw new Refusal('host_offline', explain('host_offline', this.coupon.hostName));
     const names = METHODS[method];
     if (!names) throw new Refusal('not_granted', `${method} is not available to a guest`);
     const call = named(args, names);
-    // The page's storage is its port's, on the host: name the port (4.7b).
-    if (method.startsWith('storage.') && call.port === undefined) call.port = this.coupon.port;
+    if (namesItsPort(method) && call.port === undefined) call.port = this.coupon.port;
     return this.session.call(method, call);
   }
 

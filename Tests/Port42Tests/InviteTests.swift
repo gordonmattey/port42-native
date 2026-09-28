@@ -269,6 +269,38 @@ struct InviteTests {
         #expect(joins.count == 2, "each machine let in is announced once: \(joins.count)")
     }
 
+    @Test("a shared port's page reads its own space and companions from another machine, and nothing wider")
+    func startupReads() async throws {
+        let w = try world()
+        let host = Space.create(name: "the host space"), other = Space.create(name: "elsewhere")
+        for s in [host, other] { try w.state.db.saveSpace(s); w.state.spaces.append(s) }
+        w.state.currentSpace = other
+        let i = try #require(w.state.portWindows.panels.firstIndex { $0.id == "inv-p" })
+        w.state.portWindows.panels[i].spaceId = host.id
+        let owner = AppUser.createForTesting(displayName: "Gordon")
+        try w.state.db.saveUser(owner)
+        w.state.currentUser = owner
+        let ember = AgentConfig.createCommand(ownerId: owner.id, displayName: "ember", command: "claude", systemPrompt: "", trigger: .mentionOnly)
+        let hidden = AgentConfig.createCommand(ownerId: owner.id, displayName: "hidden", command: "claude", systemPrompt: "", trigger: .mentionOnly)
+        for c in [ember, hidden] { try w.state.db.saveAgent(c) }
+        try w.state.db.assignAgentToSpace(agentId: ember.id, spaceId: host.id)
+        try w.state.db.assignAgentToSpace(agentId: hidden.id, spaceId: other.id)
+        w.state.companions = [ember, hidden]
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(try await create(w)).nonce, "name": "Ada"])
+
+        let roster = try #require(try await remote(w, as: Self.ada, "companions.list", ["port": w.p]) as? [[String: Any]])
+        #expect(roster.compactMap { $0["name"] as? String } == ["ember"], "the guest saw companions beyond the port's space: \(roster)")
+        let space = try #require(try await remote(w, as: Self.ada, "space.current", ["port": w.p]) as? [String: Any])
+        #expect(space["id"] as? String == host.id, "the guest read a space other than the port's")
+        // Asking for another space, the whole roster, or a port it was not given: refused, or the port's own.
+        let wide = try await remote(w, as: Self.ada, "companions.list", ["port": w.p, "space_id": "*"]) as? [[String: Any]]
+        #expect(wide?.compactMap { $0["name"] as? String } == ["ember"], "space_id widened a guest's roster")
+        let asked = try await remote(w, as: Self.ada, "space.current", ["port": w.p, "space_id": other.id]) as? [String: Any]
+        #expect(asked?["id"] as? String == host.id, "space_id let a guest read another space")
+        #expect(reason(try await remote(w, as: Self.ada, "companions.list", ["port": w.q])) == "not_granted")
+        #expect(reason(try await remote(w, as: Self.ada, "space.current", [:])) == "not_granted")
+    }
+
     @Test("the second machine meets the same checks as the first: expiry and code")
     func secondUseChecked() async throws {
         let w = try world()

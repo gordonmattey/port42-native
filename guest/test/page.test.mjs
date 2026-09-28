@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { start } from '../src/page.js';
 import { Guest } from '../src/guest.js';
+import { framedPage } from '../src/shim.js';
 import { Refusal } from '../src/client.js';
 
 const html = readFileSync(new URL('../invite.html', import.meta.url), 'utf8').replace(/<script[^>]*><\/script>/, '');
@@ -212,4 +213,23 @@ test('the page\'s storage calls name its port, which is the host\'s storage for 
   g.session = { call: (m, a) => { calls.push({ m, a }); return Promise.resolve({ value: null }); } };
   await g.frameCall('storage.get', ['state']);
   assert.deepEqual(calls[0], { m: 'storage.get', a: { key: 'state', port: 'P' } });
+});
+
+test('a page\'s start-up reads work for a guest: user.get is the guest, space and companions name the port', async () => {
+  const calls = [];
+  const g = new Guest({ coupon, storage: null, ui: {}, connect: async () => ({}) });
+  g.name = 'Ada';
+  g.session = { call: (m, a) => { calls.push({ m, a }); return Promise.resolve([]); } };
+  const [user] = await Promise.all([g.frameCall('user.get', []), g.frameCall('companions.list', []),
+                                    g.frameCall('space.current', [])]);
+  assert.deepEqual(user, { id: g.me.id, displayName: 'Ada' }, 'user.get was not answered as the guest');
+  assert.deepEqual(calls, [{ m: 'companions.list', a: { port: 'P' } }, { m: 'space.current', a: { port: 'P' } }]);
+});
+
+test('the port runs in the app\'s own page: the theme and accent, module scripts, the shim before them', () => {
+  const doc = framedPage('P', '<h2>hi</h2><script>port42.storage.get("k")</script>');
+  assert.match(doc, /<style data-port42>[\s\S]*--color-accent[\s\S]*SF Mono/, 'the port theme is missing');
+  assert.match(doc, /<script type="module">port42\.storage\.get/, 'the port\'s script is not a module, as in the app');
+  assert.ok(doc.indexOf('var SELF = "P"') < doc.indexOf('<h2>hi</h2>'), 'the shim does not come before the port');
+  assert.ok(doc.startsWith('<!DOCTYPE html>') && doc.trimEnd().endsWith('</html>'));
 });

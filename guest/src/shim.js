@@ -2,6 +2,8 @@
 // with an opaque origin and no access to the guest's key or storage; every call it makes is a message
 // to the parent page, which sends it to the host as the guest, and the host's rights decide.
 
+import PAGE from './port-page.json' with { type: 'json' };
+
 /// The script put at the top of the port's page. `selfId` is the host's port id: the port the page is.
 export function shimScript(selfId) {
   return `<script>(function(){
@@ -44,8 +46,18 @@ export function shimScript(selfId) {
 })();</script>`;
 }
 
-/// The port's page as the iframe's srcdoc: the shim first, then the page.
-export function framedPage(selfId, html) { return shimScript(selfId) + html; }
+/// The port's page for the frame, built as the app builds it (`port-page.json` is generated from
+/// PortWebViewFactory.wrapHTML): the port theme, the console hints and module scripts, with the shim
+/// first in the head so `window.port42` exists before the port's own scripts run.
+export function framedPage(selfId, html) {
+  const body = html.split('<script>').join('<script type="module">');
+  return PAGE.before.replace('<head>', '<head>' + shimScript(selfId)) + body + PAGE.after;
+}
+
+/// Calls the host answers for the shared port, so they name it: its storage, and the space and
+/// companions a page reads at start. As `AppState.namesItsPort` does for a Port42 copy.
+export const namesItsPort = (method) =>
+  method.startsWith('storage.') || method === 'space.current' || method === 'companions.list';
 
 /// Positional arguments to named ones, as BridgeArgs(positional:names:) does in the app.
 export function named(args, names) {

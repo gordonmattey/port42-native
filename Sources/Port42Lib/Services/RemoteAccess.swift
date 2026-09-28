@@ -131,7 +131,7 @@ public enum RemoteAccess {
         "help": .never,
         "user.get": .never,
         "whoami": .never,
-        "space.current": .never,
+        "space.current": .port(param: "port", right: .see),     // the shared port's own space
         "space.list": .never,
         "space.create": .never,
         "space.delete": .never,
@@ -139,7 +139,7 @@ public enum RemoteAccess {
         "sessions.import": .never,
         "space.switchTo": .never,
         "space.setWorkingDirectory": .never,
-        "companions.list": .never,
+        "companions.list": .port(param: "port", right: .see),     // the shared port's own space
         "companions.get": .never,
         "companions.create": .never,
         "companions.watch": .never,
@@ -187,6 +187,16 @@ extension AppState {
     public func grantRemoteRights(_ rights: Set<RemoteRight>, to grantee: String, onPort key: String) {
         try? db.saveRemoteRights(rights, grantee: grantee, portKey: key)
         refreshSharing()
+    }
+
+    /// The space of the shared port a remote caller names (`port`), for the context a port's page reads
+    /// at start: `space.current` and `companions.list` answer for that space, never another (4.7b).
+    func remotePortSpace(_ port: String?) throws -> String {
+        guard let raw = port, let key = remotePortKey(raw),
+              let space = portWindows.panels.first(where: { $0.udid == key })?.spaceId else {
+            throw BridgeError.notFound("a shared port")
+        }
+        return space
     }
 
     /// The port a remote caller names, by its exact id. No title matches and no aliases: a guest names
