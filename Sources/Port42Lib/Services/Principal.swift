@@ -41,6 +41,14 @@ public struct Principal: Equatable {
     /// this principal, which is different from "unpersistable" (what nil used to mean).
     public let spaceId: String?
     public let kind: Kind
+    /// **The zone this caller's grants live in** (APP-15). ONE rule for every surface: the space
+    /// the actor was made to work in, nil only for an actor that belongs to no space (a client the
+    /// person paired or installed). A port, a companion and the person act in `spaceId`, so their
+    /// zone is that. A terminal Port42 spawned reaches us through the gateway with no `spaceId`, but
+    /// it was spawned INTO a space, and that space is its zone. Before this the child's grants landed
+    /// in the global zone under its own `child-…` id while its companion's landed in the space, so
+    /// one companion was asked twice for one capability.
+    public let zone: String?
     /// The calling port's OWN stable id (PortBridge.messageId), when the caller is a port; nil
     /// otherwise. Distinct from `id`: `id` is the AUTHORIZATION identity — a companion-created port
     /// authorizes AS its creator (P-260), so `id` is shared across every port that creator made and
@@ -64,13 +72,14 @@ public struct Principal: Equatable {
     ///
     /// Enforced by `PrincipalConstructionTests` scanning the whole package, tests included.
     private init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil,
-                 actor: RemoteActor? = nil) {
+                 actor: RemoteActor? = nil, zone: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.spaceId = spaceId
         self.kind = kind
         self.portId = portId
         self.actor = actor
+        self.zone = zone ?? spaceId
     }
 
     // MARK: - Surfaces
@@ -107,6 +116,40 @@ public struct Principal: Equatable {
     public func acting(as actor: RemoteActor?) -> Principal {
         guard kind == .remote else { return self }
         return Principal(id: id, displayName: displayName, spaceId: spaceId, kind: kind, actor: actor)
+    }
+
+    /// What Port42 recorded when it SPAWNED a terminal: whose it is and which space it went into.
+    /// A gateway caller carries only its client id, so this is how a child is recognized as its
+    /// companion rather than as a stranger (APP-15).
+    public struct SpawnBinding: Equatable {
+        /// The companion (AgentConfig.id) the terminal belongs to; nil for an ad-hoc terminal.
+        public let companionId: String?
+        public let spaceId: String
+        public init(companionId: String?, spaceId: String) {
+            self.companionId = companionId
+            self.spaceId = spaceId
+        }
+    }
+
+    /// The identity a verified LOCAL gateway client authorizes as (APP-15).
+    ///
+    /// **One stable grantee.** A companion's terminal authorizes as the COMPANION, the same id its
+    /// in-app tool use and the ports it creates already key on (P-260), so one grant covers all
+    /// three. An ad-hoc terminal and a client the person paired stay themselves.
+    ///
+    /// **One zone rule.** A spawned terminal's zone is the space it was spawned into; a paired
+    /// client's is nil (global).
+    ///
+    /// **And one space.** A spawned terminal also ACTS in its spawn space (`spaceId`), exactly as its
+    /// companion's tool use does: storage, a new port, a chat post and every "your space" default
+    /// land there. Found live (slice-02 milestone A): with `spaceId` nil, a companion's terminal was
+    /// refused `storage.set … shared` with "storage requires space context" while `whoami` named its
+    /// space. A paired or installed client acts in no space, as before.
+    public static func forGatewayClient(clientId: String, displayName: String,
+                                        spawn: SpawnBinding?) -> Principal {
+        let companion = spawn?.companionId.flatMap { $0.isEmpty ? nil : $0 }
+        return Principal(id: companion ?? clientId, displayName: displayName,
+                         spaceId: spawn?.spaceId, kind: .peer, zone: spawn?.spaceId)
     }
 
     /// THE LOCAL HUMAN. `id` is `AppUser.id`.
@@ -199,7 +242,7 @@ public struct Principal: Equatable {
     /// own id never appears "different" for permission coalescing, which keys on this.
     public static func == (lhs: Principal, rhs: Principal) -> Bool {
         lhs.id == rhs.id && lhs.displayName == rhs.displayName
-            && lhs.spaceId == rhs.spaceId && lhs.kind == rhs.kind
+            && lhs.spaceId == rhs.spaceId && lhs.kind == rhs.kind && lhs.zone == rhs.zone
     }
 
     /// `localGatewayID` ("local-http") IS DELETED (slice-02 half two, 5b).
@@ -224,7 +267,7 @@ public struct Principal: Equatable {
     /// **It also says how to undo it**, which it could not honestly do before: until step 2 there
     /// was nowhere to go and a grant was permanent and invisible from the moment it was given.
     public var scopeDescription: String {
-        let where_ = (spaceId?.isEmpty == false)
+        let where_ = (zone?.isEmpty == false)
             ? "in Port42, while working in this space"
             : "in Port42, everywhere"
         return "Allow for \(displayName) \(where_). Take it back any time in Settings → Access."

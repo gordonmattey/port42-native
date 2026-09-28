@@ -14,11 +14,10 @@ import Foundation
 // is invisible to them, and a refused read answers `not_found` rather than confirming the port
 // exists. A caller with no space is not "everywhere": it sees only ports that have no space either.
 //
-// NOT SCOPED HERE: `.human` (the person owns every space), `.peer` and `.remote`. A gateway
-// principal carries no space (`Principal.peer`), and a spawned session's client is not yet bound to
-// the space it was spawned in, so there is nothing to scope a peer to without inventing one; that
-// binding is APP-15, and this rule takes it up when it lands. A caller on another machine is
-// already confined by RemoteAccess to the ports it holds a right on, before any body runs.
+// SCOPED BY APP-15: a terminal Port42 spawned is bound to its spawn space, and reads that space
+// (see the `.peer` case below). NOT SCOPED: `.human` (the person owns every space), a client the
+// person paired or installed (no space), and `.remote`, already confined by RemoteAccess to the
+// ports it holds a right on, before any body runs.
 
 @MainActor
 extension AppState {
@@ -47,8 +46,15 @@ extension AppState {
     /// the by-id reads so the two can never disagree about what a caller can see.
     func canRead(portInSpace spaceId: String?, by principal: Principal) -> Bool {
         switch principal.kind {
-        case .human, .peer, .remote:
+        case .human, .remote:
             return true
+        case .peer:
+            // APP-15: a terminal Port42 spawned reads the space it was spawned into, whether it
+            // authorizes as its companion or as itself. A child whose binding is gone (its terminal
+            // closed) reads no space rather than everywhere. A client the person paired or
+            // installed keeps machine-wide reads, which is a product call and left as it was.
+            if let zone = principal.zone { return spaceId == zone }
+            return clientRegistry.client(id: principal.id)?.kind == .child ? spaceId == nil : true
         case .port, .companion:
             // Equality of optionals on purpose: a caller acting in no space sees only ports in no
             // space, never "everywhere".

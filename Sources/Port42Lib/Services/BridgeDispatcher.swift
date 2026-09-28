@@ -49,7 +49,7 @@ extension AppState {
         // knows the bucket a synthetic id is already sharing.
         ActorProbe.dispatch(method: canonical, principal: principal,
                             grants: grants(grantee: principal.id, on: .machine,
-                                           zone: principal.spaceId))
+                                           zone: principal.zone))
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif
 
@@ -129,14 +129,14 @@ extension AppState {
     func ensurePermission(_ perm: PortPermission, for principal: Principal,
                           on object: PortObject = .machine, detail: String? = nil,
                           pregrant: Set<PortPermission> = []) async -> Bool {
-        var granted = grants(grantee: principal.id, on: object, zone: principal.spaceId)
+        var granted = grants(grantee: principal.id, on: object, zone: principal.zone)
         let covered = granted.union(pregrant)
             .union(object == .machine ? [] : grants(grantee: principal.id, on: .machine,
-                                                    zone: principal.spaceId))
+                                                    zone: principal.zone))
         if covered.contains(perm) { return true }
         guard await permissions.request(perm, from: principal, detail: detail) else { return false }
         granted.insert(perm)
-        saveGrants(granted, grantee: principal.id, on: object, zone: principal.spaceId)
+        saveGrants(granted, grantee: principal.id, on: object, zone: principal.zone)
         return true
     }
 
@@ -566,7 +566,7 @@ extension AppState {
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,
                             grants: grants(grantee: principal.id, on: .machine,
-                                           zone: principal.spaceId),
+                                           zone: principal.zone),
                             streaming: true)
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif

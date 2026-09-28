@@ -261,8 +261,21 @@ public final class AppState: ObservableObject {
     /// terminal its credential belongs to. A terminal companion calls Port42 with its terminal's
     /// credential, as a peer, so anything that applies a companion's own settings (its secrets) has
     /// to look through the terminal to find it.
+    /// The terminal panel a gateway caller speaks for, if it is a terminal Port42 spawned (APP-15).
+    /// Keyed on the terminal's client id; a companion's terminal authorizes AS its companion, so its
+    /// client id is re-derived from the companion and the space it is bound to.
+    func terminalPanelId(for p: Principal) -> String? {
+        if let id = terminalClientPanels[p.id] { return id }
+        guard p.kind == .peer, let zone = p.zone else { return nil }
+        return terminalClientPanels[ClientRegistry.childId(companionId: p.id, spaceId: zone)]
+    }
+
     func companion(actingAs p: Principal) -> AgentConfig? {
         if p.kind == .companion { return companions.first { $0.id == p.id } }
+        // A companion's terminal on the gateway already authorizes AS its companion, bound to its
+        // spawn space (APP-15), so its id is the companion's; `terminalClientPanels` is keyed on the
+        // terminal's client id and would miss it.
+        if p.kind == .peer, p.zone != nil, let c = companions.first(where: { $0.id == p.id }) { return c }
         guard let panelId = terminalClientPanels[p.id],
               let config = portWindows.panels.first(where: { $0.id == panelId })?.terminalConfig else { return nil }
         if let id = config.companionId, let c = companions.first(where: { $0.id == id }) { return c }
@@ -432,6 +445,9 @@ public final class AppState: ObservableObject {
 
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]
+    /// What each spawned terminal's client id was spawned AS, recorded at spawn (APP-15). Read when
+    /// that client calls through the gateway, so it authorizes as its companion in its space.
+    private(set) var spawnBindings: [String: Principal.SpawnBinding] = [:]
 
     /// Hold-to-talk, owned by the app so the speech model can load at launch. The shell wires its own
     /// callbacks (partials, text, permissions) onto it when it installs its key monitors.
@@ -1122,7 +1138,8 @@ public final class AppState: ObservableObject {
                 return ["error": error.localizedDescription]
             }
             let executor = self.remoteExecutors[identity.id]
-                ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name)
+                ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name,
+                                      spawn: self.spawnBindings[identity.id])
             self.remoteExecutors[identity.id] = executor
             return await executor.execute(method: method, input: input, emit: emit)
         }
@@ -1854,6 +1871,8 @@ public final class AppState: ObservableObject {
             name: config.companionName.isEmpty ? "Terminal in \(config.spaceName)" : config.companionName,
             kind: .child)
         terminalClientPanels[terminalClientId] = panel.id   // whoami: this credential is this terminal
+        spawnBindings[ClientRegistry.slug(terminalClientId)] =
+            Principal.SpawnBinding(companionId: config.companionId, spaceId: config.spaceId)
         // Inject the space-posting behaviour so the controller's gate/dedup logic stays
         // decoupled from AppState (and unit-testable).
         let post: (String) -> Void = { [weak self] content in

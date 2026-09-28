@@ -47,8 +47,8 @@ extension AppState {
         // What the port's code runs with: its principal's grants, plus the copy its bridge carries
         // and passes as a pregrant on every call (APP-06).
         let runsWith = bridge.grantedPermissions
-            .union(grants(grantee: authority.id, on: .machine, zone: authority.spaceId))
-        let holds = grants(grantee: writer.id, on: .machine, zone: writer.spaceId)
+            .union(grants(grantee: authority.id, on: .machine, zone: authority.zone))
+        let holds = grants(grantee: writer.id, on: .machine, zone: writer.zone)
         let missing = runsWith.subtracting(holds)
         guard !missing.isEmpty else { return }
 
@@ -71,7 +71,10 @@ extension AppState {
         case .companion:
             return companion(actingAs: writer) == nil ? nil : writer.spaceId
         case .peer:
-            guard companion(actingAs: writer) != nil, let panelId = terminalClientPanels[writer.id] else { return nil }
+            guard companion(actingAs: writer) != nil else { return nil }
+            // Bound to its spawn space by APP-15; otherwise found through its terminal's client.
+            if let space = writer.spaceId { return space }
+            guard let panelId = terminalClientPanels[writer.id] else { return nil }
             return portWindows.panels.first { $0.id == panelId }?.spaceId
         default:
             return nil

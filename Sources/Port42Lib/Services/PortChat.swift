@@ -460,7 +460,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         var o: [String: BridgeValue] = ["name": .string(p.displayName), "kind": .string(p.kind.rawValue)]
         var spaceId = p.spaceId
-        if let panelId = appState.terminalClientPanels[p.id],
+        if let panelId = appState.terminalPanelId(for: p),
            let panel = appState.portWindows.panels.first(where: { $0.id == panelId }) {
             if let name = panel.terminalConfig?.companionName, !name.isEmpty { o["name"] = .string(name) }
             o["terminal_port"] = .string(panel.udid)

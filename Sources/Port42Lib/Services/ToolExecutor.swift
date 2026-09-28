@@ -134,9 +134,12 @@ public final class RemoteToolExecutor: ObservableObject {
     /// Who is calling: a local client (`.peer`) or a caller on another machine (`.remote`).
     private let principal: Principal
 
-    public init(appState: AppState, senderId: String, senderName: String) {
+    /// A local gateway client. `spawn` is set when Port42 spawned it, so it authorizes as its
+    /// companion in its spawn space (APP-15).
+    public init(appState: AppState, senderId: String, senderName: String,
+                spawn: Principal.SpawnBinding? = nil) {
         self.appState = appState
-        self.principal = .peer(id: senderId, displayName: senderName)
+        self.principal = Principal.forGatewayClient(clientId: senderId, displayName: senderName, spawn: spawn)
     }
 
     /// A caller whose principal is already formed (a remote one, nautilus Phase 4).
