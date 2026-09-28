@@ -284,6 +284,7 @@ struct ChatResizeZone: View {
         Color.clear
             .frame(width: edge == .corner ? 16 : size.width, height: edge == .corner ? 16 : 6)
             .contentShape(Rectangle())
+            .resizeCursor(ResizeCursor.cursor(for: edge == .corner ? .se : .s))
             // Global coordinates: the zone moves with the edge it drags.
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { v in

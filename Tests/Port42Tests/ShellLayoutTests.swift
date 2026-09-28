@@ -184,6 +184,31 @@ struct ShellLayoutTests {
     }
 
 
+    @Test("a side resizes along its own axis only, pins the opposite side, and clamps without flipping")
+    func sideResizeMath() throws {
+        let f = CGRect(x: 100, y: 100, width: 400, height: 300)
+        let e = ShellTile.resized(f, corner: .e, by: CGSize(width: 50, height: 999))
+        #expect(e == CGRect(x: 100, y: 100, width: 450, height: 300), "the east side moved vertically too")
+        let w = ShellTile.resized(f, corner: .w, by: CGSize(width: -40, height: 999))
+        #expect(w == CGRect(x: 60, y: 100, width: 440, height: 300))
+        let n = ShellTile.resized(f, corner: .n, by: CGSize(width: 999, height: -30))
+        #expect(n == CGRect(x: 100, y: 70, width: 400, height: 330))
+        let s = ShellTile.resized(f, corner: .s, by: CGSize(width: 999, height: 25))
+        #expect(s == CGRect(x: 100, y: 100, width: 400, height: 325))
+        let tiny = ShellTile.resized(f, corner: .w, by: CGSize(width: 5000, height: 0))
+        #expect(tiny.maxX == 500 && tiny.width == ShellState.minTileSize.width, "a side dragged past the other flipped")
+    }
+
+    @Test("each resize place shows a cursor for its direction")
+    @MainActor
+    func resizeCursors() {
+        #expect(ResizeCursor.cursor(for: .e) == .resizeLeftRight && ResizeCursor.cursor(for: .w) == .resizeLeftRight)
+        #expect(ResizeCursor.cursor(for: .n) == .resizeUpDown && ResizeCursor.cursor(for: .s) == .resizeUpDown)
+        for c in [ShellTile.Corner.nw, .ne, .sw, .se] {
+            #expect(ResizeCursor.cursor(for: c) != .arrow, "a corner shows no resize cursor")
+        }
+    }
+
     @Test("ShellTile.resized pins the opposite corner for every corner and clamps to the min size")
     func cornerResizeMath() throws {
         let f = CGRect(x: 100, y: 100, width: 400, height: 300)

@@ -431,6 +431,8 @@ them; an item leaves only when it is done and verified.
 | 22 | In chat, my messages on the right had right-aligned lines, so a wrapped one was ragged on the left (GM, 2026-09-27) | Done: each of my messages is a right-hand block of left-aligned text, indented by the room its widest line leaves, laid out again when the chat is resized; checked in a real text layout. In the next build |
 | 23 | A flaky test: "the watcher's own write does not wake it" (`CompanionWatchTests`) failed once in a full run on 2026-09-27 and passes alone | Open: not root-caused. The voice session saw the same when voice started from `AppState.init`; look for per-AppState launch work or timing under load |
 | 24 | Clicking the space name in the top-left pill only stepped up one level: from a focused port it went to the space, not the galaxy (GM, 2026-09-27) | Done: the pill and ⌘G share one toggle, straight to the galaxy from any level and back to the space |
+| 25 | Ports resized only by their corners, with no sign they could (GM, 2026-09-27: drag the sides too, and show it) | Done: the four sides drag too (one axis each), and every resize place shows a resize cursor: arrows on the sides, diagonal on corners (macOS 15; crosshair on 14), also on the chats' drag edges |
+| 26 | The invite page fix live on `tele.port42.ai` (GM, 2026-09-27) | Done: deployed from nautilus to the Railway service `tele`; the live page carries the fix, its CSP holds, and the bundle matches the committed one byte for byte. relay1 already ran the current relay |
 
 ## Future roadmap
 

@@ -389,7 +389,9 @@ struct ShellTile: View {
     var peekFrame: CGRect? = nil
 
     /// A tile corner (any corner resizes; the opposite corner stays pinned).
-    enum Corner { case nw, ne, sw, se }
+    /// Where a tile is grabbed to resize it: a corner (both axes) or a side (one axis; GM,
+    /// 2026-09-27: sides should drag too, not only corners).
+    enum Corner { case nw, ne, sw, se, n, s, e, w }
 
     @State private var moveDelta: CGSize = .zero
     @State private var resizeCorner: Corner? = nil
@@ -524,16 +526,21 @@ struct ShellTile: View {
     /// Pure + static → headless-testable (`ShellLayoutTests`).
     static func resized(_ f: CGRect, corner c: Corner, by d: CGSize) -> CGRect {
         let minW = ShellState.minTileSize.width, minH = ShellState.minTileSize.height
-        let east = (c == .ne || c == .se), south = (c == .sw || c == .se)
+        let east = [.ne, .se, .e].contains(c), south = [.sw, .se, .s].contains(c)
+        let movesX = c != .n && c != .s, movesY = c != .e && c != .w   // a side moves one axis only
         let fixedX = east ? f.minX : f.maxX               // pinned (opposite) edge
         let fixedY = south ? f.minY : f.maxY
         let dragX = (east ? f.maxX : f.minX) + d.width    // dragged edge, moved by the delta
         let dragY = (south ? f.maxY : f.minY) + d.height
         // The dragged edge's side is fixed by the corner (east→right edge, west→left edge); clamp to
         // the min without flipping past the pinned edge — so dragging a corner across just stops.
-        let x: CGFloat, w: CGFloat, y: CGFloat, h: CGFloat
-        if east { x = fixedX; w = max(minW, dragX - fixedX) } else { w = max(minW, fixedX - dragX); x = fixedX - w }
-        if south { y = fixedY; h = max(minH, dragY - fixedY) } else { h = max(minH, fixedY - dragY); y = fixedY - h }
+        var x = f.minX, w = f.width, y = f.minY, h = f.height
+        if movesX {
+            if east { x = fixedX; w = max(minW, dragX - fixedX) } else { w = max(minW, fixedX - dragX); x = fixedX - w }
+        }
+        if movesY {
+            if south { y = fixedY; h = max(minH, dragY - fixedY) } else { h = max(minH, fixedY - dragY); y = fixedY - h }
+        }
         return CGRect(x: x, y: y, width: w, height: h)
     }
 
@@ -614,6 +621,11 @@ struct ShellTile: View {
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
         // Focused/peeking units aren't corner-resizable — the handles come off.
+        // The four sides first, so the corners (drawn after) win where they overlap.
+        .overlay(alignment: .top)            { if !isFocused && !isPeeking { sideHandle(.n) } }
+        .overlay(alignment: .bottom)         { if !isFocused && !isPeeking { sideHandle(.s) } }
+        .overlay(alignment: .leading)        { if !isFocused && !isPeeking { sideHandle(.w) } }
+        .overlay(alignment: .trailing)       { if !isFocused && !isPeeking { sideHandle(.e) } }
         .overlay(alignment: .topLeading)     { if !isFocused && !isPeeking { cornerHandle(.nw) } }
         .overlay(alignment: .topTrailing)    { if !isFocused && !isPeeking { cornerHandle(.ne) } }
         .overlay(alignment: .bottomLeading)  { if !isFocused && !isPeeking { cornerHandle(.sw) } }
@@ -853,7 +865,20 @@ struct ShellTile: View {
         Color.clear
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
+            .resizeCursor(ResizeCursor.cursor(for: corner))
             .gesture(resizeGesture(corner))
+    }
+
+    /// A side: a thin strip along the edge, short of the corners. Thin so it does not steal clicks
+    /// from the port or the title bar beside it.
+    private func sideHandle(_ side: Corner) -> some View {
+        let horizontal = side == .n || side == .s
+        return Color.clear
+            .frame(width: horizontal ? max(0, liveSize.width - 32) : 6,
+                   height: horizontal ? 5 : max(0, liveSize.height - 32))
+            .contentShape(Rectangle())
+            .resizeCursor(ResizeCursor.cursor(for: side))
+            .gesture(resizeGesture(side))
     }
 
     private var moveGesture: some Gesture {
@@ -1553,5 +1578,33 @@ struct PortMorePopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Resize cursors
+
+/// The cursor over a place that resizes (GM, 2026-09-27: dragging a side or a corner should show that
+/// it can be dragged). Sides get the arrows along their axis; corners get the diagonal frame-resize
+/// cursors on macOS 15, and the crosshair before it (macOS 14 has no public diagonal cursor).
+enum ResizeCursor {
+    static func cursor(for c: ShellTile.Corner) -> NSCursor {
+        switch c {
+        case .e, .w: return .resizeLeftRight
+        case .n, .s: return .resizeUpDown
+        case .nw, .ne, .sw, .se:
+            if #available(macOS 15, *) {
+                let p: NSCursor.FrameResizePosition = c == .nw ? .topLeft : c == .ne ? .topRight : c == .sw ? .bottomLeft : .bottomRight
+                return .frameResize(position: p, directions: .all)
+            }
+            return .crosshair
+        }
+    }
+}
+
+extension View {
+    /// Show `cursor` while the pointer is over this view.
+    func resizeCursor(_ cursor: NSCursor) -> some View {
+        onHover { inside in if inside { cursor.push() } else { NSCursor.pop() } }
     }
 }
