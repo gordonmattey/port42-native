@@ -27,7 +27,7 @@ Make an invite link that lets one person on another machine open ONE port: in Po
 
 ## invite.list
 
-The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer, and usedAgainBy for the second of its two), expired or withdrawn.
+The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.
 
     port42 invite.list
 

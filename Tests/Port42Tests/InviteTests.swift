@@ -195,7 +195,7 @@ struct InviteTests {
         #expect(try await join(Self.ada, as: "Someone else") == "Ada", "a label people had seen changed")
     }
 
-    @Test("an unused link can be copied again, with its code; used or withdrawn it is forgotten; invite.list never shows it")
+    @Test("an open link can be copied again, with its code, until it is used up or withdrawn; invite.list never shows it")
     func linkCopiedAgain() async throws {
         let w = try world()
         let made = try await create(w, code: true)
@@ -212,10 +212,14 @@ struct InviteTests {
         #expect(w.state.inviteMessage(id: id) == nil, "a withdrawn link can still be copied")
         #expect(AppState.testInviteLinks[id] == nil, "a withdrawn link was kept")
 
+        // One key in is not used up: the browser opened it, and the link must still reach Port42 (GM,
+        // 2026-09-27: it vanished from the share panel after the browser). The second key uses it up.
         let used = try await create(w)
         let usedId = try #require(used["id"] as? String)
         _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(used).nonce, "name": "Ada"])
-        #expect(w.state.inviteMessage(id: usedId) == nil && AppState.testInviteLinks[usedId] == nil, "a used link was kept")
+        #expect(w.state.inviteMessage(id: usedId) != nil, "a link with a use left could not be copied again")
+        _ = try await remote(w, as: Self.eve, "invite.redeem", ["nonce": try coupon(used).nonce, "name": "Eve"])
+        #expect(w.state.inviteMessage(id: usedId) == nil && AppState.testInviteLinks[usedId] == nil, "a used-up link was kept")
     }
 
     @Test("the invite discloses what the port can do on this machine")
@@ -255,10 +259,18 @@ struct InviteTests {
         let third = "thirdthirdthirdthirdthirdthirdthirdthirdthirdthirdq"
         _ = try await remote(w, as: browser, "invite.redeem", ["nonce": c.nonce, "name": "Gordon"])
         _ = try await remote(w, as: browser, "invite.redeem", ["nonce": c.nonce])           // a refresh: not a use
+        func state() async throws -> String? {
+            let list = try await w.state.runBridgeMethod("invite.list", principal: person, args: BridgeArgs([:]))
+            return ((list.toJSONObject() as? [[String: Any]])?.first { $0["port"] as? String == w.p })?["state"] as? String
+        }
+        #expect(w.state.openInvites().count == 1, "the share panel dropped a link with a use left")
+        #expect(try await state() == "open")
         let second = try await remote(w, as: app, "invite.redeem", ["nonce": c.nonce, "name": "Gordon"])
         #expect((second as? [String: Any])?["port"] as? String == w.p, "the same link in Port42 after the browser was refused")
         #expect(w.state.remoteRights(of: app, onPort: w.p) == [.see, .use, .wakeAgents])
         #expect(!w.state.remoteRights(of: browser, onPort: w.p).isEmpty, "the browser lost the port")
+        #expect(w.state.openInvites().isEmpty, "a used-up link is still listed as open")
+        #expect(try await state() == "used")
         #expect(reason(try await remote(w, as: third, "invite.redeem", ["nonce": c.nonce, "name": "Mallory"])) == "used")
         #expect(try w.state.db.client(peerKey: third) == nil, "a third redeemer was enrolled")
         for peer in [browser, app] {
@@ -299,6 +311,20 @@ struct InviteTests {
         #expect(asked?["id"] as? String == host.id, "space_id let a guest read another space")
         #expect(reason(try await remote(w, as: Self.ada, "companions.list", ["port": w.q])) == "not_granted")
         #expect(reason(try await remote(w, as: Self.ada, "space.current", [:])) == "not_granted")
+    }
+
+    @Test("a link is used up after two machines, a move after one")
+    func usedUp() {
+        func row(_ rights: [RemoteRight], _ by: String?, _ again: String?) -> DatabaseService.InviteRow {
+            .init(id: "i", portKey: "p", rights: rights, codeHash: nil, codeTries: 0, createdBy: "u", createdAt: Date(),
+                  expiresAt: Date().addingTimeInterval(60), redeemedAt: by == nil ? nil : Date(), redeemedBy: by,
+                  redeemedAgainBy: again, revokedAt: nil)
+        }
+        #expect(!row([.see], nil, nil).isUsedUp)
+        #expect(!row([.see], "a", nil).isUsedUp, "one machine in is not used up")
+        #expect(row([.see], "a", "b").isUsedUp)
+        #expect(!row([.move], nil, nil).isUsedUp)
+        #expect(row([.move], "a", nil).isUsedUp, "a port moves once")
     }
 
     @Test("the second machine meets the same checks as the first: expiry and code")
@@ -376,10 +402,14 @@ struct InviteTests {
     func manager() async throws {
         let w = try world()
         let open = try await create(w, port: w.q)
-        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(try await create(w)).nonce, "name": "Ada"])
+        let once = try await create(w)
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(once).nonce, "name": "Ada"])
         let shared = w.state.sharedPorts()
         #expect(shared.map { "\($0.name) \($0.title) \($0.rights.map(\.rawValue))" } == ["Ada shared chart [\"see\", \"use\", \"wake_agents\"]"])
-        #expect(w.state.openInvites().map(\.id) == [open["id"] as? String], "a used invite is not open")
+        // A link that let one machine in still has a use left, so it stays open, labeled as such.
+        #expect(Set(w.state.openInvites().map(\.id)) == Set([open["id"] as? String, once["id"] as? String].compactMap { $0 }))
+        #expect(w.state.openInvites().first { $0.id == once["id"] as? String }?.useLabel == "used once, one more to go")
+        #expect(w.state.openInvites().first { $0.id == open["id"] as? String }?.useLabel == "unused")
         w.state.stopSharing(peer: Self.ada, port: w.p)
         #expect(w.state.sharedPorts().isEmpty)
         #expect(reason(try await remote(w, as: Self.ada, "port.getHtml", ["id": w.p])) == "not_granted")

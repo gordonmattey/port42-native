@@ -31,7 +31,8 @@ struct SharePillTests {
         #expect(w.state.sharePill(tile: tile, key: w.p) == .shared(people: 0, invites: 1))
 
         _ = try await t.remote(w, as: InviteTests.ada, "invite.redeem", ["nonce": try t.coupon(made).nonce, "name": "Ada"])
-        #expect(w.state.sharePill(tile: tile, key: w.p) == .shared(people: 1, invites: 0), "the pill missed Ada joining")
+        // The link let one machine in and has one use left, so it is still out.
+        #expect(w.state.sharePill(tile: tile, key: w.p) == .shared(people: 1, invites: 1), "the pill missed Ada joining")
 
         w.state.setRemoteRight(.edit, true, peer: InviteTests.ada, port: w.p)
         #expect(w.state.remoteRights(of: InviteTests.ada, onPort: w.p).contains(.edit))
@@ -41,6 +42,10 @@ struct SharePillTests {
 
         w.state.stopSharing(peer: InviteTests.ada, port: w.p)
         #expect(w.state.sharePill(tile: tile, key: w.p) == nil, "the pill stayed after sharing stopped")
+        // Stopped means stopped: the link Ada came in on does not let her back.
+        let back = try await t.remote(w, as: InviteTests.ada, "invite.redeem", ["nonce": try t.coupon(made).nonce])
+        #expect(t.reason(back) == "revoked", "stopping sharing left Ada's link open to her")
+        #expect(w.state.remoteRights(of: InviteTests.ada, onPort: w.p).isEmpty)
 
         let again = try await t.create(w)
         w.state.withdrawInvite(id: try #require(again["id"] as? String))

@@ -88,13 +88,16 @@ struct ShareHostPanel: View {
             }
             let invites = appState.openInvites().filter { $0.portKey == portKey }
             if !invites.isEmpty {
-                SharePanelHeading("links not used yet")
+                SharePanelHeading("open links")
                 ForEach(invites, id: \.id) { inv in
                     HStack(spacing: 8) {
                         Text("until " + inv.expiresAt.formatted(date: .abbreviated, time: .shortened))
                             .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                         if inv.codeHash != nil {
                             Text("code").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                        }
+                        if inv.redeemedBy != nil {
+                            Text(inv.useLabel).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                         }
                         Spacer()
                         if let message = appState.inviteMessage(id: inv.id) {

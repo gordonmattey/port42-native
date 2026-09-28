@@ -277,11 +277,11 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["invite.list"] = BridgeMethod(permission: nil,
-        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer, and usedAgainBy for the second of its two), expired or withdrawn.",
+        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         let rows = (try? appState.db.allInvites()) ?? []
         return .array(rows.map { row in
-            let state = row.revokedAt != nil ? "withdrawn" : row.redeemedBy != nil ? "used"
+            let state = row.revokedAt != nil ? "withdrawn" : row.isUsedUp ? "used"
                 : row.expiresAt < Date() ? "expired" : "open"
             var o: [String: BridgeValue] = [
                 "id": .string(row.id), "port": .string(row.portKey), "state": .string(state),
@@ -332,14 +332,22 @@ extension AppState {
         }
     }
 
-    /// Invites not yet used, withdrawn or expired.
+    /// Invites not used up, withdrawn or expired. One key in is not used up: the link still lets in a
+    /// second, so it stays listed and copyable (it vanished after the browser opened it, GM 2026-09-27).
     public func openInvites() -> [DatabaseService.InviteRow] {
-        ((try? db.allInvites()) ?? []).filter { $0.revokedAt == nil && $0.redeemedBy == nil && $0.expiresAt > Date() }
+        ((try? db.allInvites()) ?? []).filter { $0.revokedAt == nil && !$0.isUsedUp && $0.expiresAt > Date() }
     }
 
-    /// Stop sharing one port with one peer; its other ports stay shared.
+    /// Stop sharing one port with one peer; its other ports stay shared. The links they came in on for
+    /// this port are withdrawn too: a link lets a key it already let in back in, so leaving one open
+    /// would let them straight back.
     public func stopSharing(peer: String, port: String) {
+        for row in (try? db.allInvites()) ?? [] where row.portKey == port && row.revokedAt == nil
+            && (row.redeemedBy == peer || row.redeemedAgainBy == peer) {
+            try? db.revokeInvite(id: row.id)
+        }
         grantRemoteRights([], to: peer, onPort: port)
+        refreshSharing()
     }
 
     public func withdrawInvite(id: String) {

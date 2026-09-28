@@ -473,7 +473,7 @@ public struct SignOutSheet: View {
         grantsRefresh &+= 1
     }
 
-    /// Ports shared with other machines, and invites not yet used (nautilus Phase 4, 4.5).
+    /// Ports shared with other machines, and invites not used up (nautilus Phase 4, 4.5).
     @ViewBuilder
     private var sharedSection: some View {
         let shared = appState.sharedPorts()
@@ -515,7 +515,7 @@ public struct SignOutSheet: View {
                     Text("'\(appState.portWindows.panels.first { $0.udid == invite.portKey }?.title ?? "a port")'")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textPrimary)
-                    Text("unused" + (invite.codeHash != nil ? " · needs a code" : ""))
+                    Text(invite.useLabel + (invite.codeHash != nil ? " · needs a code" : ""))
                         .font(Port42Theme.mono(9))
                         .foregroundStyle(Port42Theme.textSecondary)
                     Spacer()

@@ -290,7 +290,7 @@ Generated from the live method registry: every entry below is served exactly as 
         requireCode (boolean): Require a six-digit code, to send another way.
         rights (array): see, use, edit, wake_agents, fork. Default see, use and wake_agents.
   invite.list()
-      The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used (by which peer, and usedAgainBy for the second of its two), expired or withdrawn.
+      The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.
   invite.revoke(id)
       Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.
         id (string, required)

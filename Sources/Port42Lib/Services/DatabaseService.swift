@@ -1222,6 +1222,12 @@ public final class DatabaseService {
         public let redeemedBy: String?
         public let redeemedAgainBy: String?          // the second key it let in (v63)
         public let revokedAt: Date?
+
+        /// A link lets in two keys (a browser, then Port42: GM, 2026-09-27) and a move one. Until then
+        /// it is still open: listed, copyable, withdrawable.
+        public var isUsedUp: Bool { redeemedAgainBy != nil || (redeemedBy != nil && rights.contains(.move)) }
+        /// How far through its uses it is, for the share panel and Access.
+        public var useLabel: String { redeemedBy == nil ? "unused" : "used once, one more to go" }
     }
 
     private static func invite(from r: Row) -> InviteRow {
