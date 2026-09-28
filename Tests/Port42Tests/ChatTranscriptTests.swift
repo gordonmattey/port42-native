@@ -173,4 +173,33 @@ struct ChatTranscriptTests {
         let short = lines(b.bodyRanges[1])
         #expect(short.count == 1 && short[0].maxX > width - 12 && short[0].minX > width / 2, "a short reply is not on the right")
     }
+
+    /// The update grows the text view, and its frame change calls `resized` from inside the update. That
+    /// read `layout` while the update was changing it: a fatal access conflict that quit the app whenever
+    /// a chat opened (GM, 2026-09-27, build 2425). If this regresses, the test process itself stops.
+    @Test("laying out a chat that resizes its text view does not collide with the resize it causes")
+    @MainActor
+    func updateThatResizesIsSafe() {
+        let scroll = ChatTranscriptView.makeScroll()
+        scroll.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+        scroll.documentView?.frame = NSRect(x: 0, y: 0, width: 320, height: 10)
+        let c = ChatTranscriptView.Coordinator()
+        ChatTranscriptView.wire(c, to: scroll)
+        defer { NotificationCenter.default.removeObserver(c) }
+        c.me = "me"
+        let body = String(repeating: "a line that wraps across the chat ", count: 4)
+        var entries: [PortChatEntry] = []
+        for i in 0..<40 {
+            let who = i % 2 == 0 ? "me" : "ada"
+            entries.append(e(i, who, who, body, at: Double(i)))
+        }
+        c.entries = entries
+        c.apply()
+        #expect(c.layout.entries.count == 40)
+        #expect(c.layout.width == c.lineWidth, "laid out at a width other than the chat's")
+        // Then a width change arrives through the notification, as a drag of the chat's edge does.
+        scroll.documentView?.setFrameSize(NSSize(width: 240, height: scroll.documentView!.frame.height))
+        #expect(c.layout.width == c.lineWidth, "a resize did not lay the chat out again")
+    }
+
 }

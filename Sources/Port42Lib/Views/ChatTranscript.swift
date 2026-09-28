@@ -234,14 +234,8 @@ struct ChatTranscriptView: NSViewRepresentable {
         let text = scroll.documentView as! TranscriptTextView
         let coordinator = context.coordinator
         text.copyText = { [weak coordinator] range in coordinator?.built.flatMap { ChatTranscript.copyText($0, selection: range) } }
-        context.coordinator.text = text
         context.coordinator.onScroll = onScroll
-        scroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled),
-                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
-        text.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.resized),
-                                               name: NSView.frameDidChangeNotification, object: text)
+        Self.wire(context.coordinator, to: scroll)
         return scroll
     }
 
@@ -269,6 +263,18 @@ struct ChatTranscriptView: NSViewRepresentable {
         text.textContainer?.widthTracksTextView = true
         text.isAutomaticLinkDetectionEnabled = false
         return scroll
+    }
+
+    /// The coordinator hears the chat scroll and resize. Split out so a test wires it as the app does.
+    static func wire(_ coordinator: Coordinator, to scroll: NSScrollView) {
+        let text = scroll.documentView as! NSTextView
+        coordinator.text = text
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.scrolled),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        text.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.resized),
+                                               name: NSView.frameDidChangeNotification, object: text)
     }
 
     /// To the newest message, by moving the clip view: no text-range lookup, so it is safe before the
@@ -317,13 +323,29 @@ struct ChatTranscriptView: NSViewRepresentable {
 
         /// Bring the text to `entries` at the current width (in place when only messages changed).
         func apply() {
-            guard let storage = text?.textStorage else { return }
-            ChatTranscript.update(storage, &layout, to: entries, me: me, accent: accent, width: lineWidth)
+            guard !applying, let storage = text?.textStorage else { return }
+            // Editing the storage resizes the text view, and its frame change calls `resized` right here,
+            // inside this update. So the update works on a copy (updating `layout` in place while
+            // `resized` read it was a fatal access conflict: the app quit when a chat opened, GM
+            // 2026-09-27) and does not re-enter; a width that moved meanwhile is laid out once after.
+            applying = true
+            var next = layout
+            ChatTranscript.update(storage, &next, to: entries, me: me, accent: accent, width: lineWidth)
+            layout = next
+            applying = false
+            if !entries.isEmpty, lineWidth != layout.width {
+                applying = true
+                var again = layout
+                ChatTranscript.update(storage, &again, to: entries, me: me, accent: accent, width: lineWidth)
+                layout = again
+                applying = false
+            }
         }
+        private var applying = false
 
         /// The chat was resized: own messages are placed by width, so lay out again at the new one.
         @objc func resized() {
-            guard !entries.isEmpty, lineWidth != layout.width else { return }
+            guard !applying, !entries.isEmpty, lineWidth != layout.width else { return }
             apply()
         }
         var built: ChatTranscript.Built? { text?.textStorage.map { layout.built($0) } }
