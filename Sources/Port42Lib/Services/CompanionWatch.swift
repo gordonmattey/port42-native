@@ -399,7 +399,11 @@ func registerWatchMethods(into r: inout BridgeRegistry, appState: AppState) {
         ]) { p, args in
         let c = try watchSubject(p, args, appState)
         let port = try args.requireString("port")
-        guard let udid = appState.resolvePortRef(port)?.udid else { throw BridgeError.notFound("port '\(port)'") }
+        // APP-08: a watch wakes a companion on what a port emits, and the companion acts on it with
+        // its own grants. The caller may watch only a port it may read (the APP-10 scope), so it
+        // cannot point a companion at a port in another space. Inside its own space a watch reaches
+        // no one a chat post with a mention could not already reach.
+        guard let udid = try appState.requireReadablePort(port, by: p).udid else { throw BridgeError.notFound("port '\(port)'") }
         let kinds = (args.any("kinds") as? [String]) ?? []
         let w = try appState.companionWatches.watch(companion: c, portUdid: udid, kinds: kinds, every: args.int("every"))
         return .object(["companion": .string(c.displayName), "port": .string(udid),

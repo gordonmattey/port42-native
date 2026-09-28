@@ -437,7 +437,9 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             ],
             "required": ["port", "text"],
         ]) { p, args in
-        let k = try key(args)
+        // APP-08: a post wakes the companions it reaches, and they act with this machine's grants,
+        // so a caller posts only into a chat it may read: the same rule as chat.read (APP-09).
+        let k = try appState.requireReadableChat(try args.requireString("port"), by: p)
         let text = try args.requireString("text")
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BridgeError.badArg("chat.post needs non-empty text")

@@ -16,6 +16,8 @@ struct PortChatTests {
 
     func entries(_ r: [String: Any]) -> [[String: Any]] { r["entries"] as? [[String: Any]] ?? [] }
 
+    static let person = Principal.human(id: "alice", displayName: "Alice", spaceId: nil)
+
     @Test("a post lands in the port's chat, in order, attributed to whoever called")
     func postAndRead() async throws {
         let w = try makeParityWorld()
@@ -50,10 +52,10 @@ struct PortChatTests {
     @Test("port 0 is the desktop's chat; a port that does not exist has none")
     func scopes() async throws {
         let w = try makeParityWorld()
-        _ = try await call(w, "chat.post", ["port": "0", "text": "desk"])
-        // Read as the person: since APP-09 a companion in a space does not read the desktop's chat.
-        let person = Principal.human(id: "person", displayName: "person", spaceId: nil)
-        #expect(entries(try await call(w, "chat.read", ["port": "0"], as: person)).count == 1)
+        // The desktop's chat belongs to no space, so it is the person's: a companion in a space may
+        // neither post there (APP-08) nor read it (APP-09).
+        _ = try await call(w, "chat.post", ["port": "0", "text": "desk"], as: Self.person)
+        #expect(entries(try await call(w, "chat.read", ["port": "0"], as: Self.person)).count == 1)
         #expect(entries(try await call(w, "chat.read", ["port": w.space.id])).isEmpty,
                 "chats are per port, not shared")
         do {
@@ -293,7 +295,11 @@ struct PortChatTests {
             command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id, title: "beta",
             companionName: "beta", companionId: b.id, systemPrompt: nil, postCard: false))
         let clientId = try #require(w.state.terminalClientPanels.first { $0.value == panelId }?.key)
-        _ = try await w.state.runBridgeMethod("chat.post", principal: .peer(id: clientId, displayName: "beta"),
+        // The caller the gateway builds for this terminal: bound to its companion and its spawn space
+        // (APP-15), which is also what lets it post in that space's chat (APP-08).
+        let terminal = Principal.forGatewayClient(clientId: clientId, displayName: "beta",
+                                                  spawn: w.state.spawnBindings[clientId])
+        _ = try await w.state.runBridgeMethod("chat.post", principal: terminal,
                                               args: BridgeArgs(["port": w.space.id, "text": "one"]))
         let last = try #require(w.state.db.chatEntries(chat: w.space.id, after: 0, limit: 10).last)
         #expect(last.fromId == b.id, "recorded under the terminal's client id")
