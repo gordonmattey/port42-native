@@ -194,13 +194,19 @@ extension AppState {
             throw inviteError("gone", "That port cannot be shared.")
         }
 
-        // Enrol, or re-enrol, this peer. A new invite is new consent, so a removed peer comes back.
+        // Enrol, or re-enrol, this peer. A NEW invite is new consent, so a removed peer comes back on
+        // one. Presenting an invite it already redeemed is not: that used to clear the revocation too,
+        // so a peer removed in Settings was back on its next reconnect (APP-12).
         let typed = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let name = typed.isEmpty ? "a guest" : String(typed.prefix(40))
         let existing = try db.client(peerKey: peer)
+        if let existing, existing.revokedAt != nil, !fresh {
+            throw inviteError("revoked", "You were removed from this port. Ask for a new invite.")
+        }
         let id = existing?.id ?? ClientRegistry.slug("peer-\(name)-\(peer.prefix(8))")
         let label = existing?.name ?? peerLabel(name, peer: peer)
         try db.upsertPeerClient(id: id, name: label, peerKey: peer)
+        if existing?.revokedAt != nil { try db.restoreClient(id: id) }   // fresh: a new invite
         // A move hands the port over: its page goes to them, it closes here (archived, so it can be
         // restored), and no right is granted, since nothing stays to reach.
         if row.rights.contains(.move) {

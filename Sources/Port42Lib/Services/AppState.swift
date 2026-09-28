@@ -796,7 +796,22 @@ public final class AppState: ObservableObject {
     /// (D1: re-issuing onto the same row is what stops a deleted token file costing the user their
     /// consent history).
     public func revokeClient(id: String) {
+        // A peer removed here must not come back by presenting an invite it already redeemed (APP-12).
+        if let peer = clientRegistry.client(id: id)?.peerKey {
+            try? db.revokeInvitesRedeemed(by: peer)
+        }
         clientRegistry.revoke(id: id)
+    }
+
+    /// Bring a revoked client back. The only way to (APP-12): spawning, renaming or re-redeeming no
+    /// longer clears a revocation.
+    public func restoreClient(id: String) {
+        try? db.restoreClient(id: id)
+    }
+
+    /// Revoked clients, for Settings to offer a restore.
+    public func revokedClients() -> [Port42Client] {
+        clientRegistry.clients().filter { !$0.isActive }
     }
 
     /// Revoke one capability, or everything a grantee holds. Both drop the cache wholesale rather

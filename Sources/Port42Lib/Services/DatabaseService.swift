@@ -970,17 +970,16 @@ public final class DatabaseService {
 
     // MARK: - Clients (slice-02 half two, D1)
 
-    /// Register or re-issue. Re-registering an existing slug keeps `createdAt` and any grants, and
-    /// CLEARS `revokedAt` — re-enrolling a revoked client is a deliberate act by the same user.
     /// Enrol another instance or a browser guest by its peer id (nautilus Phase 4). Re-enrolling the
-    /// same peer keeps its row, and so its grants.
+    /// same peer keeps its row, and so its grants, and KEEPS `revokedAt` (APP-12): re-presenting an
+    /// invite used to clear it, so a peer removed in Settings came straight back. Only `restoreClient`
+    /// un-revokes.
     public func upsertPeerClient(id: String, name: String, peerKey: String) throws {
         try dbQueue.write { db in
             try db.execute(
                 sql: """
                      INSERT INTO clients (id, name, kind, peerKey, createdAt) VALUES (?, ?, 'peer', ?, ?)
-                     ON CONFLICT(id) DO UPDATE SET name = excluded.name, peerKey = excluded.peerKey,
-                                                   revokedAt = NULL
+                     ON CONFLICT(id) DO UPDATE SET name = excluded.name, peerKey = excluded.peerKey
                      """,
                 arguments: [id, name, peerKey, Date()])
         }
@@ -994,14 +993,16 @@ public final class DatabaseService {
         }
     }
 
+    /// Register or re-issue. Re-registering an existing slug keeps `createdAt`, any grants, and
+    /// `revokedAt` (APP-12): it used to clear it, so a revoked companion terminal was back the next
+    /// time it was spawned or renamed. Only `restoreClient`, the user's act, un-revokes.
     public func upsertClient(id: String, name: String, kind: String) throws {
         try dbQueue.write { db in
             try db.execute(
                 sql: """
                      INSERT INTO clients (id, name, kind, createdAt) VALUES (?, ?, ?, ?)
                      ON CONFLICT(id) DO UPDATE SET name = excluded.name,
-                                                   kind = excluded.kind,
-                                                   revokedAt = NULL
+                                                   kind = excluded.kind
                      """,
                 arguments: [id, name, kind, Date()])
         }
@@ -1031,6 +1032,24 @@ public final class DatabaseService {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE clients SET revokedAt = ? WHERE id = ?",
                            arguments: [Date(), id])
+        }
+    }
+
+    /// Un-revoke a client: the user's explicit act, never a side effect of re-registering (APP-12).
+    public func restoreClient(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE clients SET revokedAt = NULL WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Withdraw every invite a peer redeemed, so removing the peer is not undone by it presenting the
+    /// link again (APP-12).
+    public func revokeInvitesRedeemed(by peerKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                                UPDATE invites SET revokedAt = ?
+                                WHERE (redeemedBy = ? OR redeemedAgainBy = ?) AND revokedAt IS NULL
+                                """, arguments: [Date(), peerKey, peerKey])
         }
     }
 

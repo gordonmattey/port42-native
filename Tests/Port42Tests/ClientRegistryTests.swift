@@ -175,9 +175,12 @@ struct ClientRegistryTests {
         #expect(reg.client(id: "claude-code")?.isActive == false)
     }
 
-    @Test("re-registering a REVOKED client reactivates it, because that is a deliberate act")
+    @Test("re-registering a REVOKED client keeps it revoked; only restoring brings it back (APP-12)")
     @MainActor
-    func reregisterClearsRevocation() throws {
+    func reregisterKeepsRevocation() throws {
+        // Re-registering used to reactivate, which is how a revoked companion terminal came back on its
+        // next spawn and the CLI on the next launch. Restoring is now an explicit act: "restore client"
+        // in Settings, or adding the name again there.
         let db = try DatabaseService(inMemory: true)
         let reg = ClientRegistry(db: db, instance: "Port42TestInstance")
         reg.register(id: "cron-job", name: "Cron", kind: .manual)
@@ -185,6 +188,9 @@ struct ClientRegistryTests {
         #expect(reg.client(id: "cron-job")?.isActive == false)
 
         reg.register(id: "cron-job", name: "Cron", kind: .manual)
+        #expect(reg.client(id: "cron-job")?.isActive == false)
+
+        try db.restoreClient(id: "cron-job")
         #expect(reg.client(id: "cron-job")?.isActive == true)
     }
 

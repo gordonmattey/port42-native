@@ -468,6 +468,9 @@ public struct SignOutSheet: View {
         let raw = newClientName.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let id = ClientRegistry.slug(raw)
+        // Adding a revoked client's name by hand is the user asking for it back: the one deliberate
+        // path besides "restore client", since registering alone keeps a revocation (APP-12).
+        if appState.clientRegistry.client(id: id)?.isActive == false { appState.restoreClient(id: id) }
         guard appState.clientRegistry.register(id: id, name: raw, kind: .manual) != nil else { return }
         lastMintedTokenPath = appState.clientRegistry.tokenPath(id: id).path
         newClientName = ""
@@ -582,6 +585,37 @@ public struct SignOutSheet: View {
                         .font(Port42Theme.mono(9)).tracking(2)
                         .foregroundStyle(Port42Theme.textSecondary)
                         .padding(.top, 8)
+                }
+
+                // A revoked client stays revoked through respawns, renames and re-presented invites
+                // (APP-12), so this is the one place to bring one back.
+                let revoked = appState.revokedClients()
+                if !revoked.isEmpty {
+                    Text("REVOKED")
+                        .font(Port42Theme.mono(9)).tracking(2)
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.top, 4)
+                    ForEach(revoked) { client in
+                        HStack(spacing: 8) {
+                            Text(client.name)
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                            Text(client.kind.rawValue)
+                                .font(Port42Theme.mono(9))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 3))
+                            Spacer()
+                            Button("restore client") {
+                                appState.restoreClient(id: client.id)
+                                grantsRefresh &+= 1
+                            }
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                            .buttonStyle(.plain)
+                        }
+                        .id("revoked-\(client.id)-\(grantsRefresh)")
+                    }
                 }
 
                 sharedSection

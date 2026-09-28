@@ -232,6 +232,25 @@ struct InviteTests {
 
     // MARK: - Redeeming
 
+    @Test("a peer removed in Settings cannot come back on the invite it already redeemed; a new invite brings it back")
+    func removedPeerStaysRemoved() async throws {
+        let w = try world()
+        let c = try coupon(try await create(w))
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce, "name": "Ada"])
+        let client = try #require(try w.state.db.client(peerKey: Self.ada))
+
+        w.state.revokeClient(id: client.id)                                   // removed in Settings
+        let again = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": c.nonce, "name": "Ada"])
+        #expect(reason(again) != nil, "a removed peer re-redeemed its old invite")
+        #expect(try w.state.db.client(peerKey: Self.ada)?.revokedAt != nil, "re-presenting the invite un-revoked the peer")
+
+        // A new invite is the user's new consent.
+        let fresh = try coupon(try await create(w))
+        let back = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": fresh.nonce, "name": "Ada"])
+        #expect(reason(back) == nil, "a new invite did not bring the peer back: \(String(describing: back))")
+        #expect(try w.state.db.client(peerKey: Self.ada)?.revokedAt == nil)
+    }
+
     @Test("redeeming enrols the guest, grants the one port, and posts a notice that wakes nobody")
     func redeem() async throws {
         let w = try world()
