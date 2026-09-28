@@ -602,6 +602,10 @@ Things that would be cool once the five scenarios hold.
 - **Embed a port in a web page** (GM, 2026-09-27). A snippet that puts a live, read-only port on any
   site, as the invite page shows a shared one: the Issue Squad board published for anyone to watch. Builds
   on the browser guest and the relay; needs a "see only, anyone" share that no one redeems.
+- **relay1 deploys from the published image** (GM, 2026-09-28). relay1's Railway service is an upload
+  (`railway up`), so a `relay-v*` tag does not reach it; relay-v1.0.0 was redeployed by hand. Make the
+  ghcr.io package public, point the service at `ghcr.io/gordonmattey/port42-relay`, and a release reaches
+  relay1 without a hand deploy. The same for tele.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.
