@@ -187,6 +187,9 @@ func callWithToken(port int, token, method string, args any) (json.RawMessage, e
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if err := verifyListener(port, instanceDirForPort(port)); err != nil { // CLI-03: before the token leaves
+		return nil, err
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
 	if err != nil {

@@ -105,6 +105,9 @@ func Call(port int, method string, args any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := verifyListener(port, instanceDirForPort(port)); err != nil { // CLI-03
+		return nil, err
+	}
 	httpReq.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := client.Do(httpReq)
 	if err != nil {

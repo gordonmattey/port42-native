@@ -238,6 +238,7 @@ func newMux(gw *Gateway) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/call", gw.HandleHTTPCall)
+	mux.HandleFunc("/proof", gw.HandleProof)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ngrok-skip-browser-warning", "true")
 		w.WriteHeader(http.StatusOK)

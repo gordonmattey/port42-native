@@ -525,6 +525,14 @@ public final class AppState: ObservableObject {
         door.onSelfPeer = { [weak self] peer in
             guard let self else { return }
             self.localPeerID = peer
+            // Which key the gateway on this instance's port proves it holds (CLI-03): the CLI checks
+            // the listener against it before sending a token. A peer id is public; the file only says
+            // which one is ours. Never from a test process, which must not write under ~/.port42.
+            if !AppState.isTestProcess {
+                let file = self.clientRegistry.tokenDirectory().deletingLastPathComponent()
+                    .appendingPathComponent("gateway-peer")
+                try? Data(peer.utf8).write(to: file, options: .atomic)
+            }
             // The gateway is up, so a remote tile restored from the last run can mirror again.
             self.resumeMirrorsWhenReady()
         }
