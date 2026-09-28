@@ -994,6 +994,13 @@ public final class AppState: ObservableObject {
             // D9: Port42 keeps no model-provider credential; delete the copies the engine left.
             Port42AuthStore.shared.removeEngineCredentials()
 
+            // SEC-02: the removed ngrok tunnel's saved token and downloaded binary. Never from a test
+            // run, which must not touch the user's defaults or files.
+            if !AppState.isTestProcess {
+                let removed = NgrokLeftovers.remove()
+                if !removed.isEmpty { p42log("[Port42] removed ngrok leftovers: %@", removed.joined(separator: ", ")) }
+            }
+
             // The grant key gains its object (slice-02 milestone A step 1), and the objectless
             // store is REAPED rather than migrated: 135 of its 144 grants named a deleted space and
             // could never fire again. Once-only; see `PortGrantKey.reapGrantStore`. Never from a
