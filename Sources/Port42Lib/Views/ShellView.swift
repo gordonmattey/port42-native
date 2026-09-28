@@ -182,7 +182,7 @@ public struct ShellView: View {
             if shell.showImagine {
                 ZStack {
                     CommandBackdrop { shell.showImagine = false }
-                    ImagineBox(isPresented: $shell.showImagine, appState: appState)
+                    ImagineBox(isPresented: $shell.showImagine, appState: appState, shell: shell)
                         .offset(y: -40)
                 }.zIndex(216)
             }

@@ -209,6 +209,16 @@ struct ImagineTests {
         #expect(src.contains("NSWorkspace.shared.open(Self.catalogURL)"), "the catalog button opens nothing")
     }
 
+    @Test("a link that arrives while the box is open fills it, not only one that opens it")
+    func linkFillsAnOpenBox() throws {
+        // The catalog is opened from the box, so its link comes back to a box that is already up; reading
+        // the link only on appear left it for the next open (GM, 2026-09-27).
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Port42Lib/Views/ImagineBox.swift"), encoding: .utf8)
+        #expect(src.contains(".onChange(of: shell.imagineLink)"), "an open box ignores a new link")
+        #expect(src.components(separatedBy: "takeLink()").count - 1 >= 3, "appear and change must both take the link")
+    }
+
     @Test("in a chat, /imagine runs and posts nothing as the person; any other line posts")
     @MainActor
     func slashInChat() async throws {

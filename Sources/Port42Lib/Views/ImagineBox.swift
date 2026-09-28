@@ -9,6 +9,9 @@ import AppKit
 struct ImagineBox: View {
     @Binding var isPresented: Bool
     @ObservedObject var appState: AppState
+    /// Watched for a link that arrives while the box is already open: the catalog is opened from here,
+    /// so its link comes back to an open box (GM, 2026-09-27: filled in only on the next open).
+    @ObservedObject var shell: ShellState
 
     @State private var line = ""
     @State private var error: String?
@@ -115,15 +118,22 @@ struct ImagineBox: View {
         .padding(30)
         .commandCard(width: 760)
         .onAppear {
-            // Filled in by a link (ImagineLink); the person still presses Enter.
-            if let req = appState.shell?.imagineLink {
-                line = req.line
-                linkFrom = req.from
-                appState.shell?.imagineLink = nil
-            }
+            takeLink()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focused = true }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulse = true }
         }
+        .onChange(of: shell.imagineLink) { _, req in if req != nil { takeLink() } }
+    }
+
+    /// Fill the box from a link (ImagineLink), whether it opened the box or found it open. The person
+    /// still presses Enter. A team already assembling keeps its line; the link waits for the next open.
+    private func takeLink() {
+        guard !starting, let req = shell.imagineLink else { return }
+        line = req.line
+        linkFrom = req.from
+        error = nil
+        shell.imagineLink = nil
+        focused = true
     }
 
     @ViewBuilder private var status: some View {
