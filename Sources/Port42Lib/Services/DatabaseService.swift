@@ -951,6 +951,11 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v63-invite-second-use") { db in
+            // A link works for two keys (GM, 2026-09-27): the person's browser and their Port42.
+            try db.alter(table: "invites") { t in t.add(column: "redeemedAgainBy", .text) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1215,6 +1220,7 @@ public final class DatabaseService {
         public let expiresAt: Date
         public let redeemedAt: Date?
         public let redeemedBy: String?
+        public let redeemedAgainBy: String?          // the second key it let in (v63)
         public let revokedAt: Date?
     }
 
@@ -1223,7 +1229,7 @@ public final class DatabaseService {
         return InviteRow(id: r["id"], portKey: r["portKey"], rights: rights, codeHash: r["codeHash"],
                          codeTries: r["codeTries"], createdBy: r["createdBy"], createdAt: r["createdAt"],
                          expiresAt: r["expiresAt"], redeemedAt: r["redeemedAt"], redeemedBy: r["redeemedBy"],
-                         revokedAt: r["revokedAt"])
+                         redeemedAgainBy: r["redeemedAgainBy"], revokedAt: r["revokedAt"])
     }
 
     public func insertInvite(id: String, portKey: String, rights: [RemoteRight], nonceHash: String,
@@ -1254,6 +1260,12 @@ public final class DatabaseService {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE invites SET redeemedAt = ?, redeemedBy = ? WHERE id = ?",
                            arguments: [Date(), peer, id])
+        }
+    }
+
+    public func markInviteRedeemedAgain(id: String, by peer: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE invites SET redeemedAgainBy = ? WHERE id = ?", arguments: [peer, id])
         }
     }
 
