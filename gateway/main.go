@@ -19,6 +19,31 @@ import (
 // Injected at build time via -ldflags
 var posthogAPIKey string
 
+// openGatewayLog opens this run's log, readable by this user only (GW-07).
+//
+// KEEP THE LAST RUN'S LOG. This used to open with O_TRUNC, so a gateway that crashed and was restarted
+// wiped the only record of why. The previous run's file is kept as `.1`.
+//
+// Both files are 0600. The log was created 0644, so any local user could read it, and a log from
+// before frame bodies stopped being logged holds bridge responses. O_CREATE's mode never changes a
+// file that already exists, so the kept `.1` and the new file are chmodded explicitly.
+func openGatewayLog(path string) (*os.File, error) {
+	if _, err := os.Stat(path); err == nil {
+		if os.Rename(path, path+".1") == nil {
+			os.Chmod(path+".1", 0600)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
 // defaultAddr is loopback (GW-11). It was ":4242", every interface, so a gateway launched by hand with
 // no -addr was reachable from the network. The app always passes its own loopback address.
 const defaultAddr = "127.0.0.1:4242"
@@ -33,12 +58,7 @@ func main() {
 	home, _ := os.UserHomeDir()
 	logPath := home + "/Library/Application Support/Port42/gateway" + *addr + ".log"
 	os.MkdirAll(home+"/Library/Application Support/Port42", 0755)
-	// KEEP THE LAST RUN'S LOG. This used to open with O_TRUNC, so a gateway that crashed and was
-	// restarted wiped the only record of why. The previous run's file is kept as `.1`.
-	if _, err := os.Stat(logPath); err == nil {
-		os.Rename(logPath, logPath+".1")
-	}
-	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil {
+	if f, err := openGatewayLog(logPath); err == nil {
 		log.SetOutput(f)
 	}
 
