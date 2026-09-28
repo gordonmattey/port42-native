@@ -148,14 +148,29 @@ final class GhosttyInputView: NSView {
     }
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard let s = surface else { return }
-        let scale = window?.backingScaleFactor ?? 2.0
-        ghostty_surface_set_content_scale(s, scale, scale)
+        guard let window else { return }
+        applyScale(window.backingScaleFactor)
+    }
+
+    /// The scale last applied; the size pushed to Ghostty is always in it.
+    private(set) var appliedScale: CGFloat?
+
+    /// Put the terminal at a screen's scale: Ghostty's, the layer that shows its image, and the pixel
+    /// size it draws. All three or the text is wrong: moved to a 1x external display, Ghostty drew at 1x
+    /// into a layer still marked 2x, so the image showed at half size in the top-left corner with black
+    /// gaps right and below (GM, 2026-09-28). Ghostty's own app sets the layer's scale in the same place.
+    func applyScale(_ scale: CGFloat) {
+        appliedScale = scale
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contentsScale = scale
+        CATransaction.commit()
+        if let s = surface { ghostty_surface_set_content_scale(s, scale, scale) }
         pushSize()
     }
     func pushSize() {
         guard let s = surface else { return }
-        let scale = window?.backingScaleFactor ?? 2.0
+        let scale = appliedScale ?? window?.backingScaleFactor ?? 2.0
         // ghostty_surface_set_size takes PIXELS (width_px, height_px), NOT cols/rows
         // (verified Step 4). Ghostty derives the grid from cell size.
         let w = UInt32(max(1, bounds.width * scale))
@@ -172,9 +187,7 @@ final class GhosttyInputView: NSView {
 
         // Window scale is only known once we've joined a window — apply it now
         // (config used a default at surface creation). Then size + display + focus.
-        let scale = win.backingScaleFactor
-        if let s = surface { ghostty_surface_set_content_scale(s, scale, scale) }
-        pushSize()
+        applyScale(win.backingScaleFactor)
         pushDisplayID()
         // NO keyboard claim here. Joining a window happens on every mount — spawn, peek
         // arrival, space-switch return — and claiming the first responder from whatever the
