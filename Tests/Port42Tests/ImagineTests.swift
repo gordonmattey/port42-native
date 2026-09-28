@@ -250,4 +250,17 @@ struct ImagineTests {
         state.completeSetup(displayName: "Brother", cli: "codex")
         #expect(state.preferredCLI == "codex")
     }
+
+    @Test("the space pill and ⌘G go straight to the galaxy from any rung, and back to the space")
+    @MainActor
+    func toggleGalaxy() throws {
+        let shell = ShellState(appState: AppState(db: try DatabaseService(inMemory: true)))
+        shell.zoom = .focus("p")
+        shell.toggleGalaxy()
+        #expect(shell.zoom == .galaxy, "from a focused port it only stepped up to the space")
+        shell.toggleGalaxy()
+        #expect(shell.zoom == .space)
+        shell.toggleGalaxy()
+        #expect(shell.zoom == .galaxy)
+    }
 }

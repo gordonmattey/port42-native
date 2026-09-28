@@ -21,9 +21,7 @@ struct ShellChrome: View {
             chromeRow { markMenu }
             // ✨ + active-space name → toggles the galaxy (the only way up).
             Button {
-                withAnimation(.spring(response: 0.4)) {
-                    if shell.zoom == .galaxy { shell.zoom = .space } else { shell.zoomOut() }
-                }
+                withAnimation(.spring(response: 0.4)) { shell.toggleGalaxy() }
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(shell.accent)
@@ -34,7 +32,7 @@ struct ShellChrome: View {
                 .overlay(Capsule().stroke(shell.accent.opacity(shell.zoom == .galaxy ? 0.7 : 0.4), lineWidth: 1))
                 .frame(height: 26)
             }
-            .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
+            .buttonStyle(.plain).help("All spaces (⌘G)")
 
             // The space's own chat: a space is a port, so it carries the same companion bar.
             if let sid = appState.currentSpace?.id {

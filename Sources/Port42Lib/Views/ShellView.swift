@@ -678,7 +678,7 @@ public struct ShellView: View {
                 case .quickSwitcher:    shell.showQuickSwitcher.toggle()
                 case .imagine:          shell.showImagine.toggle()
                 case .galaxy:
-                    withAnimation(.spring(response: 0.4)) { shell.zoom = shell.zoom == .galaxy ? .space : .galaxy }
+                    withAnimation(.spring(response: 0.4)) { shell.toggleGalaxy() }
                 }
                 return nil
             }

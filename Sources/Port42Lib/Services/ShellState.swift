@@ -714,6 +714,12 @@ public final class ShellState: ObservableObject {
         }
     }
 
+    /// The space pill and ⌘G: straight to the galaxy from any rung, and back to the space from it
+    /// (GM, 2026-09-27: from a focused port the pill only stepped up to the space).
+    public func toggleGalaxy() {
+        if zoom == .galaxy { zoom = .space } else { zoom = .galaxy; galaxyHover = nil }
+    }
+
     /// ⌘↓ / pinch-in — step DOWN toward a single focused port. Clamps at focus (the floor).
     /// In galaxy, a hovered space-world dives straight into that space (hover-dive).
     public func zoomIn() {
