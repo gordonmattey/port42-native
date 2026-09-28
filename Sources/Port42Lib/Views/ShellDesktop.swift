@@ -869,13 +869,14 @@ struct ShellTile: View {
             .gesture(resizeGesture(corner))
     }
 
-    /// A side: a thin strip along the edge, short of the corners. Thin so it does not steal clicks
-    /// from the port or the title bar beside it.
+    /// A side: a strip along the edge, short of the corners. Left and right are the wider ones (GM,
+    /// 2026-09-27: easier to catch); top and bottom stay narrower so they do not steal the title bar's
+    /// drag or the port's own clicks.
     private func sideHandle(_ side: Corner) -> some View {
         let horizontal = side == .n || side == .s
         return Color.clear
-            .frame(width: horizontal ? max(0, liveSize.width - 32) : 6,
-                   height: horizontal ? 5 : max(0, liveSize.height - 32))
+            .frame(width: horizontal ? max(0, liveSize.width - 32) : 10,
+                   height: horizontal ? 7 : max(0, liveSize.height - 32))
             .contentShape(Rectangle())
             .resizeCursor(ResizeCursor.cursor(for: side))
             .gesture(resizeGesture(side))
