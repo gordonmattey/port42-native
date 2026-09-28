@@ -955,6 +955,15 @@ public final class DatabaseService {
             // A link works for two keys (GM, 2026-09-27): the person's browser and their Port42.
             try db.alter(table: "invites") { t in t.add(column: "redeemedAgainBy", .text) }
         }
+        // Turns a restart cut off (hit list 38, GM 2026-09-28): which companion was on a message from
+        // which chat, written as turns start and end so a crash leaves it accurate.
+        migrator.registerMigration("v64-turns-in-flight") { db in
+            try db.create(table: "turns_in_flight") { t in
+                t.column("companion", .text).primaryKey()
+                t.column("chat", .text).notNull()
+                t.column("since", .datetime).notNull()
+            }
+        }
 
         try migrator.migrate(dbQueue)
     }
@@ -1203,6 +1212,36 @@ public final class DatabaseService {
                               rights: (r["rights"] as String).split(separator: ",").compactMap { RemoteRight(rawValue: String($0)) },
                               relays: (r["relays"] as String).split(separator: ",").map(String.init),
                               hostName: r["hostName"], knownAs: r["knownAs"], wakes: r["wakes"] ?? false)
+            }
+        }
+    }
+
+    // MARK: - Turns in flight (restart pickup)
+
+    public struct TurnInFlight: Equatable {
+        public let companion: String
+        public let chat: String
+        public let since: Date
+        public init(companion: String, chat: String, since: Date) {
+            self.companion = companion; self.chat = chat; self.since = since
+        }
+    }
+
+    /// Make the table exactly `turns`: what presence says now.
+    public func replaceTurnsInFlight(_ turns: [TurnInFlight]) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM turns_in_flight")
+            for t in turns {
+                try db.execute(sql: "INSERT OR REPLACE INTO turns_in_flight (companion, chat, since) VALUES (?, ?, ?)",
+                               arguments: [t.companion, t.chat, t.since])
+            }
+        }
+    }
+
+    public func turnsInFlight() throws -> [TurnInFlight] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT companion, chat, since FROM turns_in_flight ORDER BY since").map {
+                TurnInFlight(companion: $0["companion"], chat: $0["chat"], since: $0["since"])
             }
         }
     }

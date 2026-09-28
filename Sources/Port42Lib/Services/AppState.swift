@@ -125,6 +125,13 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Turns the last run left unfinished (a restart cut them off), read at launch before anything can
+    /// change presence, and handed back once the ports are restored.
+    var turnsCutOff: [DatabaseService.TurnInFlight] = []
+    /// Set once the app starts to quit: the sessions ending then are not turns ending, so they must not
+    /// clear the record of what was in flight.
+    var quitting = false
+
     /// Terminals the person has typed into since their CLI last submitted a prompt (by panel id).
     var terminalTyped: Set<String> = []
     /// The person typed into a terminal (a key, a paste, dictation), so its next prompt is theirs.
@@ -562,6 +569,7 @@ public final class AppState: ObservableObject {
             }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
+            self.resumeTurnsCutOff()
             self.companionWatches.start()
             if self.isSetupComplete, let space = self.currentSpace {
                 self.portWindows.switchToSpace(space.id, spaceName: space.name)
@@ -812,8 +820,13 @@ public final class AppState: ObservableObject {
     private func setupPortEventObservers() {
         // Presence goes out on the chat's own port topic, so a port, a watching companion and another
         // machine sharing the port all hear it the way they hear the port's other events.
+        turnsCutOff = (try? db.turnsInFlight()) ?? []
+        NotificationCenter.default.addObserver(forName: Notification.Name("NSApplicationWillTerminateNotification"), object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.quitting = true }
+        }
         presence.onChange = { [weak self] chat in
             guard let self else { return }
+            self.recordTurnsInFlight()
             self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
                                    payload: .object(["presence": .array(self.presence.entries(chat).map { $0.bridgeValue(detail: false) })]))
         }
@@ -1175,6 +1188,38 @@ public final class AppState: ObservableObject {
 
     /// Type one message into a terminal companion and route its reply to `replyChat`: a mention, or a
     /// watch waking it. Its turn starts here, so a watch holds its events until the turn ends.
+    /// Write down who is on which chat's message now, so the next launch can pick up a turn a restart
+    /// cut off. This machine's own companions only; a host's, shown on a tile, are not ours to resume.
+    func recordTurnsInFlight() {
+        guard !quitting else { return }
+        let turns = presence.byChat.flatMap { chat, list in
+            list.map { DatabaseService.TurnInFlight(companion: $0.name, chat: chat, since: $0.since) }
+        }
+        try? db.replaceTurnsInFlight(turns)
+    }
+
+    /// What a companion is told when Port42 comes back from a restart that cut off its turn.
+    static let resumeText = "Port42 restarted while you were working on this chat's last message. "
+        + "Check what you had finished, then carry on where you left off."
+
+    /// Hand each turn the last run cut off back to its companion, replying to the chat that asked
+    /// (hit list 38). The line goes in as Port42's own, so it is never shown as the person's, and waits
+    /// until the companion's session is back and ready.
+    func resumeTurnsCutOff() {
+        let turns = turnsCutOff
+        turnsCutOff = []
+        for turn in turns {
+            guard let companion = companions.first(where: {
+                $0.displayName.caseInsensitiveCompare(turn.companion) == .orderedSame && $0.openInTerminal
+            }) else { continue }
+            let spaceId = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) })?.config.spaceId
+                ?? currentSpace?.id ?? turn.chat
+            let line = ChatRouting.terminalLine(sender: "port42", source: nil, text: Self.resumeText)
+            p42log("[Port42] resuming %@'s turn in %@ after a restart", companion.displayName, turn.chat)
+            deliverToTerminalCompanion(companion, line: line, replyChat: turn.chat, spaceId: spaceId)
+        }
+    }
+
     func deliverToTerminalCompanion(_ companion: AgentConfig, line: String, replyChat: String?, spaceId: String) {
         // Native Ghostty terminal companion. Set the "typing…" indicator HERE (cleared by the
         // controller's post closure on turnComplete). launchAgents skips openInTerminal companions, so
