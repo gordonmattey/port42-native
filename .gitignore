@@ -65,3 +65,4 @@ dist/relay/
 # cache, never committed (461 MB, CC BY 4.0).
 Resources/Models/
 *.mlmodelc/
+spikes/windows-kernel/generated/
