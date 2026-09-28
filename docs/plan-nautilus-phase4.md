@@ -386,6 +386,15 @@ refused; a required code is enforced, a wrong one refused, and the fifth wrong o
 redemption notifies the host and Remove revokes; port 0 and a space cannot be invited; revoking one
 grant leaves the peer's others. Calibrated by removing the burn and the code check.
 
+**Changed 2026-09-27 (GM, for 1.0.1): a link lets in two machines.** Found on GM's v1: opening a link
+in the browser spent it, so the same person's Port42 was then refused as "used". A link now admits
+two keys (the browser, then Port42) and is then used up; a key it already admitted is not a use; the
+second key meets the same expiry and code checks as the first; a move still happens once. Migration
+v63 adds `invites.redeemedAgainBy`; `invite.list` reports `usedAgainBy`. The sharing panel still
+treats a link as used after its first redemption. Gates: `InviteTests` "a link lets in two
+machines…" and "the second machine meets the same checks…", calibrated by four breaks (one use, no
+second record, no code and no expiry for the second key).
+
 **Built 2026-09-26.** `Invites.swift`: `invite.create`, `invite.list`, `invite.revoke`, and
 redemption at the remote door, which runs after the gateway's attestation is verified and before
 enrolment is required, since redeeming is how a peer becomes known. Migration v57 adds `invites`,
