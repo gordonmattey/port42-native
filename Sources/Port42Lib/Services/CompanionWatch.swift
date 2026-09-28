@@ -189,6 +189,9 @@ public final class CompanionWatchService {
     weak var appState: AppState?
     private(set) var watches: [CompanionWatch] = []
     private var queues: [String: WakeQueue] = [:]            // companion id
+    /// Events that reached a watch of a kind it watches, kept or dropped (tests wait on it rather than
+    /// on a guessed delay for the bus to deliver).
+    private(set) var receivedCount = 0
     private var subscriptions: [String: (topic: String, id: Int)] = [:]   // watch id
     private var timers: [String: DispatchWorkItem] = [:]     // companion id
     var ceilingPerHour = 60
@@ -280,6 +283,7 @@ public final class CompanionWatchService {
               let obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
               let kind = obj["kind"] as? String,
               WatchKinds.matches(kind: kind, watched: w.kinds) else { return }
+        receivedCount += 1
         var q = queues[c.id, default: WakeQueue()]
         q.ceilingPerHour = ceilingPerHour
         q.floors[w.id] = w.every.map(TimeInterval.init)

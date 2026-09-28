@@ -75,9 +75,13 @@ struct CompanionWatchTests {
         _ = try await call(x, "port.update", ["id": x.udid, "html": "<title>feed</title>v2", "token": tok])
         publish(x, "state")
         // The turn ends after its events have landed, as it does for real (a turn ends seconds after
-        // its last write). Ending it on the same tick raced the bus's delivery: on a loaded machine the
-        // events arrived after the turn and read as someone else's, and this failed 3 times of many.
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // its last write). Ending it early raced the bus's delivery: on a loaded machine the events
+        // arrived after the turn and read as someone else's. A fixed 0.5 s wait still lost the race
+        // under the full suite (2026-09-27), so wait for the two events themselves.
+        for _ in 0..<1200 where x.w.state.companionWatches.receivedCount < 2 {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        #expect(x.w.state.companionWatches.receivedCount >= 2, "the two events never arrived")
         x.w.state.companionWatches.turnEnded(companionName: "scout")
         try await settle()
         #expect(x.sent.isEmpty, "woke on its own edit: \(x.sent.map(\.1))")

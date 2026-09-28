@@ -67,11 +67,16 @@ struct PortCreateGateTests {
     /// would ever answer. Passes in isolation, hangs in the suite, which is the worst shape a test
     /// can have because the failure looks like an unrelated flake.
     @MainActor
+    /// Wait for the card. ~0 ms alone; under the full suite's load the main actor can take many
+    /// seconds, and a 5 s ceiling then answered nothing and left the test waiting on an unanswered
+    /// card until its minute ran out (it failed the release gate twice, 2026-09-27). 40 s, then a
+    /// clear failure rather than a hang.
     private func awaitCard(_ appState: AppState) async throws {
-        for _ in 0..<200 {                     // 5s ceiling, ~0ms in practice
+        for _ in 0..<1600 {
             if appState.permissions.current != nil { return }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
+        Issue.record("no permission card appeared within 40 s")
     }
 
     @Test("a caller that already holds .terminal is NOT re-asked")
