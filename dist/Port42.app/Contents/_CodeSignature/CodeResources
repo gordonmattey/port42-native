@@ -138,7 +138,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/reference.md</key>
 		<data>
-		pps96YnHNiO3MeIDfHXNm+yCIhw=
+		6JGT9X/Qtq3rjdQsMe0TjQMVcG0=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
 		<data>
@@ -184,7 +184,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			TURa6GW88ElLXJRDoJQtb6+oxII=
+			IAb+tQKvRUp7/FgU2PiKam4mwfk=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-claude-shim" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -193,7 +193,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Q3U+9oDXKdPFW0ICnLCvefc3Kgo=
+			obSAelbC4vPfv+S1Sd64MwO9sWw=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-cli" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -202,7 +202,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			uxYqZUKBBPNtBtKQUhzSTDa/Do8=
+			a7XBrWMKUUU94VngO2VoQgnfHPU=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -442,7 +442,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			WPehAa/pvQp+WUbRfiI+fYayjTsPxLmJos/sGWGH9Lw=
+			QeF3AV3s/PftDZrCEU36KrbG//s/mnlM3l5OMpBdI04=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
