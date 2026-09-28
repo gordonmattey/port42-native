@@ -104,7 +104,11 @@ type Peer struct {
 	ID     string
 	Name   string
 	Conn   *websocket.Conn
-	IsHost bool // true if this is the Port42 app
+	IsHost bool // CLAIMED by the peer in identify; never a proof on its own
+	// hostProven is set only after the is_host claim was checked (GW-15). isHost and provenHost read
+	// this, never IsHost plus ID equality: an impostor that identifies under the host's ID with a
+	// wrong credential still has IsHost set and still matches globalHostID.
+	hostProven bool
 	// HostCredential as presented in `identify`, checked against the one the app handed over.
 	HostCredential string
 	// Credential is the CALLER's token as given once at `identify`, carried opaquely like every
@@ -120,7 +124,7 @@ type Peer struct {
 func (g *Gateway) isHost(p *Peer) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return p.IsHost && g.globalHostID == p.ID
+	return p.hostProven && g.globalHostID == p.ID
 }
 
 // rateOK returns true if the peer hasn't exceeded the frame rate limit.
@@ -268,9 +272,6 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		Credential:     ident.Credential,
 	}
 
-	g.addPeer(peer)
-	defer g.removePeer(peer)
-
 	// `is_host` NOW HAS TO BE PROVEN (slice-02 half two, D2/D8).
 	//
 	// It used to be believed: any peer claiming `is_host: true` became `globalHostID`, which is the
@@ -284,24 +285,44 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	// **When no credential was configured the claim is still honored**, deliberately: a gateway
 	// launched by hand has no pipe, and refusing hosts there would break the relay case (BR2/BR3)
 	// rather than close a hole. The credential is what an app-spawned gateway checks.
+	//
+	// The result is recorded as hostProven (GW-15). A refused claim used to be logged and nothing more,
+	// so an impostor under the host's ID kept IsHost, matched globalHostID, and was treated as the
+	// proven host: remote_call with this instance's key, relay state, no rate limit.
 	if peer.IsHost {
 		if g.hostCredentialConfigured() && !g.hostCredentialMatches(peer.HostCredential) {
 			log.Printf("[gateway] REFUSED is_host claim from %s: credential missing or wrong",
 				peer.ID[:min(8, len(peer.ID))])
 		} else {
-			g.mu.Lock()
-			g.globalHostID = peer.ID
-			g.mu.Unlock()
-			log.Printf("[gateway] global host set: %s", peer.ID[:min(8, len(peer.ID))])
+			peer.hostProven = true
 		}
+	}
+
+	// An unproven peer never takes the live host's ID (GW-15): installing it would route every call,
+	// with the caller's credential, to it.
+	g.mu.RLock()
+	liveHost, hostOnline := g.peers[g.globalHostID]
+	g.mu.RUnlock()
+	if !peer.hostProven && hostOnline && liveHost.ID == peer.ID {
+		log.Printf("[gateway] REFUSED %s: unproven peer under the live host's id", peer.ID[:min(8, len(peer.ID))])
+		conn.Close(websocket.StatusPolicyViolation, "peer id in use")
+		return
+	}
+
+	g.addPeer(peer)
+	defer g.removePeer(peer)
+
+	if peer.hostProven {
+		g.mu.Lock()
+		g.globalHostID = peer.ID
+		g.mu.Unlock()
+		log.Printf("[gateway] global host set: %s", peer.ID[:min(8, len(peer.ID))])
 	}
 
 	log.Printf("[gateway] peer connected: %s", peer.ID)
 	welcome := Envelope{Type: "welcome", SenderID: peer.ID}
 	// Only the proven host learns the instance's peer id this way; a caller has no use for it here.
-	g.mu.RLock()
-	provenHost := peer.IsHost && g.globalHostID == peer.ID
-	g.mu.RUnlock()
+	provenHost := g.isHost(peer)
 	if provenHost {
 		welcome.SelfPeer = g.selfPeerID()
 	}
