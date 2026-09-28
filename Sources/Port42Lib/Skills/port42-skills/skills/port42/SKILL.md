@@ -34,6 +34,10 @@ Every port has a chat, and so does every space (port 0 is the desktop).
 
     port42 chat.read port=<space or port id> limit:=20
     port42 chat.post port=<space or port id> text="..."
+    port42 presence.list port=<space or port id>
+
+- `presence.list` says who is on that chat's messages now: `received`, `working`, or `waiting` for
+  the person, with `why`. Empty means nobody is.
 
 - A message reaches you as `[@sender in <where>]: text`. `<where>` is the chat it came from: a
   `#space`, your terminal's chat, or a port's chat with its id.

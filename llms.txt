@@ -6,7 +6,8 @@ that follows links) — and ONE way to make any of them:
 
 EVERY PORT HAS A CHAT. A space is a port and port 0 is the desktop, so each has one too. Post with
 chat.post({ port, text }) and read with chat.read({ port }); a post is attributed to you, and an
-@mention wakes that companion.
+@mention wakes that companion. presence.list({ port }) says which companions are on its messages now
+(received, working, or waiting for the person).
 
 A WEB port is HTML/CSS/JS passed as `html`. Include a <title> and <meta name="version" content="1">.
 The port42 dark theme is auto-injected. port.create is the only way to make a port: do not answer

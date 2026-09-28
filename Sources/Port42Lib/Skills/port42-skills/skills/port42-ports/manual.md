@@ -287,6 +287,12 @@ BRIDGE API REFERENCE:
   port42.chat.post(port, text)
     Post to a port's chat, attributed to this port. An @mention wakes that companion.
 
+  port42.presence.list(port)
+    Returns: {presence: [{name, state, since, why?}]}
+    Who is on a chat's messages right now: `received` (it has one), `working`, or `waiting` for
+    the person (`why` says for what, when it said). Empty when nobody is. Each change is also a
+    `presence` event on the port's topic, carrying the same list.
+
   port42.space.current()
     Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}
     Get the current space context. type is the space type — e.g. 'direct' for a 1:1 DM, 'team'.
@@ -1058,4 +1064,3 @@ FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Events (coming soon):
   - port42.on('space.switch') — fires when user navigates to a different space
-  - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
