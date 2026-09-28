@@ -61,3 +61,8 @@ __pycache__/
 
 # The relay's release binaries (scripts/relay-dist.sh); published by the relay workflow, never committed.
 dist/relay/
+# Speech model weights for voice input: copied into the bundle by build.sh from the FluidAudio
+# cache, never committed (461 MB, CC BY 4.0).
+Resources/Models/
+*.mlmodelc/
+spikes/windows-kernel/generated/

@@ -25,6 +25,23 @@ public struct ShellView: View {
     }
 
     @State private var monitors: [Any] = []
+    /// Hold space to talk. The machine is pure (`VoiceTrigger`); this owns the clock and the timer.
+    @State private var voice = VoiceTrigger()
+    @State private var voiceTimer: Timer?
+    @State private var voiceSession: VoiceSession?
+    /// The surface that had the keyboard when the hold began. Held for the length of the hold so a focus
+    /// change mid-sentence cannot land the words somewhere else.
+    @State private var voiceResponder: NSResponder?
+    /// A terminal takes real characters rather than a composition, because it draws marked text on one
+    /// line at the cursor and a spoken sentence is longer than that. `voiceStreamed` is what this hold has
+    /// already put in the surface, so the next partial only sends the difference.
+    @State private var voiceStreamsAsEdits = false
+    @State private var voiceStreamed = ""
+    /// What has been typed into ANOTHER app during this hold, for the same smallest-edit streaming.
+    @State private var voiceTyped = ""
+    @State private var voiceObservers: [NSObjectProtocol] = []
+    @State private var voiceWatchdog: Timer?
+    @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
@@ -269,6 +286,8 @@ public struct ShellView: View {
 
 
 
+            // Hold-to-talk. Drawn by the SHELL, never by a port, so nothing on screen can be
+            // listening without saying so.
             // Permission — the top layer, above every other overlay, because it BLOCKS: a caller
             // is suspended on the answer. One site for every asker (port JS / companion tool use /
             // gateway); see PermissionCoordinator for why this isn't rendered inside a tile.
@@ -420,10 +439,199 @@ public struct ShellView: View {
         }
     }
 
+    /// What the capsule says when there is no notice to show. The wording lives on the state itself, so
+    /// the tile's pill and the shell's say the same thing.
+    private var voiceLabel: String { shell.voiceModel.label }
+
+    /// Arm the hold threshold. Cancelled on key-up, and harmless if it fires late: the machine
+    /// refuses to start capturing unless a hold is still pending.
+    private func armVoiceThreshold() {
+        voiceTimer?.invalidate()
+        voiceTimer = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.threshold, repeats: false) { _ in
+            Task { @MainActor in
+                guard voice.thresholdElapsed() == .beginCapture else { return }
+                retractOneCharacter()
+                shell.voiceCapturing = true
+                shell.voiceNotice = nil
+                shell.voicePartial = nil
+                armVoiceWatchdog()
+                voiceSession?.destination = .inApp
+                voiceTyped = ""
+                shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
+                voiceResponder = NSApp.keyWindow?.firstResponder
+                voiceStreamed = ""
+                voiceStreamsAsEdits = appState.portWindows.panels
+                    .first { $0.id == shell.voiceAnchorPortId }?.portType == "terminal"
+                voiceSession?.begin()
+            }
+        }
+    }
+
+    /// Whether partials stream into the focused surface as uncommitted text. On by default; a surface
+    /// that renders marked text badly can be taken back to pill-only without a build.
+    static let streamIntoPortKey = "voiceStreamIntoPort"
+
+    /// Let go of a hold without treating it as a finished sentence: no transcription, no insertion, and any
+    /// uncommitted text taken back. The watchdog and the focus changes both land here.
+    @MainActor
+    private func abandonVoiceHold() {
+        voiceTimer?.invalidate(); voiceTimer = nil
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
+        _ = voice.cancel()
+        guard shell.voiceCapturing else { return }
+        shell.voiceCapturing = false
+        voiceSession?.abandon()
+        if voiceStreamsAsEdits {
+            voiceStreamed = VoiceInserter.stream("", previous: voiceStreamed, into: voiceResponder)
+        } else {
+            VoiceInserter.unmark(voiceResponder)
+        }
+        if !voiceTyped.isEmpty { voiceTyped = VoiceTyper.stream("", previous: voiceTyped) }
+        clearVoiceNotice()
+    }
+
+    private func endVoice() {
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
+        shell.voiceCapturing = false
+        voiceSession?.end()
+        // A hold that produced nothing must leave no uncommitted text behind. The final text, when it
+        // comes, commits over the mark; this is the silence case.
+        if voiceSession?.transcription == nil {
+            if voiceStreamsAsEdits {
+                voiceStreamed = VoiceInserter.stream("", previous: voiceStreamed, into: voiceResponder)
+            } else {
+                VoiceInserter.unmark(voiceResponder)
+            }
+        }
+        // After release the capsule says only what the surface cannot: that the words are still being
+        // worked on, or that there is no model to work on them. On success `onText` clears it.
+        if shell.voiceModel == .ready {
+            // Nothing to say: the words are already in the surface as uncommitted text, and the release
+            // commits over them. The mic simply goes cold.
+            clearVoiceNotice()
+        } else {
+            showVoiceNotice(voiceLabel, seconds: 3)
+        }
+    }
+
+    /// A hold that runs past the maximum is a stuck state, not a sentence.
+    private func armVoiceWatchdog() {
+        voiceWatchdog?.invalidate()
+        voiceWatchdog = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.maximumHold, repeats: false) { _ in
+            Task { @MainActor in
+                p42log("[Port42] voice: hold ran past %.0fs with no release; letting go", VoiceTrigger.maximumHold)
+                abandonVoiceHold()
+            }
+        }
+    }
+
+    private func clearVoiceNotice() {
+        voiceNoticeTimer?.invalidate()
+        voiceNoticeTimer = nil
+        shell.voiceNotice = nil
+        shell.voicePartial = nil
+        shell.voiceAnchorPortId = nil
+    }
+
+    private func showVoiceNotice(_ text: String, seconds: TimeInterval) {
+        shell.voiceNotice = text
+        voiceNoticeTimer?.invalidate()
+        voiceNoticeTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
+            Task { @MainActor in
+                shell.voiceNotice = nil
+                shell.voiceAnchorPortId = nil
+            }
+        }
+    }
+
+    /// Build the voice session on first install of the monitors. Phase 2 reports the text; Phase 3 is
+    /// what puts it into the focused surface.
+    private func installVoiceSession() {
+        guard voiceSession == nil else { return }
+        // The session was built with the app and its model has been loading since launch; the shell only
+        // attaches what it draws.
+        let session = appState.voice
+        session.onPartial = { partial in
+            // Another app cannot be composed into, so the words are typed as the smallest edit. The shell's
+            // own indicator is not involved: the floating panel is what shows there.
+            if session.destination == .otherApp {
+                voiceTyped = VoiceTyper.stream(partial, previous: voiceTyped)
+                return
+            }
+            guard shell.voiceCapturing else { return }
+            shell.voicePartial = partial
+            // Stream it into the surface as uncommitted text, so the words appear where they will land.
+            if UserDefaults.standard.object(forKey: Self.streamIntoPortKey) as? Bool ?? true {
+                if voiceStreamsAsEdits {
+                    voiceStreamed = VoiceInserter.stream(partial, previous: voiceStreamed,
+                                                         into: voiceResponder)
+                } else {
+                    VoiceInserter.mark(partial, into: voiceResponder)
+                }
+            }
+        }
+        session.onText = { text in
+            if session.destination == .otherApp {
+                voiceTyped = VoiceTyper.stream(VoiceInserter.payload(for: text), previous: voiceTyped)
+                p42log("[Port42] voice typed into %@: %@", VoiceTyper.frontmostAppName ?? "another app", text)
+                voiceTyped = ""
+                return
+            }
+            let target = voiceResponder ?? NSApp.keyWindow?.firstResponder
+            // A terminal already holds the words as real characters: land the final read as the difference
+            // from what is there, so nothing is typed twice and nothing is left half-said.
+            if voiceStreamsAsEdits, !voiceStreamed.isEmpty {
+                voiceStreamed = VoiceInserter.stream(VoiceInserter.payload(for: text),
+                                                     previous: voiceStreamed, into: target)
+                p42log("[Port42] voice heard (streamed): %@", text)
+                voiceStreamed = ""
+                clearVoiceNotice()
+                return
+            }
+            let landed = VoiceInserter.insert(text, into: target)
+            p42log("[Port42] voice heard (inserted=%d): %@", landed ? 1 : 0, text)
+            // The text is now where it was typed, so the capsule goes away rather than repeating it.
+            // It only speaks when the words could not land anywhere.
+            if landed {
+                clearVoiceNotice()
+            } else {
+                showVoiceNotice("nowhere to type: \(text)", seconds: 6)
+            }
+        }
+        session.onModelState = { state in
+            shell.voiceModel = state
+            appState.voiceModelState = state      // the shell takes this callback over from AppState
+            switch state {
+            case .downloading, .loading: shell.voiceNotice = nil   // the state speaks for itself
+            default: break
+            }
+        }
+        session.onPermissionNeeded = { needed in
+            shell.voicePermissionNeeded = needed
+            if let needed {
+                showVoiceNotice(needed.label, seconds: 6)
+            }
+        }
+        voiceSession = session
+        shell.voiceModel = session.model
+    }
+
+    /// Take back the space that was typed on the way into a hold, through the same seam the text is
+    /// inserted on: the surface that received the space is the one that must delete it.
+    ///
+    /// The check is conformance, not `responds(to:)`. NSResponder declares both `insertText:` and
+    /// `deleteBackward:`, so every responder claims to answer them, including ones that type nothing.
+    @MainActor
+    private func retractOneCharacter() {
+        guard let client = NSApp.keyWindow?.firstResponder as? NSTextInputClient else { return }
+        client.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+    }
+
     // MARK: - Input (kiosk monitors → the zoom ladder)
 
     private func installInputMonitors() {
         guard monitors.isEmpty else { return }
+        installVoiceSession()
 
         // Trackpad pinch — one rung per gesture (the latch lives in ShellState).
         let magnify = NSEvent.addLocalMonitorForEvents(matching: .magnify) { e in
@@ -444,6 +652,18 @@ public struct ShellView: View {
         // terminal first (§3.1) so typing and TUI Esc reach the surface — EXCEPT the few
         // shell-global chords (plan-working-set §B), which drive the shell from anywhere.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            // Hold-to-talk is decided BEFORE the chord and editor-yield paths below, because the
+            // feature exists to work while a field or a port has the keyboard. It passes every key
+            // through unless a hold is actually in progress, so typing is untouched.
+            switch voice.keyDown(keyCode: e.keyCode,
+                                 hasModifiers: !e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                                 isRepeat: e.isARepeat, now: e.timestamp) {
+            case .consume: return nil
+            case .passThrough:
+                if voice.isPending { armVoiceThreshold() }
+            default: break
+            }
+
             // Shell-global chords bypass the editor yield: ⌘`/⇧⌘` cycle, ⌘1…9 jump, ⌘K
             // switcher. Consumed here, so the menu's ⌘K can't double-fire.
             let f = e.modifierFlags
@@ -457,6 +677,8 @@ public struct ShellView: View {
                 case .jumpSpace(let i): shell.jumpToSpace(index: i)
                 case .quickSwitcher:    shell.showQuickSwitcher.toggle()
                 case .imagine:          shell.showImagine.toggle()
+                case .galaxy:
+                    withAnimation(.spring(response: 0.4)) { shell.zoom = shell.zoom == .galaxy ? .space : .galaxy }
                 }
                 return nil
             }
@@ -486,11 +708,29 @@ public struct ShellView: View {
             return e
         }
 
-        monitors = [magnify, move, keys].compactMap { $0 }
+        // A hold ends if the app stops being active or the window stops being key. While capturing, the
+        // trigger swallows every key, so a release that never arrives (the app switched under the hold) used to
+        // leave the keyboard dead until Port42 was quit, and looked like the app had hung (GM, Dev7).
+        for name in [NSApplication.willResignActiveNotification, NSWindow.didResignKeyNotification] {
+            let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in abandonVoiceHold() }
+            }
+            voiceObservers.append(token)
+        }
+
+        let keyUps = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { e in
+            voiceTimer?.invalidate(); voiceTimer = nil
+            if voice.keyUp(keyCode: e.keyCode, now: e.timestamp) == .endCapture { endVoice() }
+            return e
+        }
+        monitors = [magnify, move, keys, keyUps].compactMap { $0 }
     }
 
     private func removeInputMonitors() {
         for m in monitors { NSEvent.removeMonitor(m) }
+        for o in voiceObservers { NotificationCenter.default.removeObserver(o) }
+        voiceObservers = []
+        voiceWatchdog?.invalidate(); voiceWatchdog = nil
         monitors = []
     }
 
@@ -903,9 +1143,16 @@ struct ShellSettingsView: View {
             HStack {
                 Text("COMPANION SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
-                Button { dismiss(save: false) } label: {
+                Button { dismiss(save: true) } label: {
+                    Text("Done").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.bgPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(col, in: RoundedRectangle(cornerRadius: 5))
+                }.buttonStyle(.plain).help("Save and close (Return)")
+                // Closing keeps what you typed, as a click outside does (GM, 2026-09-27: the only
+                // button discarded the rename, so it never saved). Esc is the way to throw it away.
+                Button { dismiss(save: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Close without saving")
+                }.buttonStyle(.plain).help("Close (Esc discards changes)")
             }
             HStack(spacing: 12) {
                 Circle().fill(col.gradient).frame(width: 46, height: 46)
@@ -975,9 +1222,16 @@ struct ShellSettingsView: View {
             HStack {
                 Text("SPACE SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
-                Button { dismiss(save: false) } label: {   // ✕ = discard the rename
+                Button { dismiss(save: true) } label: {
+                    Text("Done").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.bgPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(acc, in: RoundedRectangle(cornerRadius: 5))
+                }.buttonStyle(.plain).help("Save and close (Return)")
+                // Closing keeps what you typed, as a click outside does (GM, 2026-09-27: the only
+                // button discarded the rename, so it never saved). Esc is the way to throw it away.
+                Button { dismiss(save: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Close without saving")
+                }.buttonStyle(.plain).help("Close (Esc discards changes)")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("NAME").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)

@@ -164,6 +164,8 @@ final class GhosttyTerminalController {
     /// The turn failed instead of replying (an API error, a dropped connection): the code and the
     /// CLI's own words. AppState says so in the chat that asked.
     var onTurnFailed: ((String, String) -> Void)?
+    /// A prompt the CLI took up: the person's, typed into the terminal, or one Port42 typed in.
+    var onPrompt: ((String) -> Void)?
     /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
@@ -310,6 +312,7 @@ final class GhosttyTerminalController {
         case .approvalRequired(let tool, _, _):
             log("event=approvalRequired tool=\(tool)")
         case .inputSubmitted(let prompt):
+            onPrompt?(prompt)
             onPresence?(.working)
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
             prefillPending = false   // the person sent whatever was in the box

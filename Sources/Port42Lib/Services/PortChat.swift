@@ -99,7 +99,9 @@ extension AppState {
 
     /// Append to a port's chat as `from`, and publish it on the port's topic.
     @discardableResult
-    func postToChat(key: String, text: String, from p: Principal) throws -> PortChatEntry {
+    /// `route: false` records and shows the post without waking anyone: a message the person typed
+    /// straight into a terminal is already in front of its companion.
+    func postToChat(key: String, text: String, from p: Principal, route: Bool = true) throws -> PortChatEntry {
         let who = Self.chatAuthor(p)
         let entry = try db.appendChatEntry(chat: key, text: text, at: Date(),
                                            fromId: who.id, fromName: who.name, fromKind: who.kind)
@@ -108,7 +110,7 @@ extension AppState {
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
         // A caller on another machine wakes this machine's companions only when its invite says so:
         // a companion runs with this machine's terminal, and a wake spends this user's model.
-        if p.kind != .remote || remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
+        if route, p.kind != .remote || remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
             routeChat(key: key, entry: entry)
         }
         return entry
@@ -223,6 +225,13 @@ public enum ChatRouting {
     /// The sender is written as its mention (`CompanionName.mention`), so an agent that copies it to
     /// reply writes a mention that arrives: "app dev" is `[@app%20dev]`, not `[@app dev]`, which would
     /// be read as a mention of `app`.
+    /// A line Port42 typed into a terminal (`terminalLine`): a chat message or a watch wake, already in
+    /// a chat. Anything else a terminal submits, the person typed there.
+    public static func isInjectedLine(_ prompt: String) -> Bool {
+        let t = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.hasPrefix("[@") && t.contains("]: ")
+    }
+
     public static func terminalLine(sender: String, source: String?, text: String) -> String {
         let who = CompanionName.mention(sender)
         guard let source, !source.isEmpty else { return "[\(who)]: \(text)\r" }

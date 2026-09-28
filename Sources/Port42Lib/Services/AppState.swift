@@ -91,6 +91,16 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
+    /// The agent CLI the person chose at first run ("claude", "codex"), which imagine teams run on
+    /// (GM, 2026-09-27). Installs from before it was recorded read echo's.
+    var preferredCLI: String? {
+        get {
+            UserDefaults.standard.string(forKey: "preferredAgentCLI")
+                ?? companions.first { $0.displayName == "echo" }?.command.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "preferredAgentCLI") }
+    }
+
     /// An imagine link that arrived before or during the first run, held until the person lands
     /// (ImagineLink). On disk, not in memory: an install often opens, quits and reopens the app, and
     /// the idea the person picked on the site must survive that (growth, 2026-09-27).
@@ -400,6 +410,87 @@ public final class AppState: ObservableObject {
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]
 
+    /// Hold-to-talk, owned by the app so the speech model can load at launch. The shell wires its own
+    /// callbacks (partials, text, permissions) onto it when it installs its key monitors.
+    public let voice = VoiceSession.live()
+    /// Mirrored for views that only need to show what the model is doing.
+    @Published public var voiceModelState: VoiceModelState = .absent
+    /// Hold space in another app. Off unless `voiceInOtherApps` is set AND Accessibility is granted; voice
+    /// inside Port42 needs neither.
+    public private(set) var voiceInOtherApps: VoiceGlobalTrigger?
+    /// The hot mic while another app has the keyboard, since our own window may not be on screen.
+    public let voiceHUD = VoiceHUD()
+    private var voiceStarted = false
+    private var accessibilityTimer: Timer?
+    private var activationObserver: NSObjectProtocol?
+
+    /// Start voice input: load a speech model that is already on disk, and listen for the space bar in other
+    /// apps if that is switched on. Called by the app at launch, NOT from `init`: a test suite builds hundreds of
+    /// AppStates, and doing this in each of them doubled the suite's runtime (37s to 79s, measured) and made a
+    /// timing-sensitive test flake. Idempotent.
+    public func startVoice() {
+        guard !voiceStarted else { return }
+        voiceStarted = true
+        voice.onModelState = { [weak self] state in self?.voiceModelState = state }
+        voice.prepareModel()                 // loads what is on disk; a launch never downloads
+        voice.refreshModelState()
+        installVoiceInOtherApps()
+        watchForAccessibility()
+    }
+
+    /// Accessibility is granted in System Settings, minutes after the app asked, and an app that only looks
+    /// at launch appears broken until it is restarted (GM, Dev7, 2026-09-27: holding space "just adds a
+    /// string of spaces"). So the grant is re-checked on a slow timer and whenever the app is activated.
+    private func watchForAccessibility() {
+        // Only when the feature is switched on. Every AppState used to arm a repeating timer, and a test suite
+        // builds hundreds of them.
+        guard UserDefaults.standard.bool(forKey: VoiceGlobalTrigger.enabledKey) else { return }
+        let recheck = { [weak self] in
+            guard let self, self.voiceInOtherApps == nil,
+                  UserDefaults.standard.bool(forKey: VoiceGlobalTrigger.enabledKey) else { return }
+            self.installVoiceInOtherApps()
+        }
+        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            Task { @MainActor in recheck() }
+        }
+        // By name rather than by symbol: AppState does not import AppKit, and the Windows work wants it to
+        // stay that way.
+        let didBecomeActive = NSNotification.Name("NSApplicationDidBecomeActiveNotification")
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: didBecomeActive, object: nil, queue: .main) { _ in
+                Task { @MainActor in recheck() }
+            }
+    }
+
+    /// Start or stop listening for the space bar outside Port42. Safe to call repeatedly: it reflects the
+    /// setting and the Accessibility grant as they are now.
+    public func installVoiceInOtherApps() {
+        if VoiceGlobalTrigger.allowed {
+            guard voiceInOtherApps == nil else { return }
+            let trigger = VoiceGlobalTrigger(
+                onBegin: { [weak self] in
+                    guard let self else { return }
+                    self.voice.destination = .otherApp
+                    self.voice.begin()
+                    if self.voice.isCapturing {
+                        self.voiceHUD.show(accent: Port42Theme.accent,
+                                           label: VoiceTyper.frontmostAppName)
+                    }
+                },
+                onEnd: { [weak self] in
+                    self?.voice.end()
+                    self?.voiceHUD.hide()
+                })
+            guard trigger.install() else { return }      // not granted yet; the watcher tries again
+            voiceInOtherApps = trigger
+            accessibilityTimer?.invalidate()
+            accessibilityTimer = nil
+        } else {
+            voiceInOtherApps?.uninstall()
+            voiceInOtherApps = nil
+        }
+    }
+
     public init(db: DatabaseService) {
         self.db = db
         // Forward nested door/portWindows changes to trigger SwiftUI updates
@@ -449,6 +540,10 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
+        // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
+        // loading now rather than when someone first holds space: loading takes seconds, and the first hold
+        // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
+
         // Restore persisted port panels after a brief delay so the window is ready,
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -1214,6 +1309,7 @@ public final class AppState: ObservableObject {
     /// in its input; Codex takes the brief as its first turn and greets on its own.
     public func completeSetup(displayName: String, cli: String = "claude", imported: [SessionImport.Request] = []) {
         showDreamscape = false
+        preferredCLI = cli
 
         guard let user = currentUser else {
             print("[Port42] completeSetup called but no currentUser")
@@ -1722,6 +1818,19 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             let name = self.currentName(of: config)
             if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
+        }
+        // What the person types straight into a companion's terminal shows in that terminal's chat, as
+        // them, beside the reply (GM, 2026-09-27: only the replies appeared). Not routed: the companion
+        // already has it. A line Port42 typed in (a chat message, a wake) is already in a chat.
+        controller.onPrompt = { [weak self] prompt in
+            guard let self, !ChatRouting.isInjectedLine(prompt),
+                  !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let user = self.currentUser,
+                  let key = self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
+            _ = try? self.postToChat(key: key, text: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                     from: .human(id: user.id, displayName: user.displayName, spaceId: config.spaceId),
+                                     route: false)
+            self.presence.received(self.currentName(of: config), in: key)
         }
         controller.onTurnFailed = { [weak self] error, details in
             guard let self else { return }

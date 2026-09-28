@@ -89,10 +89,7 @@ extension AppState {
     /// The relays this instance is reachable through: the same list its gateway registers on.
     var inviteRelays: [String] { relayList() }
 
-    static func configuredRelays() -> [String] {
-        (UserDefaults.standard.string(forKey: "PORT42_RELAYS") ?? "")
-            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    }
+    static func configuredRelays() -> [String] { GatewayProcess.relays() }
 
     /// What the port itself can do on this machine: the machine grants of the identity it runs as.
     /// A guest who drives the port can make it use them, so the creator is told before sharing.

@@ -40,8 +40,18 @@ enum ChatTranscript {
 
     /// `after`: the message already shown before these, when appending to a transcript: it decides
     /// whether the first of these groups with it, and a line break is put first.
+    /// The widest line `text` makes in `font` when wrapped at `max`.
+    static func textWidth(_ text: String, font: NSFont, max: CGFloat) -> CGFloat {
+        let r = (text as NSString).boundingRect(with: NSSize(width: max, height: .greatestFiniteMagnitude),
+                                                options: [.usesLineFragmentOrigin], attributes: [.font: font])
+        return ceil(r.width)
+    }
+
+    /// `width`: the line width the transcript is laid out at. With it, the person's own messages sit on
+    /// the right as a block whose text reads left-aligned (GM, 2026-09-27: right-aligned lines left a
+    /// wrapped message ragged on the left), each indented by the room its widest line leaves.
     static func build(_ entries: [PortChatEntry], me: String?, accent: NSColor, after prev: PortChatEntry? = nil,
-                      now: Date = Date()) -> Built {
+                      width: CGFloat? = nil, now: Date = Date()) -> Built {
         let out = NSMutableAttributedString()
         var ranges: [NSRange] = []
         var bodyRanges: [NSRange] = []
@@ -59,12 +69,19 @@ enum ChatTranscript {
             let grouped = continues(e, after: before)
             let start = out.length
             let tip = tooltip(e.at)
+            // Own messages: a right-hand block of left-aligned text when the width is known; right-aligned
+            // lines before the first layout, when it is not.
+            var ownIndent: CGFloat? = nil
+            if own, let width, width > 96 {
+                let widest = textWidth(ChatRouting.displayText(e.text), font: body, max: width - 48)
+                ownIndent = Swift.max(48, width - widest)
+            }
             func para(before: CGFloat) -> NSParagraphStyle {
                 let p = NSMutableParagraphStyle()
-                p.alignment = own ? .right : .left
+                p.alignment = own && ownIndent == nil ? .right : .left
                 p.paragraphSpacingBefore = before
                 // Keep the two sides apart: a long message never reaches the other edge.
-                if own { p.firstLineHeadIndent = 48; p.headIndent = 48 } else { p.tailIndent = -48 }
+                if own { let i = ownIndent ?? 48; p.firstLineHeadIndent = i; p.headIndent = i } else { p.tailIndent = -48 }
                 p.lineBreakMode = .byWordWrapping
                 return p
             }
@@ -113,6 +130,8 @@ enum ChatTranscript {
     /// The transcript on screen and what it was built from, updated in place as messages come and go.
     struct Layout {
         var entries: [PortChatEntry] = []
+        /// The width it was laid out at; a different width lays it out again.
+        var width: CGFloat? = nil
         var ranges: [NSRange] = []
         var bodyRanges: [NSRange] = []
 
@@ -128,12 +147,12 @@ enum ChatTranscript {
     /// 2026-09-27). Anything else is rebuilt whole. Returns whether it was done in place.
     @discardableResult
     static func update(_ storage: NSMutableAttributedString, _ layout: inout Layout, to entries: [PortChatEntry],
-                       me: String?, accent: NSColor) -> Bool {
-        let old = layout.entries
+                       me: String?, accent: NSColor, width: CGFloat? = nil) -> Bool {
+        let old = layout.width == width ? layout.entries : []
         func rebuild() -> Bool {
-            let b = build(entries, me: me, accent: accent)
+            let b = build(entries, me: me, accent: accent, width: width)
             storage.setAttributedString(b.text)
-            layout = Layout(entries: entries, ranges: b.ranges, bodyRanges: b.bodyRanges)
+            layout = Layout(entries: entries, width: width, ranges: b.ranges, bodyRanges: b.bodyRanges)
             return false
         }
         guard !old.isEmpty, let first = entries.first else { return rebuild() }
@@ -155,7 +174,7 @@ enum ChatTranscript {
         }
         let added = Array(entries.dropFirst(kept.count))
         if !added.isEmpty {
-            let b = build(added, me: me, accent: accent, after: layout.entries.last)
+            let b = build(added, me: me, accent: accent, after: layout.entries.last, width: width)
             let base = storage.length
             storage.append(b.text)
             // The appended text opens with the line break that ends the message before it.
@@ -220,6 +239,9 @@ struct ChatTranscriptView: NSViewRepresentable {
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled),
                                                name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        text.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.resized),
+                                               name: NSView.frameDidChangeNotification, object: text)
         return scroll
     }
 
@@ -267,9 +289,9 @@ struct ChatTranscriptView: NSViewRepresentable {
         let ownLast = entries.last.map { ChatTranscript.isMine($0, me: me) } ?? false
         c.signature = signature
         if c.me != me { c.layout = .init(); c.me = me }      // a different person: rebuild whole
-        if let storage = text.textStorage {
-            ChatTranscript.update(storage, &c.layout, to: entries, me: me, accent: NSColor(accent))
-        }
+        c.entries = entries
+        c.accent = NSColor(accent)
+        c.apply()
         if atBottom || ownLast {
             DispatchQueue.main.async { Self.scrollToEnd(scroll) }
         }
@@ -283,6 +305,27 @@ struct ChatTranscriptView: NSViewRepresentable {
         weak var text: NSTextView?
         var layout = ChatTranscript.Layout()
         var me: String?
+        var entries: [PortChatEntry] = []
+        var accent: NSColor = .systemGreen
+
+        /// The line width text is laid out at: the container less its padding on both sides.
+        var lineWidth: CGFloat? {
+            guard let text, let tc = text.textContainer else { return nil }
+            let w = tc.containerSize.width - 2 * tc.lineFragmentPadding
+            return w > 0 && w < 100_000 ? (w).rounded() : nil
+        }
+
+        /// Bring the text to `entries` at the current width (in place when only messages changed).
+        func apply() {
+            guard let storage = text?.textStorage else { return }
+            ChatTranscript.update(storage, &layout, to: entries, me: me, accent: accent, width: lineWidth)
+        }
+
+        /// The chat was resized: own messages are placed by width, so lay out again at the new one.
+        @objc func resized() {
+            guard !entries.isEmpty, lineWidth != layout.width else { return }
+            apply()
+        }
         var built: ChatTranscript.Built? { text?.textStorage.map { layout.built($0) } }
         var signature = ""
         var onScroll: ((Date) -> Void)?

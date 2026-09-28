@@ -145,4 +145,32 @@ struct ChatTranscriptTests {
         store.received("c", e(2, "a", "alpha", "hi", at: 5))
         #expect(store.participants("c").map(\.name) == ["alpha"])
     }
+
+    @Test("my messages sit on the right as a block of left-aligned text, measured in a real layout")
+    @MainActor
+    func ownBlockLeftAligned() throws {
+        let width: CGFloat = 360
+        let long = "this is a long message that has to wrap onto more than one line in the chat panel so its edge shows"
+        let b = ChatTranscript.build([e(1, "me", "gordon", long), e(2, "me", "gordon", "ok", at: 5)], me: "me",
+                                     accent: .green, width: width)
+        let storage = NSTextStorage(attributedString: b.text)
+        let lm = NSLayoutManager(); storage.addLayoutManager(lm)
+        let tc = NSTextContainer(size: NSSize(width: width + 10, height: .greatestFiniteMagnitude))
+        tc.lineFragmentPadding = 5
+        lm.addTextContainer(tc)
+        lm.ensureLayout(for: tc)
+        func lines(_ r: NSRange) -> [NSRect] {
+            var out: [NSRect] = []
+            let glyphs = lm.glyphRange(forCharacterRange: r, actualCharacterRange: nil)
+            lm.enumerateLineFragments(forGlyphRange: glyphs) { _, used, _, _, _ in out.append(used) }
+            return out
+        }
+        let longLines = lines(b.bodyRanges[0])
+        #expect(longLines.count > 1, "the long message did not wrap")
+        let lefts = Set(longLines.map { Int($0.minX.rounded()) })
+        #expect(lefts.count == 1, "its lines do not start at one x: \(longLines.map(\.minX))")
+        #expect(longLines.map(\.maxX).max()! > width - 12, "the block does not reach the right margin")
+        let short = lines(b.bodyRanges[1])
+        #expect(short.count == 1 && short[0].maxX > width - 12 && short[0].minX > width / 2, "a short reply is not on the right")
+    }
 }

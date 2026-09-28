@@ -176,6 +176,18 @@ public final class PortWindowManager: ObservableObject {
     /// Deferred one runloop turn: callers fire from inside a SwiftUI update transaction
     /// (zoom onChange / withAnimation), where an immediate makeFirstResponder can be
     /// dropped or beaten by the in-flight view churn. After the turn, ours is the last word.
+    /// Which port's surface has the keyboard right now, if any. Used to put the voice indicator on the
+    /// port being dictated into rather than in the middle of the desktop: the shell draws it, but it
+    /// belongs over the thing that is about to receive the words.
+    public func portHoldingKeyboard() -> String? {
+        guard let responder = NSApp?.keyWindow?.firstResponder as? NSView else { return nil }
+        for panel in panels {
+            guard let host = hostView(for: panel.id) else { continue }
+            if responder === host || responder.isDescendant(of: host) { return panel.id }
+        }
+        return nil
+    }
+
     public func focusKeyboard(on id: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1542,6 +1554,38 @@ final class PortBrowserNavigation: PortNavigationBlocker {
     /// counter, not a change log, and only its movement carries meaning.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         onCommitted?()
+    }
+
+    /// A page that could not be reached says so, instead of leaving the port blank (GM, 2026-09-27: a
+    /// browser port whose local server had stopped showed its chrome and nothing else). Shown under the
+    /// failing URL, so the address bar still reads it and Return, or Retry, loads it again.
+    override func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        super.webView(webView, didFailProvisionalNavigation: navigation, withError: error)
+        let e = error as NSError
+        guard e.code != NSURLErrorCancelled else { return }       // a new navigation replaced this one
+        let url = (e.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? webView.url
+        webView.loadHTMLString(Self.errorPage(url: url, reason: e.localizedDescription), baseURL: url)
+    }
+
+    /// The error page, pure so it can be tested. Everything shown is escaped.
+    static func errorPage(url: URL?, reason: String) -> String {
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+        }
+        let where_ = esc(url.map { ($0.host ?? $0.absoluteString) + ($0.port.map { ":\($0)" } ?? "") } ?? "this page")
+        let local = ["localhost", "127.0.0.1", "::1"].contains(url?.host ?? "")
+        let hint = local ? "It is a server on this Mac. Start it again, then press Retry." : "Check the address and your connection, then press Retry."
+        let target = esc(url?.absoluteString ?? "")
+        return """
+        <!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:flex;align-items:center;\
+        justify-content:center;background:#0b0f0e;color:#e0e0e0;font:14px ui-monospace,Menlo,monospace">\
+        <div style="max-width:32em;padding:24px"><div style="color:#00d4aa;font-weight:bold;margin-bottom:8px">\
+        Can't reach \(where_)</div><div style="color:#888;margin-bottom:6px">\(esc(reason))</div>\
+        <div style="color:#888;margin-bottom:16px">\(hint)</div>\
+        <button onclick="location.href=this.dataset.u" data-u="\(target)" style="font:inherit;color:#0b0f0e;\
+        background:#00d4aa;border:0;border-radius:5px;padding:6px 16px;cursor:pointer">Retry</button></div></body>
+        """
     }
 }
 

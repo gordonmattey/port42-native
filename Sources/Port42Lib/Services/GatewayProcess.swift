@@ -54,14 +54,24 @@ public final class GatewayProcess: ObservableObject {
         host + "\n" + peerSeed + "\n" + attestKey + "\n"
     }
 
+    /// The relay every install uses until the person sets their own (GM, 2026-09-27: a fresh install
+    /// had none, so nothing it shared could be reached).
+    nonisolated public static let defaultRelays = ["wss://relay1.port42.ai/v1"]
+
+    /// The relays this instance uses: the `PORT42_RELAYS` setting (comma-separated `wss://…/v1`), or
+    /// `defaultRelays` when it has never been set. Set and emptied is honoured as none: the person
+    /// removed them. The one reading for the gateway, invites and Settings.
+    nonisolated static func relays(_ defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.string(forKey: "PORT42_RELAYS") else { return defaultRelays }
+        return raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
     /// The relays this instance registers on and serves remote callers through (nautilus Phase 4,
-    /// 4.4), from the instance's `PORT42_RELAYS` default, comma-separated `wss://…/v1` URLs. None
-    /// by default until invites exist to bring anyone here (4.5). URLs are not secrets, so they ride
-    /// the arguments; the key the gateway registers with rides stdin.
+    /// 4.4). URLs are not secrets, so they ride the arguments; the key the gateway registers with
+    /// rides stdin.
     nonisolated static func relayArguments(_ defaults: UserDefaults = .standard) -> [String] {
-        guard let relays = defaults.string(forKey: "PORT42_RELAYS")?
-            .trimmingCharacters(in: .whitespaces), !relays.isEmpty else { return [] }
-        return ["-relay", relays]
+        let list = relays(defaults)
+        return list.isEmpty ? [] : ["-relay", list.joined(separator: ",")]
     }
 
     public static let shared = GatewayProcess()

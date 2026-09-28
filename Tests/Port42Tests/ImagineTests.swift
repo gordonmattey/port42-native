@@ -188,6 +188,9 @@ struct ImagineTests {
     func chord() {
         #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: false, option: false, control: false) == .imagine)
         #expect(ShellState.shellGlobalChord(keyCode: 34, characters: "i", command: true, shift: true, option: false, control: false) == nil)
+        // ⌘G: the galaxy (GM, 2026-09-27).
+        #expect(ShellState.shellGlobalChord(keyCode: 5, characters: "g", command: true, shift: false, option: false, control: false) == .galaxy)
+        #expect(ShellState.shellGlobalChord(keyCode: 5, characters: "g", command: false, shift: false, option: false, control: false) == nil)
     }
 
     @Test("the box reads a bare line or a whole /imagine command with the chat's parser")
@@ -223,5 +226,28 @@ struct ImagineTests {
         try await s.submitChatInput(key: r.team.spaceId, text: "/imagine stop", testCommand: "true")
         #expect(try personPosts(r.team.spaceId).last?.text == "/imagine stop")
         #expect(Set(try s.db.getAgentsForSpace(spaceId: r.team.spaceId).map(\.displayName)) == Set(r.team.members))
+    }
+
+    @Test("an imagine team runs on the agent the person chose, even with both installed")
+    func teamRunsOnTheChoice() {
+        #expect(Imagine.teamCLI(chosen: "codex", installed: ["claude", "codex"]) == "codex")
+        #expect(Imagine.teamCLI(chosen: "claude", installed: ["claude", "codex"]) == "claude")
+        #expect(Imagine.teamCLI(chosen: "codex", installed: ["claude"]) == "claude", "the choice was uninstalled")
+        #expect(Imagine.teamCLI(chosen: nil, installed: ["codex"]) == "codex")
+        #expect(Imagine.teamCLI(chosen: "codex", installed: []) == "codex")
+    }
+
+    @Test("first run records the agent the person picked")
+    @MainActor
+    func setupRecordsTheChoice() throws {
+        let before = UserDefaults.standard.string(forKey: "preferredAgentCLI")
+        defer { UserDefaults.standard.set(before, forKey: "preferredAgentCLI") }
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let user = AppUser.createForTesting(displayName: "Brother")
+        try db.saveUser(user)
+        state.currentUser = user
+        state.completeSetup(displayName: "Brother", cli: "codex")
+        #expect(state.preferredCLI == "codex")
     }
 }

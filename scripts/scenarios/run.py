@@ -58,8 +58,20 @@ def fresh_agent(c, cli):
     # seconds; the wait covers that and the CLI's own boot.
     time.sleep(12)
     # The terminal takes its companion's name once the session registers, so cleanup finds it by that.
-    TITLES[t["id"]] = "harness-s1-" + cli
-    return "harness-s1-" + cli
+    TITLES[t["id"]] = title
+    return title
+
+
+def mention(name):
+    """A companion's @mention as whoami gives it: names are kept as typed, and a mention %-escapes any
+    character but a letter, digit or '-' (and a first character that is not a letter), as a URL does
+    (CompanionName.mention). The harness used to fold "harness: s1 claude" to "harness-s1-claude",
+    which names no one since names stopped being folded (2026-09-26), so scenario 1 never reached it."""
+    out = []
+    for i, ch in enumerate(name):
+        keep = ch.isascii() and (ch.isalpha() or (i > 0 and (ch.isdigit() or ch == "-")))
+        out.append(ch if keep else "".join(f"%{b:02X}" for b in ch.encode("utf-8")))
+    return "@" + "".join(out)
 
 
 def scenario1(c, agent, cli):
@@ -70,7 +82,7 @@ def scenario1(c, agent, cli):
     agent = agent or fresh_agent(c, cli)
     space = c.call("space.current")["id"]
     posted = c.call("chat.post", {"port": space,
-                                  "text": f"@{agent} make a web port titled '{nonce}' that shows the current time, ticking."})
+                                  "text": f"{mention(agent)} make a web port titled '{nonce}' that shows the current time, ticking."})
     mine = posted["entry"]
     if mine["from"]["kind"] != "peer":
         return record(1, "Make a thing", False, f"the harness's post was attributed to {mine['from']!r}")

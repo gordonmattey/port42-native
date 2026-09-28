@@ -58,6 +58,13 @@ public enum Imagine {
         return out.isEmpty ? String(line.prefix(60)) : out
     }
 
+    /// The CLI an imagine team runs on: the one the person chose, while it is installed; else the first
+    /// installed; else the choice as it stands (the terminal then says it is missing).
+    public static func teamCLI(chosen: String?, installed: [String]) -> String {
+        if let chosen, installed.contains(chosen) { return chosen }
+        return installed.first ?? chosen ?? "claude"
+    }
+
     /// The lead's role, its system prompt for the whole session.
     ///
     /// Checking means what a person would see. On Dev4 a lead passed a v1 on a clean console and a
@@ -196,11 +203,14 @@ extension AppState {
         guard case .object(let o) = made, case .string(let portId)? = o["id"] else {
             throw BridgeError(code: .methodFailed, message: "could not make the port for '\(title)'")
         }
-        let codex = ClaudeCodeSetup.findBinary("codex") != nil
+        // The whole team runs on the agent the person chose (GM, 2026-09-27: a person who picked Codex
+        // got two Claude agents, which they may not even have). Not a mix because a second one exists.
+        let cli = Imagine.teamCLI(chosen: preferredCLI,
+                                  installed: ["claude", "codex"].filter { ClaudeCodeSetup.findBinary($0) != nil })
         let seats: [(name: String, cli: String, role: String)] = [
-            (lead, "claude", Imagine.leadRole()),
-            (eng1, "claude", Imagine.engineerRole(lead: lead)),
-            (eng2, codex ? "codex" : "claude", Imagine.engineerRole(lead: lead)),
+            (lead, cli, Imagine.leadRole()),
+            (eng1, cli, Imagine.engineerRole(lead: lead)),
+            (eng2, cli, Imagine.engineerRole(lead: lead)),
         ]
         for seat in seats {
             let c = ShellNewCompanionView.makeCompanion(

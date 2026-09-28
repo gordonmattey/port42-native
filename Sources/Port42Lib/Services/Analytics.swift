@@ -12,6 +12,13 @@ public final class Analytics {
 
     private var configured = false
 
+    /// Events from before PostHog is set up, which happens only when setup completes. Every first-run
+    /// step used to be dropped here, so the setup funnel was never recorded (found 2026-09-27). Held in
+    /// memory only: sent when the person has opted in and PostHog starts, discarded when they opt out,
+    /// so nothing leaves the Mac without consent.
+    private(set) var pending: [(event: String, properties: [String: Any]?)] = []
+    static let maxPending = 50
+
     /// Throttle window focus/blur to avoid spam on every Cmd-Tab.
     private var lastFocusEvent: Date = .distantPast
     private static let focusThrottle: TimeInterval = 60
@@ -24,8 +31,9 @@ public final class Analytics {
     /// Set the user's analytics opt-in preference.
     public func setOptIn(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.optInKey)
-        if !enabled && configured {
-            PostHogSDK.shared.optOut()
+        if !enabled {
+            pending.removeAll()
+            if configured { PostHogSDK.shared.optOut() }
         }
     }
 
@@ -63,6 +71,10 @@ public final class Analytics {
         PostHogSDK.shared.register(["app_version": version, "app_build": build])
 
         configured = true
+        // What happened before PostHog started (the first run up to here), now that the person said yes.
+        let held = pending
+        pending.removeAll()
+        for e in held { PostHogSDK.shared.capture(e.event, properties: e.properties) }
 
         // Track window focus/blur (throttled)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -76,7 +88,10 @@ public final class Analytics {
     // MARK: - Raw capture (private, use typed methods)
 
     private func track(_ event: String, properties: [String: Any]? = nil) {
-        guard configured else { return }
+        guard configured else {
+            if pending.count < Self.maxPending { pending.append((event, properties)) }
+            return
+        }
         PostHogSDK.shared.capture(event, properties: properties)
     }
 
