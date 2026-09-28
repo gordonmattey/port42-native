@@ -431,6 +431,19 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let last = try appState.db.lastChatSeq(chat: k)
         return .object(["entries": .array(entries.map(\.bridgeValue)), "last": .int(last)])
     }
+
+    r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
+        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "port": ["type": "string", "description": "Whose chat: a space id, or a port id / udid / title."],
+            ],
+            "required": ["port"],
+        ]) { _, args in
+        let k = try key(args)
+        return .object(["presence": .array(appState.presence.entries(k).map(\.bridgeValue))])
+    }
 }
 
 // MARK: - What the shell shows of a chat

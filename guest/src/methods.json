@@ -62,6 +62,9 @@
     "space_id",
     "include_closed"
   ],
+  "presence.list" : [
+    "port"
+  ],
   "space.current" : [
     "space_id",
     "port"

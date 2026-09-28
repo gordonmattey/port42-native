@@ -58,6 +58,7 @@ public enum RemoteAccess {
         "port.console": .port(param: "id", right: .see),
         "port.subscribe": .port(param: "id", right: .see),
         "chat.read": .port(param: "port", right: .see),
+        "presence.list": .port(param: "port", right: .see),
 
         // `use`: input to the port and talk in its chat. Every write carries CAS.
         "port.push": .port(param: "id", right: .use),

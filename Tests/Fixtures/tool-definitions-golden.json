@@ -1015,6 +1015,22 @@
     "name" : "ports_list"
   },
   {
+    "description" : "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.",
+    "input_schema" : {
+      "properties" : {
+        "port" : {
+          "description" : "Whose chat: a space id, or a port id \/ udid \/ title.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port"
+      ],
+      "type" : "object"
+    },
+    "name" : "presence_list"
+  },
+  {
     "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
     "input_schema" : {
       "properties" : {

@@ -409,6 +409,12 @@ Generated from the live method registry: every entry below is served exactly as 
         include_closed (boolean): Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen.
         space_id (string): List only this space's ports. Omit to list every space's.
 
+### presence
+
+  presence.list(port)
+      Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.
+        port (string, required): Whose chat: a space id, or a port id / udid / title.
+
 ### rest
 
   rest.call(url, options)  [permission: rest]

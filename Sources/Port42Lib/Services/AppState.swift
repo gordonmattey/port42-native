@@ -806,6 +806,13 @@ public final class AppState: ObservableObject {
     }
 
     private func setupPortEventObservers() {
+        // Presence goes out on the chat's own port topic, so a port, a watching companion and another
+        // machine sharing the port all hear it the way they hear the port's other events.
+        presence.onChange = { [weak self] chat in
+            guard let self else { return }
+            self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
+                                   payload: .object(["presence": .array(self.presence.entries(chat).map(\.bridgeValue))]))
+        }
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in

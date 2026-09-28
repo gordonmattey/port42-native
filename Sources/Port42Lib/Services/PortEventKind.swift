@@ -79,6 +79,9 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     /// a shared port's state reaches all of them.
     case storage
     case companionActivity = "companion.activity"
+    /// Who is on this port's chat's messages changed: `{presence: [{name, state, since, why?}]}`, the
+    /// whole list, empty when nobody is (the same as `presence.list`).
+    case presence
 
     /// The name on the wire.
     public var wire: String { rawValue }

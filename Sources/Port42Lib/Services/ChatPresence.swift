@@ -17,6 +17,20 @@ public struct ChatPresence: Equatable {
     public let name: String
     public var state: State
     public var since: Date
+
+    /// As the API gives it (`presence.list`, the `presence` event): `{name, state, since}`, with `why`
+    /// when it is waiting for the person and said why. `since` is seconds since 1970.
+    public var bridgeValue: BridgeValue {
+        var o: [String: BridgeValue] = ["name": .string(name), "since": .int(Int(since.timeIntervalSince1970))]
+        switch state {
+        case .received: o["state"] = .string("received")
+        case .working: o["state"] = .string("working")
+        case .waiting(let why):
+            o["state"] = .string("waiting")
+            if !why.isEmpty { o["why"] = .string(why) }
+        }
+        return .object(o)
+    }
 }
 
 extension ChatPresence {
@@ -46,7 +60,13 @@ extension ChatPresence {
 
 @MainActor
 public final class ChatPresenceStore: ObservableObject {
-    @Published public private(set) var byChat: [String: [ChatPresence]] = [:]
+    @Published public private(set) var byChat: [String: [ChatPresence]] = [:] {
+        didSet {
+            for chat in Set(oldValue.keys).union(byChat.keys) where oldValue[chat] != byChat[chat] { onChange?(chat) }
+        }
+    }
+    /// A chat's presence changed: the app publishes it on that chat's port topic.
+    var onChange: ((String) -> Void)?
     /// The clock the "for how long" is read from. Replaceable for tests.
     var now: () -> Date = Date.init
 

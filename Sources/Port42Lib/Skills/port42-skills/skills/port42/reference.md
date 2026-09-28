@@ -48,6 +48,14 @@ Return the Port42 API reference. Pass topic:"ports" for the port-authoring manua
 
     port42 help topic=…
 
+## presence.list
+
+Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.
+
+        port (string, required): Whose chat: a space id, or a port id / udid / title.
+
+    port42 presence.list port=…
+
 ## space.create
 
 Create a space. Returns {id, name}. The name is lowercased with spaces as dashes. Pass switch: true to also make it the current space; by default the person stays where they are.
