@@ -59,14 +59,28 @@ test('a link opens straight to the port, with one card to join it; nothing conne
   assert.match(p.doc.getElementById('get-app').href, /Port42\.dmg$/);
 });
 
-test('a refresh of the page reopens the port: the tab keeps the invite the address bar lost', () => {
-  const p = page();
-  const url = 'https://tele.port42.ai/';
-  const again = new JSDOM(html, { url });
+// The same tab opened again at the bare address, reached as `type` ('reload', 'back_forward', 'navigate').
+function reopen(p, type) {
+  const again = new JSDOM(html, { url: 'https://tele.port42.ai/' });
   Object.defineProperty(again.window, 'sessionStorage', { value: p.dom.window.sessionStorage });
+  Object.defineProperty(again.window, 'performance', { value: { getEntriesByType: () => [{ type }] } });
   start({ win: again.window, doc: again.window.document, storage: null, connect: async () => {} });
-  assert.equal(again.window.document.getElementById('port').hidden, false, 'a refresh lost the port');
-  assert.equal(again.window.document.getElementById('paste').hidden, true);
+  return again.window.document;
+}
+
+test('a refresh of the page reopens the port: the tab keeps the invite the address bar lost', () => {
+  for (const type of ['reload', 'back_forward']) {
+    const doc = reopen(page(), type);
+    assert.equal(doc.getElementById('port').hidden, false, `a ${type} lost the port`);
+    assert.equal(doc.getElementById('paste').hidden, true);
+  }
+});
+
+test('going to the bare address is going home, not back to the last invite, and the tab forgets it', () => {
+  const p = page();
+  const doc = reopen(p, 'navigate');
+  assert.equal(doc.getElementById('paste').hidden, false, 'the bare address reopened an old invite');
+  assert.equal(p.dom.window.sessionStorage.getItem('port42.guest.invite'), null, 'the tab kept the old invite');
 });
 
 test('pasting another invite switches to it; port42 in the bar goes home and forgets the tab\'s port', async () => {

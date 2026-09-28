@@ -14,9 +14,14 @@ const $ = (doc, id) => doc.getElementById(id);
 
 /// Wire the page. `deps` lets a test give its own window, storage and connect.
 export function start({ win = window, doc = document, storage = safeStorage(win), connect } = {}) {
-  // The invite leaves the address bar, but this tab keeps it, so a refresh reopens the port.
+  // The invite leaves the address bar, but this tab keeps it, so a refresh reopens the port. Only a
+  // refresh (or back and forward): going to the bare address is going home, and forgets it (GM,
+  // 2026-09-27: tele.port42.ai typed in opened an old invite).
   const tab = safeSession(win);
-  const raw = win.location.hash.replace(/^#/, '') || read(tab, TAB_KEY) || '';
+  const hash = win.location.hash.replace(/^#/, '');
+  const returning = ['reload', 'back_forward'].includes(navigationType(win));
+  if (!hash && !returning) { try { tab?.removeItem(TAB_KEY); } catch {} }
+  const raw = hash || (returning ? read(tab, TAB_KEY) : '') || '';
   // The coupon leaves the address bar at once, so it is not left in history or shared by a screenshot.
   try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
   let coupon = null, guest = null;
@@ -273,6 +278,11 @@ function read(storage, k) { try { return storage?.getItem(k) ?? null; } catch { 
 function write(storage, k, v) { try { storage?.setItem(k, v); } catch {} }
 
 const TAB_KEY = 'port42.guest.invite';
+
+/// How this page was reached: 'navigate' (a link, or the address typed), 'reload' or 'back_forward'.
+function navigationType(win) {
+  try { return win.performance?.getEntriesByType?.('navigation')?.[0]?.type ?? 'navigate'; } catch { return 'navigate'; }
+}
 function safeSession(win) {
   try { return win.sessionStorage; } catch { return null; }
 }
