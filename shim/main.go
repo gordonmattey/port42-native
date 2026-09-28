@@ -285,6 +285,18 @@ func buildSettings(selfPath string) string {
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("turnFailed")}},
 			}},
+			// PreToolUse and PostToolUse say what the agent is doing, for the chat's presence line
+			// ("editing ShellView.swift", GM 2026-09-28). Claude waits on PreToolUse before every
+			// tool, so notify must stay quick and always exit 0: exit 2 would block the tool, and a
+			// Port42 that is not listening must never stop an agent.
+			"PreToolUse": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("toolStarting")}},
+			}},
+			"PostToolUse": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("toolFinished")}},
+			}},
 		},
 	}
 	b, err := json.Marshal(settings)
@@ -299,6 +311,13 @@ func buildSettings(selfPath string) string {
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// maxToolInput caps the tool input forwarded to the app: enough for a path, a command or a pattern.
+const maxToolInput = 2048
+
+// toolInputKeys are the only tool input fields forwarded: the ones that say which file, command,
+// search or page (ChatPresence.Activity.from reads these and nothing else).
+var toolInputKeys = []string{"file_path", "notebook_path", "path", "command", "pattern", "url", "query", "description"}
 
 // normalizedEvent is Port42's wire format on the hooks socket. The Swift receiver decodes
 // exactly this — it has no knowledge of Claude's raw payload shape.
@@ -402,7 +421,27 @@ func runNotify(event, cli string) {
 		if tn, ok := payload["tool_name"].(string); ok {
 			out.Tool = tn
 		}
-		// tool input/output translation is wired in a later step.
+		// The input says which file or command; the app turns it into a line and keeps the path and
+		// the command on this Mac. Capped, since a Write carries a whole file. The output is never
+		// sent: finishing is all the app needs to know.
+		if event == "toolStarting" {
+			if in, ok := payload["tool_input"].(map[string]any); ok {
+				// Only what says which file or command: a Write's content, an Edit's old and new
+				// text, never leave the shim.
+				kept := map[string]any{}
+				for _, k := range toolInputKeys {
+					if v, ok := in[k].(string); ok {
+						kept[k] = v
+					}
+				}
+				if b, err := json.Marshal(kept); err == nil {
+					if len(b) > maxToolInput {
+						b = b[:maxToolInput]
+					}
+					out.Input = string(b)
+				}
+			}
+		}
 	}
 
 	data, err := json.Marshal(out)

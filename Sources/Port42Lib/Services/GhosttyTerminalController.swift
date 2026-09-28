@@ -161,6 +161,8 @@ final class GhosttyTerminalController {
     var onSessionId: ((String) -> Void)?
     /// What the chat shows of this agent (ChatPresence): took the message up, needs the person, done.
     var onPresence: ((ChatPresence.State?) -> Void)?
+    /// What the agent is doing now, from its tool events; nil when a tool finishes.
+    var onActivity: ((ChatPresence.Activity?) -> Void)?
     /// The turn failed instead of replying (an API error, a dropped connection): the code and the
     /// CLI's own words. AppState says so in the chat that asked.
     var onTurnFailed: ((String, String) -> Void)?
@@ -306,9 +308,11 @@ final class GhosttyTerminalController {
             log("event=needsAttention message=\(message.prefix(80).debugDescription)")
             onNeedsAttention(message)
         case .toolStarting(let tool, let input):
-            log("event=toolStarting tool=\(tool) input=\(input.prefix(40).debugDescription)")
-        case .toolFinished(let tool, let output):
-            log("event=toolFinished tool=\(tool) output=\(output.prefix(40).debugDescription)")
+            onActivity?(ChatPresence.Activity.from(tool: tool, input: input))
+            log("event=toolStarting tool=\(tool)")
+        case .toolFinished(let tool, _):
+            onActivity?(nil)
+            log("event=toolFinished tool=\(tool)")
         case .approvalRequired(let tool, _, _):
             log("event=approvalRequired tool=\(tool)")
         case .inputSubmitted(let prompt):

@@ -433,16 +433,18 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
-        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.",
+        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind (\"editing a file\"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "port": ["type": "string", "description": "Whose chat: a space id, or a port id / udid / title."],
             ],
             "required": ["port"],
-        ]) { _, args in
+        ]) { p, args in
         let k = try key(args)
-        return .object(["presence": .array(appState.presence.entries(k).map(\.bridgeValue))])
+        // What it is doing names files and commands on this Mac; another machine hears only the kind.
+        let detail = p.kind != .remote
+        return .object(["presence": .array(appState.presence.entries(k).map { $0.bridgeValue(detail: detail) })])
     }
 }
 

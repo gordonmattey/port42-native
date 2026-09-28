@@ -414,7 +414,7 @@ Generated from the live method registry: every entry below is served exactly as 
 ### presence
 
   presence.list(port)
-      Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). Returns { presence: [{name, state, since, why?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change.
+      Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now ("editing ShellView.swift", "running swift test") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind ("editing a file"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.
         port (string, required): Whose chat: a space id, or a port id / udid / title.
 
 ### rest

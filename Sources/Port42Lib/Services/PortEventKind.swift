@@ -79,8 +79,9 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     /// a shared port's state reaches all of them.
     case storage
     case companionActivity = "companion.activity"
-    /// Who is on this port's chat's messages changed: `{presence: [{name, state, since, why?}]}`, the
-    /// whole list, empty when nobody is (the same as `presence.list`).
+    /// Who is on this port's chat's messages changed: `{presence: [{name, state, since, why?, doing?}]}`,
+    /// the whole list, empty when nobody is. `doing` is only the kind ("editing a file"), since another
+    /// machine sharing the port hears this too; `presence.list` on this Mac gives the file or command.
     case presence
 
     /// The name on the wire.

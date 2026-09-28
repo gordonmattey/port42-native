@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -609,5 +610,103 @@ func TestNotifyCarriesTheFailure(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no event")
+	}
+}
+
+// The tool hooks are registered, each calling notify with its own event, so the app can say what
+// the agent is doing (GM, 2026-09-28).
+func TestBuildSettingsToolHooks(t *testing.T) {
+	s := buildSettings("/x/port42-claude-shim")
+	var parsed struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v", err)
+	}
+	for hook, event := range map[string]string{"PreToolUse": "toolStarting", "PostToolUse": "toolFinished"} {
+		blocks := parsed.Hooks[hook]
+		if len(blocks) != 1 || len(blocks[0].Hooks) != 1 || blocks[0].Matcher != "" {
+			t.Fatalf("%s not wired for every tool: %s", hook, s)
+		}
+		want := `'/x/port42-claude-shim' notify ` + event + ` claude`
+		if got := blocks[0].Hooks[0].Command; got != want {
+			t.Fatalf("%s command = %q, want %q", hook, got, want)
+		}
+	}
+}
+
+// toolStarting carries which file or command, and never a file's content.
+func TestNotifyToolStartingCarriesCappedInput(t *testing.T) {
+	sock := fmt.Sprintf("/tmp/p42t%d.sock", time.Now().UnixNano()%1_000_000)
+	defer os.Remove(sock)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		b, _ := io.ReadAll(c)
+		got <- string(b)
+	}()
+	big := strings.Repeat("x", 10000)
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+	go func() {
+		w.Write([]byte(`{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Write",` +
+			`"tool_input":{"file_path":"/Users/x/project/ShellView.swift","content":"` + big + `"}}`))
+		w.Close()
+	}()
+	t.Setenv("PORT42_HOOKS_SOCKET", sock)
+	runNotify("toolStarting", "claude")
+	select {
+	case msg := <-got:
+		var ev normalizedEvent
+		if err := json.Unmarshal([]byte(msg), &ev); err != nil {
+			t.Fatalf("bad normalized JSON: %v", err)
+		}
+		if ev.Event != "toolStarting" || ev.Tool != "Write" {
+			t.Fatalf("event %q tool %q", ev.Event, ev.Tool)
+		}
+		if !strings.Contains(ev.Input, "ShellView.swift") {
+			t.Fatalf("the file did not travel: %.80s", ev.Input)
+		}
+		if len(ev.Input) > maxToolInput {
+			t.Fatalf("input not capped: %d bytes", len(ev.Input))
+		}
+		if strings.Contains(ev.Input, "xxxx") {
+			t.Fatalf("the file's content travelled: %.80s", ev.Input)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event")
+	}
+}
+
+// With no app listening, notify returns rather than failing, so a tool is never blocked.
+func TestNotifyWithNoListenerReturns(t *testing.T) {
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+	go func() { w.Write([]byte(`{"tool_name":"Bash","tool_input":{"command":"ls"}}`)); w.Close() }()
+	t.Setenv("PORT42_HOOKS_SOCKET", "/tmp/p42-nobody-listens.sock")
+	done := make(chan struct{})
+	go func() { runNotify("toolStarting", "claude"); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("notify hung with no app listening")
 	}
 }

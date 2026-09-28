@@ -811,7 +811,7 @@ public final class AppState: ObservableObject {
         presence.onChange = { [weak self] chat in
             guard let self else { return }
             self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
-                                   payload: .object(["presence": .array(self.presence.entries(chat).map(\.bridgeValue))]))
+                                   payload: .object(["presence": .array(self.presence.entries(chat).map { $0.bridgeValue(detail: false) })]))
         }
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -1825,6 +1825,10 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             let name = self.currentName(of: config)
             if let state { self.presence.update(name, to: state) } else { self.presence.done(name) }
+        }
+        controller.onActivity = { [weak self] activity in
+            guard let self else { return }
+            self.presence.doing(self.currentName(of: config), activity)
         }
         // What the person types straight into a companion's terminal shows in that terminal's chat, as
         // them, beside the reply (GM, 2026-09-27: only the replies appeared). Not routed: the companion

@@ -288,10 +288,11 @@ BRIDGE API REFERENCE:
     Post to a port's chat, attributed to this port. An @mention wakes that companion.
 
   port42.presence.list(port)
-    Returns: {presence: [{name, state, since, why?}]}
+    Returns: {presence: [{name, state, since, why?, doing?}]}
     Who is on a chat's messages right now: `received` (it has one), `working`, or `waiting` for
-    the person (`why` says for what, when it said). Empty when nobody is. Each change is also a
-    `presence` event on the port's topic, carrying the same list.
+    the person (`why` says for what, when it said). `doing` is what it is doing now ("editing
+    ShellView.swift"), when its CLI reports it. Empty when nobody is. Each change is also a
+    `presence` event on the port's topic, where `doing` is only the kind ("editing a file").
 
   port42.space.current()
     Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}

@@ -20,8 +20,25 @@ public struct ChatPresence: Equatable {
 
     /// As the API gives it (`presence.list`, the `presence` event): `{name, state, since}`, with `why`
     /// when it is waiting for the person and said why. `since` is seconds since 1970.
-    public var bridgeValue: BridgeValue {
+    /// What it is doing right now, from the CLI's tool events (Claude Code reports them; Codex does
+    /// not yet). nil between tools.
+    public var doing: Activity? = nil
+
+    /// One tool call, said two ways (GM, 2026-09-28: "see what it's doing, files and stuff"). `detail`
+    /// names the file or command and stays on this Mac; `summary` says only what sort of thing it is, and
+    /// is all another machine is told (GM chose this: a file name or command can say too much).
+    public struct Activity: Equatable {
+        public let summary: String
+        public let detail: String
+    }
+
+    public var bridgeValue: BridgeValue { bridgeValue(detail: true) }
+
+    /// `detail: false` for anything that can leave this Mac: another machine's `presence.list`, and the
+    /// `presence` event, which remote subscribers hear too.
+    public func bridgeValue(detail: Bool) -> BridgeValue {
         var o: [String: BridgeValue] = ["name": .string(name), "since": .int(Int(since.timeIntervalSince1970))]
+        if let doing { o["doing"] = .string(detail ? doing.detail : doing.summary) }
         switch state {
         case .received: o["state"] = .string("received")
         case .working: o["state"] = .string("working")
@@ -46,6 +63,7 @@ extension ChatPresence {
         }
         self.name = name
         self.since = Date(timeIntervalSince1970: (o["since"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970)
+        if let d = o["doing"] as? String, !d.isEmpty { self.doing = Activity(summary: d, detail: d) }
     }
 
     /// What the chat says when an agent's turn failed instead of replying (GM, 2026-09-27): who,
@@ -103,6 +121,18 @@ public final class ChatPresenceStore: ObservableObject {
         }
     }
 
+    /// What the agent is doing now (a tool started), or nil (it finished). Wherever it is listed.
+    public func doing(_ name: String, _ activity: ChatPresence.Activity?) {
+        for (chat, list) in byChat {
+            if let i = list.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }),
+               list[i].doing != activity {
+                var next = list
+                next[i].doing = activity
+                byChat[chat] = next
+            }
+        }
+    }
+
     /// The turn ended (its reply landed) or the CLI stopped.
     public func done(_ name: String) { remove(name) }
 
@@ -130,8 +160,58 @@ public final class ChatPresenceStore: ObservableObject {
         let for_ = secs < 5 ? "" : secs < 60 ? " (\(secs)s)" : " (\(secs / 60)m)"
         switch p.state {
         case .received: return "has your message\(for_)"
-        case .working: return "is working\(for_)"
+        case .working: return "is working" + (p.doing.map { ": \($0.detail)" } ?? "") + for_
         case .waiting(let why): return why.isEmpty ? "is waiting for you in its terminal" : "is waiting for you: \(why)"
+        }
+    }
+}
+
+// MARK: - Activity from a tool call
+
+extension ChatPresence.Activity {
+    /// Say what a tool call is doing, from Claude Code's tool name and input (the hook's `tool_input`,
+    /// as JSON). The one place this is decided: a file by its name, never its path; a command by its
+    /// first line, cut short; the rest by what they search or fetch.
+    public static func from(tool: String, input: String) -> ChatPresence.Activity {
+        let args = (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [String: Any] ?? [:]
+        func str(_ k: String) -> String? {
+            (args[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        func short(_ s: String, _ n: Int = 48) -> String {
+            let line = s.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? s
+            return line.count > n ? String(line.prefix(n - 1)) + "…" : line
+        }
+        func file(_ k: String = "file_path") -> String? { str(k).map { ($0 as NSString).lastPathComponent } }
+        switch tool {
+        case "Read":
+            return .init(summary: "reading a file", detail: file().map { "reading \($0)" } ?? "reading a file")
+        case "Edit", "MultiEdit":
+            return .init(summary: "editing a file", detail: file().map { "editing \($0)" } ?? "editing a file")
+        case "Write":
+            return .init(summary: "writing a file", detail: file().map { "writing \($0)" } ?? "writing a file")
+        case "NotebookEdit":
+            return .init(summary: "editing a notebook", detail: file("notebook_path").map { "editing \($0)" } ?? "editing a notebook")
+        case "Bash":
+            return .init(summary: "running a command", detail: str("command").map { "running \(short($0))" } ?? "running a command")
+        case "Grep":
+            return .init(summary: "searching", detail: str("pattern").map { "searching for \(short($0, 32))" } ?? "searching")
+        case "Glob":
+            return .init(summary: "finding files", detail: str("pattern").map { "finding \(short($0, 32))" } ?? "finding files")
+        case "WebFetch":
+            let host = str("url").flatMap { URL(string: $0)?.host }
+            return .init(summary: "reading a web page", detail: host.map { "reading \($0)" } ?? "reading a web page")
+        case "WebSearch":
+            return .init(summary: "searching the web", detail: str("query").map { "searching the web for \(short($0, 32))" } ?? "searching the web")
+        case "Task", "Agent":
+            return .init(summary: "starting a helper", detail: str("description").map { "starting a helper: \(short($0, 32))" } ?? "starting a helper")
+        case "TodoWrite":
+            return .init(summary: "updating its plan", detail: "updating its plan")
+        default:
+            if tool.hasPrefix("mcp__") {
+                let name = tool.split(separator: "_", omittingEmptySubsequences: true).last.map(String.init) ?? tool
+                return .init(summary: "using a tool", detail: "using \(name)")
+            }
+            return .init(summary: "using a tool", detail: tool.isEmpty ? "using a tool" : "using \(tool)")
         }
     }
 }

@@ -162,4 +162,78 @@ struct ChatPresenceTests {
         #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 10).count == entries.count)
         withExtendedLifetime(w.state) {}
     }
+
+    // MARK: - What it is doing (GM, 2026-09-28: "see what it's doing, files and stuff")
+
+    @Test("a tool call is said by what it touches: a file by its name, never its path; a command cut short")
+    func activityFromTools() {
+        func a(_ tool: String, _ input: [String: Any]) -> ChatPresence.Activity {
+            let json = String(decoding: try! JSONSerialization.data(withJSONObject: input), as: UTF8.self)
+            return ChatPresence.Activity.from(tool: tool, input: json)
+        }
+        #expect(a("Read", ["file_path": "/Users/gordon/Clients/Acme/secret/ShellView.swift"])
+                == .init(summary: "reading a file", detail: "reading ShellView.swift"))
+        #expect(a("Edit", ["file_path": "/x/y/AppState.swift", "old_string": "a", "new_string": "b"]).detail == "editing AppState.swift")
+        #expect(a("Write", ["file_path": "/x/notes.md", "content": "…"]).detail == "writing notes.md")
+        #expect(a("Bash", ["command": "swift test --filter PresenceAPITests"]).detail == "running swift test --filter PresenceAPITests")
+        let long = a("Bash", ["command": String(repeating: "echo hi && ", count: 20) + "\nsecond line"]).detail
+        #expect(long.count <= "running ".count + 48 && long.hasSuffix("…") && !long.contains("second line"))
+        #expect(a("Grep", ["pattern": "func presence"]).detail == "searching for func presence")
+        #expect(a("WebFetch", ["url": "https://docs.example.com/a/b?c=d"]).detail == "reading docs.example.com")
+        #expect(a("mcp__github__create_issue", [:]).summary == "using a tool")
+        #expect(a("SomethingNew", [:]) == .init(summary: "using a tool", detail: "using SomethingNew"))
+        #expect(ChatPresence.Activity.from(tool: "Read", input: "not json").detail == "reading a file")
+    }
+
+    @Test("the line says what it is doing, and it clears when the tool finishes")
+    func activityInTheLine() {
+        let store = ChatPresenceStore()
+        let t = Date(timeIntervalSince1970: 1000)
+        store.now = { t }
+        store.received("echo", in: "c")
+        store.update("echo", to: .working)
+        store.doing("echo", .init(summary: "editing a file", detail: "editing ShellView.swift"))
+        let p = try! #require(store.entries("c").first)
+        #expect(ChatPresenceStore.line(p, now: t) == "is working: editing ShellView.swift")
+        store.doing("echo", nil)
+        #expect(ChatPresenceStore.line(store.entries("c")[0], now: t) == "is working")
+    }
+
+    @Test("the terminal's tool events set what it is doing, and finishing clears it")
+    func controllerToolEvents() {
+        let cfg = TerminalPortConfig(command: "/bin/zsh", args: [], startupCommand: "claude", cwd: "/tmp",
+                                     spaceId: "space-1", spaceName: "Demo", companionName: "echo", createdBy: "u1",
+                                     companionPrompt: "")
+        let c = GhosttyTerminalController(panelId: "p1", config: cfg, post: { _ in })
+        var seen: [String?] = []
+        c.onActivity = { seen.append($0?.detail) }
+        c.handleEvent(.toolStarting(tool: "Read", input: #"{"file_path":"/a/b/README.md"}"#))
+        c.handleEvent(.toolFinished(tool: "Read", output: ""))
+        #expect(seen == ["reading README.md", nil])
+        c.teardown()
+    }
+
+    @Test("here the file or command is said; another machine, and the event, get only the kind")
+    func activityStaysOnThisMac() async throws {
+        let t = InviteTests()
+        let w = try t.world()
+        _ = try await t.remote(w, as: InviteTests.ada, "invite.redeem", ["nonce": try t.coupon(try await t.create(w)).nonce, "name": "Ada"])
+        var events: [String] = []
+        let topic = PortNotify.topic(forPortKey: w.p)
+        let sub = w.state.notifyBus.subscribe(topic: topic) { events.append($0) }
+        defer { w.state.notifyBus.unsubscribe(id: sub, topic: topic) }
+        w.state.presence.received("echo", in: w.p)
+        w.state.presence.update("echo", to: .working)
+        w.state.presence.doing("echo", .init(summary: "editing a file", detail: "editing Acme-contract.md"))
+
+        let here = try await w.state.runBridgeMethod("presence.list", principal: t.person, args: BridgeArgs(["port": w.p]))
+        let mine = (here.toJSONObject() as? [String: Any])?["presence"] as? [[String: Any]]
+        #expect(mine?.first?["doing"] as? String == "editing Acme-contract.md")
+
+        let theirs = try #require(try await t.remote(w, as: InviteTests.ada, "presence.list", ["port": w.p]) as? [String: Any])
+        #expect((theirs["presence"] as? [[String: Any]])?.first?["doing"] as? String == "editing a file")
+        #expect(!events.joined().contains("Acme-contract"), "the event carried the file's name off this Mac")
+        #expect(events.joined().contains("editing a file"))
+    }
+
 }
