@@ -39,6 +39,16 @@ fi
 if [ -f "$DIR/.secrets" ]; then
     set -a; source "$DIR/.secrets"; set +a
 fi
+
+# SEC-03 BEGIN: only PostHog's public project key may be built in. POSTHOG_API_KEY goes into Info.plist
+# and the gateway binary, which ship to every user, and personal keys (phx_, account-wide read/write)
+# have been committed and shipped this way before. Checked before anything is built; empty is allowed.
+case "${POSTHOG_API_KEY:-}" in
+    ""|phc_*) ;;
+    *)  echo "[build] ERROR: POSTHOG_API_KEY is not a PostHog project key (phc_...). Personal keys (phx_) must never ship." >&2
+        exit 1 ;;
+esac
+# SEC-03 END
 # Read version from VERSION file
 export APP_VERSION="$(cat "$DIR/VERSION" | tr -d '[:space:]')"
 
