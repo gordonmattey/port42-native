@@ -79,4 +79,29 @@ struct ImagineTeamScenarioTests {
         tok = t.w.state.portInput.token(for: current)
         _ = try await engineersWork(t, port: id, token: tok, round: 3)
     }
+
+    @Test("a companion in another space is refused an edit once the port holds a grant (APP-07)")
+    func otherSpaceRefusedOnceGranted() async throws {
+        let t = try team()
+        let made = try await call(t, t.lead, "port.create",
+                                  ["type": "web", "title": "starfield", "html": "<title>starfield</title><p>v1</p>"])
+        let id = try #require(made["id"] as? String)
+        let a = AgentConfig.createCommand(ownerId: t.w.state.currentUser!.id, displayName: "elsewhere-eng",
+                                          command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        try t.w.state.db.saveAgent(a)
+        t.w.state.companions.append(a)
+        let outsider = Principal.companion(id: a.id, displayName: a.displayName, spaceId: "another-space")
+
+        t.w.state.saveGrants([.microphone], grantee: t.lead.id, on: .machine, zone: t.w.space.id)
+        let tok = t.w.state.portInput.token(for: try #require(
+            t.w.state.portWindows.panels.first { $0.id == id || $0.udid == id }).udid)
+        do {
+            _ = try await call(t, outsider, "port.update",
+                               ["id": id, "html": "<title>starfield</title><p>theirs</p>", "token": tok])
+            Issue.record("a companion from another space rewrote the team's port once it held the microphone")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.permissionDenied.wire || e.code == BridgeErrorCode.notFound.wire,
+                    "refused as a stranger: \(e.code)")
+        }
+    }
 }

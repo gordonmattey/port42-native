@@ -1558,10 +1558,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "html": ["type": "string", "description": "The new HTML content for the port (full HTML, not a diff)"]
             ],
             "required": ["id", "html"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let html = try args.requireString("html")
         let target = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireCodeAuthority(over: target, by: p)   // APP-07
         guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
@@ -1578,11 +1579,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "replace": ["type": "string", "description": "The string to replace it with."]
             ],
             "required": ["id", "search", "replace"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let search = try args.requireString("search")
         let replace = try args.requireString("replace")
         let udid = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireCodeAuthority(over: udid, by: p)   // APP-07
         guard let current = try? appState.db.fetchPortHtml(udid: udid) else {
             throw BridgeError.notFound("port '\(id)'")
         }
@@ -1605,10 +1607,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "version": ["type": "integer", "description": "The version number to restore to (from port_history)"]
             ],
             "required": ["id", "version"]
-        ]) { _, args in
+        ]) { p, args in
         let id = try args.requireString("id")
         let version = try args.requireInt("version")
         let udid = appState.resolvePortRef(id)?.udid ?? id
+        try appState.requireCodeAuthority(over: udid, by: p)   // APP-07
         guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
