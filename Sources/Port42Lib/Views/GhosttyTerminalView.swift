@@ -84,6 +84,9 @@ final class GhosttyInputView: NSView {
     /// that native input — which never reaches the bridge — is driving this port. Set by the host;
     /// nil when nothing cares. Throttled downstream, so calling it per keystroke is fine.
     var onHumanInput: (() -> Void)?
+    /// The person TYPED here: a key, a paste, dictation. Not a click, which `onHumanInput` also counts.
+    /// What the CLI then submits is theirs only if this fired first (see `onPrompt` in AppState).
+    var onKeyboardInput: (() -> Void)?
 
     /// ACTIVITY (R2b): fired after every PROGRAMMATIC write into this surface, so the port's state
     /// token moves. Set by the host beside `onHumanInput`.
@@ -224,6 +227,7 @@ final class GhosttyInputView: NSView {
     // MARK: keyboard
     override func keyDown(with event: NSEvent) {
         onHumanInput?()          // typing IS driving (L2.d.2)
+        onKeyboardInput?()
         // ⌘V / ⌘C (no other modifiers) → clipboard, not a key to the PTY. Ghostty's
         // own clipboard callbacks are stubbed off, so we drive the pasteboard directly.
         let f = event.modifierFlags
@@ -408,6 +412,7 @@ extension GhosttyInputView: NSTextInputClient {
         }
         guard !text.isEmpty else { return }
         onHumanInput?()
+        onKeyboardInput?()
         write(text, mode: .keys)
     }
 

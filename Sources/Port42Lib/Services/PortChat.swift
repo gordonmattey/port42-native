@@ -232,6 +232,16 @@ public enum ChatRouting {
         return t.hasPrefix("[@") && t.contains("]: ")
     }
 
+    /// A prompt the CLI submitted itself, not the person: Claude Code hands its session background-task
+    /// notices, sub-agent reports and messages from other sessions as prompts, each wrapped in its tag.
+    public static func isCLIOwnLine(_ prompt: String) -> Bool {
+        let t = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("<") else { return false }
+        return cliOwnTags.contains { t.hasPrefix("<" + $0) }
+    }
+    static let cliOwnTags = ["task-notification", "agent-message", "cross-session-message", "system-reminder",
+                             "command-name", "command-message", "local-command-stdout", "user-prompt-submit-hook"]
+
     public static func terminalLine(sender: String, source: String?, text: String) -> String {
         let who = CompanionName.mention(sender)
         guard let source, !source.isEmpty else { return "[\(who)]: \(text)\r" }

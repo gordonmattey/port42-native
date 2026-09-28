@@ -150,6 +150,16 @@ struct ChatPresenceTests {
         let key = try #require(w.state.portWindows.panels.first { $0.id == panelId }?.udid)
         let controller = try #require(w.state.terminalControllers[panelId])
         w.state.pendingTerminalInjections = [:]
+        let before = try w.state.db.chatEntries(chat: key, after: 0, limit: 50).count
+
+        // What the CLI submits without the person typing is not theirs (GM, 2026-09-28: Claude Code's
+        // task notices and sub-agent reports were posted under his name).
+        controller.handleEvent(.inputSubmitted(prompt: "<task-notification>\n<task-id>a3ae</task-id>\n</task-notification>"))
+        controller.handleEvent(.inputSubmitted(prompt: "port42-4DEA62FA-928C-45F6-A41D-FB20781ADA41"))
+        #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 50).count == before,
+                "a prompt nobody typed was posted as the person")
+
+        w.state.personTyped(inTerminal: panelId)   // the person types (what the terminal view calls on a key)
         controller.handleEvent(.inputSubmitted(prompt: "fix the failing test\n"))
         let entries = try w.state.db.chatEntries(chat: key, after: 0, limit: 10)
         #expect(entries.last?.text == "fix the failing test")
@@ -158,8 +168,14 @@ struct ChatPresenceTests {
                 "posting it woke the companion again")
         #expect(w.state.presence.entries(key).first?.state == .working)
         // A line Port42 typed in (from a chat) is not posted a second time.
+        w.state.personTyped(inTerminal: panelId)
         controller.handleEvent(.inputSubmitted(prompt: "[@gordon in #demo]: hi\r"))
         #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 10).count == entries.count)
+        // Nor one of the CLI's own, even straight after the person typed something unsent.
+        w.state.personTyped(inTerminal: panelId)
+        controller.handleEvent(.inputSubmitted(prompt: "<agent-message from=\"a3ae\">\n[Subagent hand-back] …"))
+        #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 10).count == entries.count,
+                "a sub-agent's report was posted as the person")
         withExtendedLifetime(w.state) {}
     }
 

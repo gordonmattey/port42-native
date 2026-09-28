@@ -125,6 +125,10 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Terminals the person has typed into since their CLI last submitted a prompt (by panel id).
+    var terminalTyped: Set<String> = []
+    /// The person typed into a terminal (a key, a paste, dictation), so its next prompt is theirs.
+    func personTyped(inTerminal panelId: String) { terminalTyped.insert(panelId) }
 
     /// The in-memory Notify bus (Phase L1, docs/plan-port42-protocol-local-bus.md): a port's stream-out
     /// is published to `port:<id>` and fanned out 1:N to every `port.subscribe` caller.
@@ -1691,6 +1695,8 @@ public final class AppState: ObservableObject {
         // without this the chrome cannot see the human driving a terminal.
         let udid = panel.udid
         built.view.onHumanInput = { [weak self] in self?.humanInteracted(with: udid) }
+        let panelId = panel.id
+        built.view.onKeyboardInput = { [weak self] in self?.personTyped(inTerminal: panelId) }
         // Every programmatic write into the surface moves the port's token (R2b).
         built.view.onSurfaceWrite = { [weak self] in self?.surfaceWrote(port: udid) }
         portWindows.storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
@@ -1834,7 +1840,12 @@ public final class AppState: ObservableObject {
         // them, beside the reply (GM, 2026-09-27: only the replies appeared). Not routed: the companion
         // already has it. A line Port42 typed in (a chat message, a wake) is already in a chat.
         controller.onPrompt = { [weak self] prompt in
-            guard let self, !ChatRouting.isInjectedLine(prompt),
+            // Only what the person typed is theirs. The CLI submits prompts of its own (Claude Code's
+            // task notifications and sub-agent reports), and those were posted as the person (GM,
+            // 2026-09-28). So: typed here since the last prompt, and not one of the CLI's own lines.
+            guard let self else { return }
+            let typed = self.terminalTyped.remove(panel.id) != nil
+            guard typed, !ChatRouting.isInjectedLine(prompt), !ChatRouting.isCLIOwnLine(prompt),
                   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let user = self.currentUser,
                   let key = self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
