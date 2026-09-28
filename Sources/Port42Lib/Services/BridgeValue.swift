@@ -145,6 +145,10 @@ public struct BridgeError: Error, Equatable {
     public static func permissionDenied(_ perm: String) -> BridgeError {
         BridgeError(code: .permissionDenied, message: "Permission denied: \(perm)")
     }
+    public static func locked(_ what: String) -> BridgeError {
+        BridgeError(code: .locked,
+                    message: "Port42 is locked, so it cannot ask for \(what). Nothing was asked; call again once the person unlocks it")
+    }
     public static func badArg(_ message: String) -> BridgeError {
         BridgeError(code: .badArg, message: message)
     }

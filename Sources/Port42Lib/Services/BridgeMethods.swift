@@ -153,7 +153,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             }
         }()
         if let needed {
-            guard await appState.ensurePermission(needed, for: p) else {
+            guard try await appState.ensurePermission(needed, for: p) else {
                 throw BridgeError.permissionDenied(needed.rawValue)
             }
         }
@@ -764,7 +764,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             // answer, so this asked for the microphone on EVERY mic recording and the grant never
             // persisted. This was the precedent that made the flaw visible, and it was left live when
             // the create gate was fixed; now both go through the one implementation.
-            guard await appState.ensurePermission(.microphone, for: p) else {
+            guard try await appState.ensurePermission(.microphone, for: p) else {
                 throw BridgeError.permissionDenied(PortPermission.microphone.rawValue)
             }
         }
@@ -890,7 +890,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             // EVERY OTHER CALLER needs its own grant for each secret (nautilus Phase 4, 4.1). A port, a
             // plain terminal or a hand-added client used to reach every named secret once it held the
             // REST grant. A companion's grants are the secrets ticked on its card, above.
-            guard await appState.ensureSecretGrant(secretName, for: p) else {
+            guard try await appState.ensureSecretGrant(secretName, for: p) else {
                 throw BridgeError.permissionDenied("secret '\(secretName)'")
             }
         }
@@ -1249,7 +1249,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         }
         if p.kind != .human {
             let ports = appState.portWindows.panels.filter { $0.spaceId == id }.count
-            guard await appState.permissions.request(
+            guard try await appState.ask(
                 .deleteSpace, from: p,
                 detail: "Delete the space '\(space.name)' and its chat, closing its \(ports) port\(ports == 1 ? "" : "s")") else {
                 throw BridgeError.permissionDenied(PortPermission.deleteSpace.rawValue)

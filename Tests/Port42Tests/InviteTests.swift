@@ -28,6 +28,7 @@ struct InviteTests {
 
     func world(relays: [String] = ["wss://relay.test/v1"]) throws -> World {
         let state = AppState(db: try DatabaseService(inMemory: true))
+        state.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         state.remoteAttestKey = { Self.key }
         state.relayList = { relays }
         state.door.receive(#"{"type":"welcome","sender_id":"host","self_peer":"\#(Self.me)"}"#)

@@ -84,13 +84,14 @@ struct PortCreateGateTests {
     @MainActor
     func existingGrantIsHonored() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let p = Principal.peer(id: "claude-code-\(UUID().uuidString)", displayName: "Claude Code")
         appState.saveGrants([.terminal], grantee: p.id, on: .machine, zone: nil)
 
         // No prompt is pending and none is created: `ensurePermission` returns true from the store.
         // If this ever hangs, the gate stopped consulting existing grants and started asking every
         // time, which is the failure that would make `teleport` unusable.
-        #expect(await appState.ensurePermission(.terminal, for: p) == true)
+        #expect(try await appState.ensurePermission(.terminal, for: p) == true)
         #expect(appState.permissions.current == nil, "an already-granted capability must raise no card")
     }
 
@@ -107,6 +108,7 @@ struct PortCreateGateTests {
     @MainActor
     func gatePersistsTheGrant() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
         #expect(appState.grants(grantee: p.id, on: .machine, zone: nil).isEmpty)
 
@@ -115,7 +117,7 @@ struct PortCreateGateTests {
         // only then hops here, and under the full suite other tests hold every pool thread, so the
         // child never ran and no card appeared in 40 s (release gate, 2026-09-27). A main-actor
         // Task is queued on the main executor directly, the same one `awaitCard` runs on.
-        let asked = Task { @MainActor in await appState.ensurePermission(.browser, for: p) }
+        let asked = Task { @MainActor in (try? await appState.ensurePermission(.browser, for: p)) ?? false }
         guard try await awaitCard(appState) else { return }
         appState.permissions.resolveCurrent(granted: true)
         #expect(await asked.value == true)
@@ -131,11 +133,12 @@ struct PortCreateGateTests {
     @MainActor
     func denialIsNotRemembered() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
 
         // Same fix as above, and this one mattered MORE: no time limit here, so under contention it
         // did not fail, it hung forever.
-        let asked = Task { @MainActor in await appState.ensurePermission(.terminal, for: p) }
+        let asked = Task { @MainActor in (try? await appState.ensurePermission(.terminal, for: p)) ?? false }
         guard try await awaitCard(appState) else { return }
         appState.permissions.resolveCurrent(granted: false)
         #expect(await asked.value == false)

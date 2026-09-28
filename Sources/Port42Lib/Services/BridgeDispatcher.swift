@@ -54,7 +54,7 @@ extension AppState {
         #endif
 
         if let perm = method.permission {
-            guard await ensurePermission(perm, for: principal, pregrant: pregrant) else {
+            guard try await ensurePermission(perm, for: principal, pregrant: pregrant) else {
                 throw BridgeError.permissionDenied(perm.rawValue)
             }
         }
@@ -128,16 +128,27 @@ extension AppState {
     /// a superset of any one port's. `detail` names the object on the card.
     func ensurePermission(_ perm: PortPermission, for principal: Principal,
                           on object: PortObject = .machine, detail: String? = nil,
-                          pregrant: Set<PortPermission> = []) async -> Bool {
+                          pregrant: Set<PortPermission> = []) async throws -> Bool {
         var granted = grants(grantee: principal.id, on: object, zone: principal.zone)
         let covered = granted.union(pregrant)
             .union(object == .machine ? [] : grants(grantee: principal.id, on: .machine,
                                                     zone: principal.zone))
         if covered.contains(perm) { return true }
-        guard await permissions.request(perm, from: principal, detail: detail) else { return false }
+        guard try await ask(perm, from: principal, detail: detail) else { return false }
         granted.insert(perm)
         saveGrants(granted, grantee: principal.id, on: object, zone: principal.zone)
         return true
+    }
+
+    /// Ask the person, and turn "no card could be seen" into its own error (APP-16). Every ask that
+    /// can raise a card goes through here, so none of them hangs while Port42 is locked, and a caller
+    /// can tell "locked, retry after unlock" from a no.
+    func ask(_ perm: PortPermission, from principal: Principal, detail: String? = nil) async throws -> Bool {
+        switch await permissions.decide(perm, from: principal, detail: detail) {
+        case .granted: return true
+        case .denied:  return false
+        case .locked:  throw BridgeError.locked(perm.rawValue)
+        }
     }
 
     /// **Can a write actually be delivered to this port?** One predicate, per surface kind.
@@ -572,7 +583,7 @@ extension AppState {
         #endif
         if let perm = method.permission {
             // The SAME function the one-shot path runs. Streaming is not a second set of rules.
-            guard await ensurePermission(perm, for: principal, pregrant: pregrant) else {
+            guard try await ensurePermission(perm, for: principal, pregrant: pregrant) else {
                 throw BridgeError.permissionDenied(perm.rawValue)
             }
         }

@@ -28,6 +28,17 @@ import Combine
 // so the card can state what "Allow" actually does. `PermissionRequester`, the coordinator's own
 // first draft of that identity, collapsed into Principal in Phase 3.
 
+/// How an ask ended (APP-16). A Bool could not say that NOTHING was asked: while Port42 is locked
+/// the shell, the only place a card renders, is not mounted, so an ask hung with no card anywhere.
+public enum PermissionOutcome: Equatable {
+    /// The person clicked Allow.
+    case granted
+    /// The person said no, or the ask was dropped (the asker went away, the queue was torn down).
+    case denied
+    /// Nothing was asked: no card could be seen (locked, or not set up), so the caller retries later.
+    case locked
+}
+
 /// One pending ask. Many awaiters can ride a single request (coalescing), so a port that fires
 /// three `ai.complete` calls at once shows one card and resumes all three.
 public final class PermissionRequest: Identifiable, ObservableObject {
@@ -37,7 +48,7 @@ public final class PermissionRequest: Identifiable, ObservableObject {
     /// What exactly is asked for, when the permission alone does not say: the named secret a caller
     /// wants to use (`rest.call`). Part of the coalescing key, so two different secrets are two cards.
     public let detail: String?
-    fileprivate var continuations: [CheckedContinuation<Bool, Never>] = []
+    fileprivate var continuations: [CheckedContinuation<PermissionOutcome, Never>] = []
 
     /// How many awaiters ride this request. Continuations stay private; the count is observable so
     /// a caller (or a test settling on registration) can see coalescing without touching them.
@@ -51,10 +62,10 @@ public final class PermissionRequest: Identifiable, ObservableObject {
 
     /// Resume every awaiter exactly once. The list is cleared first so a double-answer (Esc racing
     /// a click) is a no-op rather than a crash on a resumed continuation.
-    fileprivate func resolve(_ granted: Bool) {
+    fileprivate func resolve(_ outcome: PermissionOutcome) {
         let waiting = continuations
         continuations.removeAll()
-        for c in waiting { c.resume(returning: granted) }
+        for c in waiting { c.resume(returning: outcome) }
     }
 
     /// The macOS consent dialogs that follow OUR card, named before they appear. Found live
@@ -95,6 +106,12 @@ public final class PermissionCoordinator: ObservableObject {
 
     public init() {}
 
+    /// Whether a card can be SEEN right now (APP-16). Supplied by the owner, which knows what the
+    /// root is showing: `AppState` answers false while locked or before setup, when the shell and
+    /// with it `ShellPermissionOverlay` are not mounted. Such an ask is refused as `.locked` rather
+    /// than queued for a card nobody can see.
+    public var canPrompt: () -> Bool = { true }
+
     /// Ask for a permission. Suspends until the human answers. Never returns without resolving —
     /// that's the whole point of routing every caller through one queue.
     ///
@@ -102,7 +119,14 @@ public final class PermissionCoordinator: ObservableObject {
     /// the existing request instead of clobbering its continuation.
     public func request(_ permission: PortPermission, from principal: Principal,
                         detail: String? = nil) async -> Bool {
-        await withCheckedContinuation { continuation in
+        await decide(permission, from: principal, detail: detail) == .granted
+    }
+
+    /// `request`, keeping how it ended, so a lock can reach the caller as its own error (APP-16).
+    public func decide(_ permission: PortPermission, from principal: Principal,
+                       detail: String? = nil) async -> PermissionOutcome {
+        guard canPrompt() else { return .locked }
+        return await withCheckedContinuation { continuation in
             if let existing = find(permission, principal, detail) {
                 existing.continuations.append(continuation)
                 return
@@ -130,17 +154,23 @@ public final class PermissionCoordinator: ObservableObject {
     public func resolveCurrent(granted: Bool) {
         guard let req = current else { return }
         current = nil
-        req.resolve(granted)
+        req.resolve(granted ? .granted : .denied)
         advance()
     }
 
     /// Deny everything pending — the "get me out of here" path (Esc denies only the current card;
     /// this is for teardown, e.g. the shell going away with asks outstanding).
     public func denyAll() {
+        withdrawAll(.denied)
+    }
+
+    /// Resolve everything pending with one outcome. Locking uses `.locked` (APP-16): the cards on
+    /// screen are about to be covered, and a card nobody can see is not a consent surface.
+    public func withdrawAll(_ outcome: PermissionOutcome) {
         let all = (current.map { [$0] } ?? []) + queued
         current = nil
         queued.removeAll()
-        for req in all { req.resolve(false) }
+        for req in all { req.resolve(outcome) }
     }
 
     /// Drop any pending asks from a principal that no longer exists — a port closed while its card
@@ -148,12 +178,12 @@ public final class PermissionCoordinator: ObservableObject {
     public func cancelRequests(from principalId: String) {
         queued.removeAll { req in
             guard req.principal.id == principalId else { return false }
-            req.resolve(false)
+            req.resolve(.denied)
             return true
         }
         if let c = current, c.principal.id == principalId {
             current = nil
-            c.resolve(false)
+            c.resolve(.denied)
             advance()
         }
     }

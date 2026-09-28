@@ -38,6 +38,9 @@ struct ParityWorld {
 func makeParityWorld(companionName: String = "Echo", spaceName: String = "project") throws -> ParityWorld {
     let db = try DatabaseService(inMemory: true)
     let state = AppState(db: db)
+    // A headless world stands in for a mounted, unlocked shell, where a permission card can be seen
+    // (APP-16: with no shell an ask is refused as `locked`).
+    state.permissions.canPrompt = { true }
     let user = AppUser.createForTesting(displayName: "Alice")
     try db.saveUser(user)
     state.currentUser = user

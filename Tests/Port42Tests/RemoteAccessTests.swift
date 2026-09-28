@@ -18,6 +18,7 @@ struct RemoteAccessTests {
 
     func makeWorld() throws -> World {
         let state = AppState(db: try DatabaseService(inMemory: true))
+        state.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         _ = state.portWindows.registerTiledPort(id: "remote-p", html: "<html><body>p</body></html>",
                                                 spaceId: nil, createdBy: nil, title: "shared chart", position: nil)
         _ = state.portWindows.registerTiledPort(id: "remote-q", html: "<html><body>q</body></html>",
@@ -55,6 +56,7 @@ struct RemoteAccessTests {
     @Test("every registry method is classified, and the table names no method that does not exist")
     func everyMethodClassified() throws {
         let state = AppState(db: try DatabaseService(inMemory: true))
+        state.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let methods = Set(state.bridgeRegistry.keys).union(state.bridgeStreamRegistry.keys)
         let classified = Set(RemoteAccess.table.keys)
         #expect(methods.subtracting(classified).isEmpty, """
@@ -68,6 +70,7 @@ struct RemoteAccessTests {
     @Test("a remotely reachable method names an argument it really takes, and none needs a permission")
     func reachableMethodsAreSound() throws {
         let state = AppState(db: try DatabaseService(inMemory: true))
+        state.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         for (name, reach) in RemoteAccess.table {
             let one = state.bridgeRegistry[name]
             let stream = state.bridgeStreamRegistry[name]

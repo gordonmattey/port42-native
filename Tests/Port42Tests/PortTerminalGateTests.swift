@@ -63,6 +63,7 @@ struct PortTerminalGateTests {
     @Test("port.push and port.subscribe declare their terminal target on the LIVE registries")
     func declared() throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         // Asserted after `acceptingExpect()` has copied every write verb, which is where a field
         // not carried by the copy constructor would silently vanish.
         #expect(appState.bridgeRegistry["port.push"]?.terminalTarget == "id")
@@ -87,6 +88,7 @@ struct PortTerminalGateTests {
     @Test("a zero-grant port.push to a terminal is refused, types nothing and moves no token")
     func zeroGrantPushIsRefused() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let typed = Typed()
         liveTerminal(appState, key: "term-1", typed: typed)
         let attacker = Principal.peer(id: "zero-grant-\(UUID().uuidString)", displayName: "any caller")
@@ -110,6 +112,7 @@ struct PortTerminalGateTests {
     @Test("a caller holding .terminal still pushes without being asked")
     func grantedPushStillWorks() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let typed = Typed()
         liveTerminal(appState, key: "term-2", typed: typed)
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
@@ -126,6 +129,7 @@ struct PortTerminalGateTests {
     @Test("a guest on another machine holding `use` on a shared terminal is not asked for .terminal")
     func remoteUseRightIsNotAsked() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         let typed = Typed()
         liveTerminal(appState, key: "term-r", typed: typed)
         let guest = Principal.remote(peer: "peer-guest-key", displayName: "Ada")
@@ -146,6 +150,7 @@ struct PortTerminalGateTests {
     @Test("a zero-grant port.subscribe to a terminal is refused and registers no subscriber")
     func zeroGrantSubscribeIsRefused() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         liveTerminal(appState, key: "term-3", typed: Typed())
         let attacker = Principal.peer(id: "zero-grant-\(UUID().uuidString)", displayName: "any caller")
 
@@ -197,6 +202,7 @@ struct PortTerminalGateTests {
     @Test("a yes to one terminal is kept for that terminal, not for every terminal")
     func grantIsPerTerminal() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         liveTerminal(appState, key: "term-a", typed: Typed())
         liveTerminal(appState, key: "term-b", typed: Typed())
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
@@ -216,6 +222,7 @@ struct PortTerminalGateTests {
     @Test("the card names the terminal it is about")
     func cardNamesTheTerminal() async throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.permissions.canPrompt = { true }   // a mounted shell (APP-16)
         liveTerminal(appState, key: "term-c", typed: Typed())
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
         let task = Task { @MainActor in try? await self.push(appState, p, "term-c") }

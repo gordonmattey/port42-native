@@ -243,12 +243,12 @@ extension AppState {
     /// May this caller use this named secret? Asks the person once, by a card that names the secret,
     /// and remembers the answer. A remote caller never gets here: `rest.call` is never reachable from
     /// another machine.
-    func ensureSecretGrant(_ name: String, for p: Principal) async -> Bool {
+    func ensureSecretGrant(_ name: String, for p: Principal) async throws -> Bool {
         let object = Self.secretObject(name)
         if (try? db.grants(grantee: p.id, object: object, zone: ""))?.contains(.rest) == true {
             return true
         }
-        guard await permissions.request(.rest, from: p,
+        guard try await ask(.rest, from: p,
                                         detail: "Use your secret '\(name)' in its web requests") else {
             return false
         }

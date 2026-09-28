@@ -272,7 +272,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
             let title = appState.portWindows.panels.first { $0.udid == key }?.title ?? key
             let detail = AppState.shareCardDetail(title: title, rights: rights,
                                                   reach: appState.portMachineGrants(key))
-            guard await appState.ensureShareGrant(AppState.shareObject(port: key, rights: rights),
+            guard try await appState.ensureShareGrant(AppState.shareObject(port: key, rights: rights),
                                                   detail: detail, for: p,
                                                   remember: !rights.contains(.edit) && !rights.contains(.move)) else {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
@@ -497,9 +497,9 @@ extension AppState {
     /// Ask a caller to share a port or open one (see `invite.create`, `invite.accept`). A yes is kept
     /// for `object` unless `remember` is false, when it is asked every time (NAU-03: edit, move).
     func ensureShareGrant(_ object: String, detail: String, for p: Principal,
-                          remember: Bool = true) async -> Bool {
+                          remember: Bool = true) async throws -> Bool {
         if remember, (try? db.grants(grantee: p.id, object: object, zone: ""))?.contains(.share) == true { return true }
-        guard await permissions.request(.share, from: p, detail: detail) else { return false }
+        guard try await ask(.share, from: p, detail: detail) else { return false }
         if remember { try? db.saveGrants([.share], grantee: p.id, object: object, zone: "") }
         return true
     }
@@ -611,7 +611,7 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
         let remoteWake = args.bool("remoteWake") ?? true
         if p.kind != .human, let c = InviteCoupon.fromLink(try args.requireString("link")) {
             let wake = remoteWake ? ". Their companions can wake yours in its chat (remote wake)" : ""
-            guard await appState.ensureShareGrant(AppState.shareObject(port: "\(c.host)/\(c.port)"),
+            guard try await appState.ensureShareGrant(AppState.shareObject(port: "\(c.host)/\(c.port)"),
                                                   detail: "Open '\(c.portTitle)' from \(c.hostName)\(wake)", for: p) else {
                 throw BridgeError.permissionDenied(PortPermission.share.rawValue)
             }

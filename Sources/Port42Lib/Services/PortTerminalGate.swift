@@ -42,7 +42,7 @@ extension AppState {
         guard Self.terminalTargetNeedsGrant(ref?.kind, standing: standing) else { return }
         let key = ref?.key ?? raw
         let name = terminalControllers[key]?.config.companionName ?? raw
-        guard await ensurePermission(.terminal, for: principal, on: .port(key),
+        guard try await ensurePermission(.terminal, for: principal, on: .port(key),
                                      detail: "Type into and read the terminal '\(name)'",
                                      pregrant: pregrant) else {
             throw BridgeError.permissionDenied(PortPermission.terminal.rawValue)

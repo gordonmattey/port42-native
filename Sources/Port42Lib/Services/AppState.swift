@@ -68,7 +68,11 @@ public final class AppState: ObservableObject {
     /// and the agentSpaces observation). That is why no mutation path can leave the dock/member list
     /// stale (the bug that motivated this: a team-space delete never refreshed the old manual cache).
     @Published public private(set) var spaceCompanions: [AgentConfig] = []
-    @Published public var showDreamscape = true
+    @Published public var showDreamscape = true {
+        // Locking covers the shell, and the permission card renders only there (APP-16). Withdraw
+        // what is pending rather than leave callers suspended on a card nobody can see.
+        didSet { if showDreamscape && !oldValue { permissions.withdrawAll(.locked) } }
+    }
     @Published public var toastMessage: String?
     /// Agent names currently typing, keyed by spaceId
     @Published public var typingAgentNamesBySpace: [String: Set<String>] = [:]
@@ -532,6 +536,11 @@ public final class AppState: ObservableObject {
 
     public init(db: DatabaseService) {
         self.db = db
+        // A card can be seen only when the root is the SHELL: not locked, and set up (APP-16).
+        permissions.canPrompt = { [weak self] in
+            guard let self else { return false }
+            return !self.showDreamscape && self.isSetupComplete
+        }
         // Forward nested door/portWindows changes to trigger SwiftUI updates
         doorCancellable = door.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()

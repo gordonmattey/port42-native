@@ -54,6 +54,9 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
 
     // MARK: Refused on purpose
     case permissionDenied = "permission_denied"
+    /// Port42 is locked (or not set up), so no permission card can be seen and nothing was asked
+    /// (APP-16). Not `permission_denied`: nobody said no, and the caller retries after unlock.
+    case locked
     /// The caller presented no credential, or one that does not verify (slice-02 half two, 5b).
     ///
     /// Distinct from `permission_denied`, because the caller's repair is different in kind: a denied
@@ -200,7 +203,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .missingArg, .badArg, .unknownMethod, .jsSyntax, .tooLarge: return .fixYourCall
         case .notFound, .noSurface, .portPaused:            return .theTarget
         case .wrongState:                                   return .changeStateRetry
-        case .permissionDenied, .accessDenied, .budgetSpent, .notGranted, .inviteInvalid: return .askTheUser
+        case .permissionDenied, .locked, .accessDenied, .budgetSpent, .notGranted, .inviteInvalid: return .askTheUser
         case .authRequired, .authRevoked:                   return .enrolFirst
         case .timedOut, .aiTimeout, .jsTimeout:             return .waitOrAllowLonger
         case .unsupported:                                  return .doNotRetry
@@ -219,6 +222,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .noSurface:       return "it exists but has nothing live to write to yet — wait or respawn"
         case .wrongState:      return "already streaming, not streaming, no active capture, session limit reached — stop or close one, then call again"
         case .permissionDenied: return "a capability: they grant it"
+        case .locked:          return "Port42 is locked, so nothing was asked: call again once they unlock it"
         case .accessDenied:    return "a path they never picked: they pick a file"
         case .notGranted:      return "you are on another machine and your invite does not cover this; the host sends a new one"
         case .inviteInvalid:   return "the invite is used, expired, withdrawn or needs the right code; ask for a new one"
