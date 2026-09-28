@@ -142,6 +142,7 @@ extension AppState {
                     p42log("[mirror] \(row.title): \(error)")
                 }
                 self.mirrorStatus[tile]?.online = false
+                if let key = self.mirrorChatKey(tile) { self.presence.setRemote(key, []) }
                 failures = Date().timeIntervalSince(started) > Self.mirrorHeld ? 1 : failures + 1
                 await self.mirrorWait(Self.mirrorDelay(failures: failures))
             }
@@ -150,6 +151,7 @@ extension AppState {
     }
 
     func stopMirror(tile: String) {
+        if let key = mirrorChatKey(tile) { presence.setRemote(key, []) }
         remoteMirrors.removeValue(forKey: tile)?.cancel()
         mirrorStatus.removeValue(forKey: tile)
     }
@@ -181,6 +183,12 @@ extension AppState {
             if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
                 chats.received(key, entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
+            }
+        case PortEventKind.presence.wire:
+            // Who is working in the host's chat, as the host sees it (presence in the API).
+            if let key = mirrorChatKey(tile) {
+                let list = ((o["payload"] as? [String: Any])?["presence"] as? [Any]) ?? []
+                presence.setRemote(key, list.compactMap(ChatPresence.init(wire:)))
             }
         case PortEventKind.storage.wire:
             portWindows.panels.first { $0.id == tile }?.bridge.pushEvent(.storage, data: BridgeValue.fromJSONObject(o["payload"] ?? NSNull()))
@@ -299,6 +307,13 @@ extension AppState {
                                                    args: ["port": row.portKey]) as? [String: Any],
               let list = out["entries"] as? [Any] else { return }
         chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
+        // And who is on it right now, so a tile opened mid-turn shows it. A host older than presence in
+        // the API has no `presence.list`; the tile then shows presence from the next event on.
+        if let now = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "presence.list",
+                                                 args: ["port": row.portKey]) as? [String: Any],
+           let list = now["presence"] as? [Any] {
+            presence.setRemote(key, list.compactMap(ChatPresence.init(wire:)))
+        }
     }
 
     /// Fetch the host's page into the tile. False when the host could not be reached.

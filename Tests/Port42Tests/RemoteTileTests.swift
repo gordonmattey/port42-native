@@ -35,7 +35,7 @@ struct RemoteTileTests {
     }
 
     func host(_ gw: Gateway, html: @escaping () -> String, events: [[String: Any]] = [],
-              chat: [[String: Any]] = []) {
+              chat: [[String: Any]] = [], presence: [[String: Any]]? = nil) {
         gw.reply = { method, _ in
             switch method {
             case "invite.redeem":
@@ -53,6 +53,8 @@ struct RemoteTileTests {
                 return [RemotePortTests.response(["entries": chat, "last": chat.count])]
             case "chat.post":
                 return [RemotePortTests.response(["ok": true])]
+            case "presence.list" where presence != nil:
+                return [RemotePortTests.response(["presence": presence!])]
             default:
                 return [["type": "error", "code": "transport_failed", "error": "unscripted \(method)"]]
             }
@@ -231,6 +233,50 @@ struct RemoteTileTests {
         #expect((post["args"] as? [String: Any])?["port"] as? String == "P", "the post did not go to the host's port")
         #expect(try state.db.chatEntries(chat: key, after: 0, limit: 50).isEmpty, "the tile kept its own chat")
         state.stopMirror(tile: tile)
+    }
+
+    // MARK: - Presence from the host (presence in the API, GM 2026-09-27)
+
+    static func present(_ name: String, _ state: String, why: String? = nil) -> [String: Any] {
+        var o: [String: Any] = ["name": name, "state": state, "since": 1_800_000_000]
+        if let why { o["why"] = why }
+        return o
+    }
+
+    @Test("a tile opened mid-turn shows who is working in the host's chat")
+    func presenceOnOpen() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" }, presence: [Self.present("echo", "working")])
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        await settle { !state.presence.entries(key).isEmpty }
+        #expect(state.presence.entries(key).map { "\($0.name) \($0.state)" } == ["echo working"])
+        state.stopMirror(tile: tile)
+        #expect(state.presence.entries(key).isEmpty, "presence from a host no longer mirrored stayed on the tile")
+    }
+
+    @Test("the host's presence events reach the tile's chat, and a host's echo and ours stay apart")
+    func presenceLiveAndApart() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" },
+             events: [["kind": "presence", "payload": ["presence": [Self.present("echo", "waiting", why: "allow Bash?")]]]])
+        state.presence.received("echo", in: "a-local-chat")            // our own echo, elsewhere
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        await settle { !state.presence.entries(key).isEmpty }
+        #expect(state.presence.entries(key).first?.state == .waiting("allow Bash?"))
+        #expect(state.presence.entries("a-local-chat").map(\.name) == ["echo"], "the host's echo moved ours")
+        state.presence.done("echo")                                    // our echo's turn ends
+        #expect(state.presence.entries(key).map(\.name) == ["echo"], "ours ending cleared the host's")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("a malformed presence entry from a host is dropped, not shown")
+    func presenceMalformed() {
+        #expect(ChatPresence(wire: ["name": "echo", "state": "dancing"]) == nil)
+        #expect(ChatPresence(wire: ["state": "working"]) == nil)
+        #expect(ChatPresence(wire: "echo") == nil)
+        #expect(ChatPresence(wire: Self.present("echo", "received"))?.state == .received)
     }
 
     @Test("a mention in the host's chat wakes this instance's companion only with the tile's switch on, and only by its own name there")

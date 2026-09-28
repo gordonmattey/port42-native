@@ -34,6 +34,20 @@ public struct ChatPresence: Equatable {
 }
 
 extension ChatPresence {
+    /// Read back from the API's form, as another machine sends it. nil for anything malformed.
+    public init?(wire: Any) {
+        guard let o = wire as? [String: Any], let name = o["name"] as? String, !name.isEmpty,
+              let state = o["state"] as? String else { return nil }
+        switch state {
+        case "received": self.state = .received
+        case "working": self.state = .working
+        case "waiting": self.state = .waiting(o["why"] as? String ?? "")
+        default: return nil
+        }
+        self.name = name
+        self.since = Date(timeIntervalSince1970: (o["since"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970)
+    }
+
     /// What the chat says when an agent's turn failed instead of replying (GM, 2026-09-27): who,
     /// what went wrong in words, and what to do. Claude's StopFailure codes; anything else reads as
     /// an error, with the CLI's own words when it gave them.
@@ -92,7 +106,16 @@ public final class ChatPresenceStore: ObservableObject {
     /// The turn ended (its reply landed) or the CLI stopped.
     public func done(_ name: String) { remove(name) }
 
-    public func entries(_ chat: String) -> [ChatPresence] { byChat[chat] ?? [] }
+    public func entries(_ chat: String) -> [ChatPresence] { (byChat[chat] ?? []) + (remoteByChat[chat] ?? []) }
+
+    /// Presence on a tile of another machine's port, as that machine reports it (its `presence` event).
+    /// Kept apart from this machine's own: the host's companions are not ours, so a local agent of the
+    /// same name must neither move them nor be moved by them. Replaced whole, as the host sends it.
+    @Published public private(set) var remoteByChat: [String: [ChatPresence]] = [:]
+
+    public func setRemote(_ chat: String, _ list: [ChatPresence]) {
+        if remoteByChat[chat] != (list.isEmpty ? nil : list) { remoteByChat[chat] = list.isEmpty ? nil : list }
+    }
 
     private func remove(_ name: String) {
         for (chat, list) in byChat {
