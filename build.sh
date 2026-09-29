@@ -498,7 +498,7 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
     cp -R "$APP" "$DIST/Port42.app"
 
     # Eject any mounted Port42 volumes before creating DMG
-    hdiutil detach /Volumes/Port42 -force 2>/dev/null || true
+    hdiutil detach "/Volumes/Install Port42" -force 2>/dev/null || true
 
     # Create DMG with Applications symlink for drag-and-drop install
     rm -f "$DMG"
@@ -507,7 +507,10 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
     mkdir -p "$DMG_STAGING"
     cp -R "$DIST/Port42.app" "$DMG_STAGING/"
     ln -s /Applications "$DMG_STAGING/Applications"
-    hdiutil create -volname "Port42 Companion Computing" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" 2>&1
+    # "Install Port42", not a name starting "Port42": on 2026-09-28 this Mac refused to copy the app
+    # into any volume named "Port42…" (Operation not permitted), in any shell, while the same app went
+    # into a volume of any other name. The name is only what Finder shows when the DMG is opened.
+    hdiutil create -volname "Install Port42" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" 2>&1
     rm -rf "$(dirname "$DMG_STAGING")"
 
     # Sign DMG, with a secure timestamp. Apple's timestamp service sometimes does not answer ("A
