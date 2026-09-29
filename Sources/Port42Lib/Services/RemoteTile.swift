@@ -197,6 +197,7 @@ extension AppState {
             // The tile's chat is the host's: each post there is shown here as it lands, stored only there.
             if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
                 chats.received(key, entry)
+                noticeMention(key: key, entry: entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
             }
         case PortEventKind.presence.wire:
@@ -274,12 +275,27 @@ extension AppState {
     /// is on; its reply goes to the tile's chat, so to the host (`postReply`). A companion never wakes
     /// for its own post.
     func wakeMentioned(tile: String, key: String, entry: PortChatEntry) {
-        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs,
-              let panel = portWindows.panels.first(where: { $0.id == tile }),
-              let spaceId = panel.spaceId ?? currentSpace?.id else { return }
+        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else { return }
         let targets = mirroredMentions(entry.text, knownAs: knownAs)
             .filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
-        guard !targets.isEmpty else { return }
+        deliverMirrored(targets, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
+    }
+
+    /// The person's own post in a tile of someone else's port wakes their own companions by plain name.
+    /// No switch: it is the person asking their own companion, not the other machine waking it.
+    func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String) {
+        guard let tile = portWindows.panels.first(where: { $0.udid == key })?.id else { return }
+        let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
+        let targets = companions.filter { named.contains($0.displayName.lowercased()) }
+        deliverMirrored(targets, tile: tile, key: key, text: text, fromName: fromName, fromId: fromId)
+    }
+
+    /// Hand a post in a mirrored chat to this machine's companions; their replies go to the host's chat.
+    private func deliverMirrored(_ targets: [AgentConfig], tile: String, key: String, text: String,
+                                 fromName: String, fromId: String) {
+        guard !targets.isEmpty, let panel = portWindows.panels.first(where: { $0.id == tile }),
+              let spaceId = panel.spaceId ?? currentSpace?.id else { return }
+        let entry = PortChatEntry(seq: 0, at: Date(), text: text, fromId: fromId, fromName: fromName, fromKind: "human")
         let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel),
                                             text: entry.text)
         let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))

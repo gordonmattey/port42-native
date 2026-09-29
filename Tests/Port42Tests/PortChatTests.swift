@@ -420,4 +420,28 @@ struct PortChatTests {
         let t = ChatTranscript.build([e(1, "gordon", "first"), e(2, "swift-fox", "second")], me: nil, accent: .green)
         #expect(t.text.string == "gordon\nfirst\nswift-fox\nsecond")
     }
+
+    // MARK: - Mentioning anyone in a chat (GM, 2026-09-28)
+
+    @Test("everyone in a chat can be mentioned: own companions, then whoever posted there, never Port42 or me")
+    func mentionableNames() {
+        let t = Date()
+        func e(_ id: String, _ name: String) -> PortChatEntry { PortChatEntry(seq: 1, at: t, text: "x", fromId: id, fromName: name, fromKind: "human") }
+        let names = ChatRouting.mentionable(companions: ["sunny-lynx"],
+            entries: [e("u-me", "gordon"), e("peer-j", "Justin"), e("port42", "port42"), e("peer-j2", "Ovi (Justin)"), e("peer-j", "Justin")],
+            me: "u-me")
+        #expect(names == ["sunny-lynx", "Justin", "Ovi (Justin)"])   // newest first: Justin posted last
+        #expect(ChatRouting.mentionSuggestions(query: "ov", names: names) == ["Ovi (Justin)"])
+        #expect(ChatRouting.mentionSuggestions(query: "ju", names: names) == ["Justin"])
+    }
+
+    @Test("a mention is recognised however it is spelled, and one that matches no one is named")
+    func mentionMatching() {
+        #expect(ChatRouting.mentions("hey @Justin look", name: "justin"))
+        #expect(ChatRouting.mentions("try \(CompanionName.mention("Ovi (Justin)")) now", name: "Ovi (Justin)"))
+        #expect(!ChatRouting.mentions("email justin@example.com", name: "justin"))
+        #expect(ChatRouting.unmatchedMentions("@Ovi and @sunny-lynx and @all", known: ["sunny-lynx"]) == ["Ovi"])
+        #expect(ChatRouting.unmatchedMentions("no mentions here", known: []).isEmpty)
+    }
+
 }

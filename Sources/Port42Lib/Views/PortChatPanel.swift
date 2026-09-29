@@ -97,9 +97,9 @@ struct PortChatPanel: View {
             ChatPresenceStrip(presence: appState.presence, key: key, accent: accent)
             if !suggestions.isEmpty {
                 HStack(spacing: 6) {
-                    ForEach(suggestions, id: \.id) { c in
-                        Button { draft = ChatRouting.complete(draft, with: c.displayName) } label: {
-                            Text("@" + c.displayName)
+                    ForEach(suggestions, id: \.self) { name in
+                        Button { draft = ChatRouting.complete(draft, with: name) } label: {
+                            Text("@" + name)
                                 .font(Port42Theme.mono(10)).foregroundStyle(accent)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Port42Theme.bgHover, in: Capsule())
@@ -115,6 +115,12 @@ struct PortChatPanel: View {
                 Text(error).font(Port42Theme.mono(9)).foregroundStyle(.red.opacity(0.8))
                     .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
             }
+            if !unmatched.isEmpty {
+                Text("no one here is called " + unmatched.map { "@" + $0 }.joined(separator: ", "))
+                    .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.top, 4)
+            }
             HStack(alignment: .bottom, spacing: 6) {
                 // Wraps onto more lines as the message grows (GM, 2026-09-27); Return still sends.
                 TextField("say something", text: $draft, axis: .vertical)
@@ -126,7 +132,7 @@ struct PortChatPanel: View {
                     // Tab completes the @name being typed to the first suggestion.
                     .onKeyPress(.tab) {
                         guard let first = suggestions.first else { return .ignored }
-                        draft = ChatRouting.complete(draft, with: first.displayName)
+                        draft = ChatRouting.complete(draft, with: first)
                         return .handled
                     }
                 Button(action: send) {
@@ -148,9 +154,24 @@ struct PortChatPanel: View {
     }
 
     /// Companions matching the @name being typed, up to five.
-    private var suggestions: [AgentConfig] {
+    /// Everyone who can be mentioned here: this instance's companions, then everyone who has posted in
+    /// this chat (the other person in a shared port, and their companions).
+    private var mentionable: [String] {
+        ChatRouting.mentionable(companions: appState.companions.map(\.displayName),
+                                entries: chats.entries[key] ?? [], me: appState.currentUser?.id)
+    }
+
+    /// Names matching the @name being typed, up to five.
+    private var suggestions: [String] {
         guard let q = ChatRouting.mentionQuery(in: draft) else { return [] }
-        return Array(MentionParser.autocomplete(query: "@" + q, agents: appState.companions).prefix(5))
+        return Array(ChatRouting.mentionSuggestions(query: q, names: mentionable).prefix(5))
+    }
+
+    /// Finished mentions in the draft that match no one here (the one being typed is not judged yet).
+    private var unmatched: [String] {
+        var text = draft
+        if ChatRouting.mentionQuery(in: text) != nil, let at = text.lastIndex(of: "@") { text = String(text[..<at]) }
+        return ChatRouting.unmatchedMentions(text, known: mentionable)
     }
 
     /// Show the scroll pill at `date`, and hide it a moment after scrolling stops.

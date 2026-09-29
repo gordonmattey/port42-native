@@ -346,6 +346,22 @@ struct InviteTests {
         #expect(row([.move], "a", nil).isUsedUp, "a port moves once")
     }
 
+    @Test("the host hears when a guest mentions them; their own posts and unrelated ones stay quiet")
+    func hostHearsTheirName() async throws {
+        let w = try world()
+        w.state.currentUser = AppUser.createLocal(displayName: "gordon")
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(try await create(w)).nonce, "name": "Justin"])
+        w.state.lastMentionNotice = nil
+        _ = try await remote(w, as: Self.ada, "chat.post", ["port": w.p, "text": "hello everyone"])
+        #expect(w.state.lastMentionNotice == nil, "a plain post was taken for a mention")
+        _ = try await remote(w, as: Self.ada, "chat.post", ["port": w.p, "text": "@gordon is Ovi here?"])
+        #expect(w.state.lastMentionNotice?.key == w.p, "the guest mentioned the host and nothing told them")
+        w.state.lastMentionNotice = nil
+        _ = try w.state.postToChat(key: w.p, text: "@gordon note to self",
+                                   from: .human(id: w.state.currentUser!.id, displayName: "gordon", spaceId: nil))
+        #expect(w.state.lastMentionNotice == nil, "the person was told about their own post")
+    }
+
     @Test("the second machine meets the same checks as the first: expiry and code")
     func secondUseChecked() async throws {
         let w = try world()

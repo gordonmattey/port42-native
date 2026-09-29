@@ -256,6 +256,44 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    // MARK: - Mentions in a shared chat (GM's brother, 2026-09-28)
+
+    @Test("a guest's plain @name wakes their own companion from their own post, with the reply bound for the shared chat")
+    func guestPlainMentionWakesOwn() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        var ovi = AgentConfig.createCommand(ownerId: "u", displayName: "Ovi", command: "claude", systemPrompt: nil, trigger: .mentionOnly)
+        ovi.openInTerminal = true
+        state.companions = [ovi]
+        let space = Space.create(name: "here")
+        try state.db.saveSpace(space)
+        state.spaces = [space]
+        state.currentSpace = space
+        state.currentUser = AppUser.createLocal(displayName: "Justin")
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        state.chatReplyTargets = [:]
+        try await state.postToChatAsPerson(key: key, text: "@Ovi add the Jump Jet game")
+        #expect(state.chatReplyTargets["ovi"] == key, "a guest's @Ovi reached no one (the silent failure)")
+        state.chatReplyTargets = [:]
+        try await state.postToChatAsPerson(key: key, text: "@Nobody hello")
+        #expect(state.chatReplyTargets.isEmpty, "a name that is not theirs woke something")
+        state.stopMirror(tile: tile)
+    }
+
+    @Test("a guest hears when the host mentions them, by their name or the label the host knows them by")
+    func guestHearsTheirName() async throws {
+        let (state, gw) = try world()
+        state.currentUser = AppUser.createLocal(displayName: "Justin")
+        host(gw, html: { "<p>x</p>" }, events: [["kind": "chat", "payload": Self.entry(5, "@Ada can you try co-op?", from: "Gordon")]])
+        let tile = try await accept(state)                 // the host knows this machine as "Ada" (the test invite)
+        let key = try #require(state.mirrorChatKey(tile))
+        await settle { state.lastMentionNotice != nil }
+        #expect(state.lastMentionNotice?.key == key && state.lastMentionNotice?.from == "Gordon",
+                "the host mentioned the guest and nothing told them")
+        state.stopMirror(tile: tile)
+    }
+
     // MARK: - Presence from the host (presence in the API, GM 2026-09-27)
 
     static func present(_ name: String, _ state: String, why: String? = nil) -> [String: Any] {

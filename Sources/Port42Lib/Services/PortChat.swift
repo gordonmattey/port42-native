@@ -106,6 +106,7 @@ extension AppState {
         let entry = try db.appendChatEntry(chat: key, text: text, at: Date(),
                                            fromId: who.id, fromName: who.name, fromKind: who.kind)
         chats.received(key, entry)
+        noticeMention(key: key, entry: entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
         // A caller on another machine wakes this machine's companions only when its invite says so:
@@ -295,6 +296,51 @@ public enum ChatRouting {
 
     /// The draft with the @name being typed completed to `name`'s mention (escaped, see
     /// `CompanionName.mention`), followed by a space.
+    // MARK: Mentioning anyone in a chat (GM, 2026-09-28)
+    //
+    // Autocomplete offered only this instance's own companions, so in a shared port's chat nobody could
+    // mention the other person, or the other person's companions (named "Ovi (Justin)" there, a name no
+    // one types with its escapes).
+
+    /// Everyone who can be mentioned in a chat: this instance's companions, then everyone who has posted
+    /// there (people, and another machine's companions), once each, newest first. Never Port42 itself or
+    /// the person reading.
+    public static func mentionable(companions: [String], entries: [PortChatEntry], me: String?) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        func add(_ n: String) {
+            let k = n.lowercased()
+            guard !n.isEmpty, !seen.contains(k) else { return }
+            seen.insert(k); out.append(n)
+        }
+        companions.forEach(add)
+        for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me { add(e.fromName) }
+        return out
+    }
+
+    /// The names a half-typed mention could mean, by prefix.
+    public static func mentionSuggestions(query: String, names: [String]) -> [String] {
+        let q = (query.removingPercentEncoding ?? query).lowercased()
+        return names.filter { $0.lowercased().hasPrefix(q) }
+    }
+
+    /// Whether `text` mentions `name`, however it was spelled (escaped or not, any case).
+    public static func mentions(_ text: String, name: String) -> Bool {
+        let want = name.lowercased()
+        return MentionParser.extractMentions(from: text).contains { String($0.dropFirst()).lowercased() == want }
+    }
+
+    /// The mentions in `text` that match no one here, so the chat can say so rather than drop them.
+    public static func unmatchedMentions(_ text: String, known: [String]) -> [String] {
+        let names = Set(known.map { $0.lowercased() } + ["all"])
+        var out: [String] = []
+        for m in MentionParser.extractMentions(from: text) {
+            let n = String(m.dropFirst())
+            if !names.contains(n.lowercased()), !out.contains(n) { out.append(n) }
+        }
+        return out
+    }
+
     public static func complete(_ draft: String, with name: String) -> String {
         guard mentionQuery(in: draft) != nil, let at = draft.lastIndex(of: "@") else { return draft }
         return String(draft[..<at]) + CompanionName.mention(name) + " "
@@ -539,5 +585,25 @@ extension AppState {
                                       principal: .human(id: user.id, displayName: user.displayName,
                                                         spaceId: currentSpace?.id),
                                       args: BridgeArgs(["port": key, "text": text]))
+        // In a tile of someone else's port, the person's own companions answer to their plain names
+        // (GM's brother, 2026-09-28: "@Ovi" there reached no one). Only the person's own post does this.
+        if remotePort(for: key) != nil { wakeOwnCompanions(key: key, text: text, fromName: user.displayName, fromId: user.id) }
+    }
+
+    /// Someone mentioned the person reading: say so, even when Port42 is not in front (GM, 2026-09-28:
+    /// in a shared port's chat nobody could get the other person's attention by name). By their own name,
+    /// or, in a tile of someone else's port, by the label that port knows them as.
+    func noticeMention(key: String, entry: PortChatEntry) {
+        guard let user = currentUser, entry.fromId != user.id, entry.fromId != ChatRouting.port42SenderId else { return }
+        var names = [user.displayName]
+        if let tile = portWindows.panels.first(where: { $0.udid == key })?.id, let label = mirroredRemote(tile)?.knownAs {
+            names.append(label)
+        }
+        guard names.contains(where: { ChatRouting.mentions(entry.text, name: $0) }) else { return }
+        let title = portWindows.panels.first { $0.udid == key || $0.id == key }?.title ?? "a chat"
+        lastMentionNotice = (key, entry.fromName)
+        guard !AppState.isTestProcess else { return }
+        let body = entry.text.count > 160 ? String(entry.text.prefix(159)) + "…" : entry.text
+        Task { _ = await mentionNotifier.send(title: "\(entry.fromName) mentioned you in \(title)", body: body, opts: nil) }
     }
 }

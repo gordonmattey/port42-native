@@ -140,6 +140,10 @@ public final class AppState: ObservableObject {
     /// clear the record of what was in flight.
     var quitting = false
 
+    /// Mentions of the person, said as a system notification. The last one, for tests.
+    lazy var mentionNotifier = NotificationBridge()
+    var lastMentionNotice: (key: String, from: String)?
+
     /// Terminals the person has typed into since their CLI last submitted a prompt (by panel id).
     var terminalTyped: Set<String> = []
     /// The person typed into a terminal (a key, a paste, dictation), so its next prompt is theirs.
