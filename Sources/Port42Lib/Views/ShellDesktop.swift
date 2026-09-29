@@ -1047,11 +1047,10 @@ struct ShellParkRail: View {
     /// restore. It is also the drop zone that parks a tile.
     private func parkedSection(active: Bool) -> some View {
         let parked = railPanels
-        let label = HStack(spacing: 5) {
-            Image(systemName: "tray.and.arrow.down").font(.system(size: 11, weight: active ? .bold : .regular))
-            Text("\(parked.count)").font(Port42Theme.mono(10))
-        }
-        .foregroundStyle(active ? shell.accent : Self.railInk)
+        // Words, not icons (GM, 2026-09-29): a parked port is stopped, a hidden one is running.
+        let label = Text("Stopped (\(parked.count))")
+            .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
+            .foregroundStyle(active ? shell.accent : Self.railInk)
         // A plain menu keeps the label's own color and size; the frame centers it in the rail.
         return Group {
             if parked.isEmpty {
@@ -1071,8 +1070,8 @@ struct ShellParkRail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
-        .help(parked.isEmpty ? "Drag a port here to park it: it pauses until you restore it."
-                             : "Parked ports: click to restore one. Drag a port here to park it.")
+        .help(parked.isEmpty ? "Drag a port here to stop it until you restore it."
+                             : "Stopped ports: click to restore one. Drag a port here to stop it.")
     }
 
     /// HIDDEN PORTS in this space: a card each, with its state, since a hidden port keeps running and
@@ -1081,10 +1080,11 @@ struct ShellParkRail: View {
     private func hiddenCards(active: Bool) -> some View {
         let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
         return VStack(spacing: 0) {
-            Image(systemName: "eye.slash").font(.system(size: 11, weight: active ? .bold : .regular))
+            Text("Running (\(hidden.count))")
+                .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
                 .foregroundStyle(active ? shell.accent : Self.railInk)
                 .frame(maxWidth: .infinity).frame(height: ShellState.railHeaderHeight)
-                .help("Hidden: running with no tile")
+                .help("Running with no tile. Drag a port here to keep it running off the desktop.")
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
                     ForEach(hidden) { p in
