@@ -54,7 +54,17 @@ public final class GhosttyApp {
             // Ghostty calls wakeup from its IO thread; tick must run on main.
             DispatchQueue.main.async { me.tick() }
         }
-        rt.action_cb = { _, _, _ in false }
+        // What a terminal says about itself (title, directory, a finished command, progress, the bell,
+        // a notification) becomes its port's state (docs/plan-port-state-v1.md). Ghostty may call this
+        // off the main thread and owns the strings only for the call, so the event is decoded (copied)
+        // here and delivered on main. Every other action is left unhandled, as before.
+        rt.action_cb = { _, target, action in
+            guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
+                  let event = TerminalEvent.decode(action) else { return false }
+            let key = UnsafeMutableRawPointer(surface)
+            DispatchQueue.main.async { GhosttyApp.shared.onTerminalEvent?(key, event) }
+            return true
+        }
         rt.read_clipboard_cb = { _, _, _ in false }
         rt.confirm_read_clipboard_cb = { _, _, _, _ in }
         rt.write_clipboard_cb = { _, _, _, _, _ in }
@@ -69,6 +79,9 @@ public final class GhosttyApp {
         p42log("[Ghostty] app created (singleton): \(newApp)")
         return newApp
     }
+
+    /// Where a terminal's events go, with the surface they came from (AppState routes them to the port).
+    public var onTerminalEvent: ((UnsafeMutableRawPointer, TerminalEvent) -> Void)?
 
     /// Drive one iteration of the app IO loop. Services all live surfaces.
     public func tick() {

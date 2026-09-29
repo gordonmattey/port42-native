@@ -361,6 +361,30 @@ public enum TerminalSessionBootstrap {
     /// `producerLines` used to be a hard-coded `claude()` function in this file, which made a
     /// per-CLI mechanism the property of a shared helper. Producers now own their own lines and
     /// this owns the file (2026-07-31).
+    /// The shell tells the terminal where it is (OSC 7) and how each command ended (OSC 133), as
+    /// Ghostty's own shell integration would; Port42's ZDOTDIR is what keeps that from loading. Ghostty
+    /// turns them into its working-directory and command-finished reports, which a port's card shows
+    /// (docs/plan-port-state-v1.md). A command's end is reported only after one ran, so the first
+    /// prompt reports nothing. Only to a terminal: a shell whose output is piped (`zsh -ic cmd | …`,
+    /// a nested shell a companion runs) must not get escape codes in its output.
+    static let shellReports =
+        "# Port42: report the directory and each command's exit to the terminal (OSC 7, OSC 133).\n"
+        + "__port42_osc7() { [[ -t 1 ]] && printf '\\e]7;file://%s%s\\a' \"$HOST\" \"${PWD// /%20}\" }\n"
+        + "__port42_ran=\n"
+        + "__port42_preexec() { __port42_ran=1; [[ -t 1 ]] && printf '\\e]133;C\\a' }\n"
+        + "__port42_precmd() {\n"
+        + "  local s=$?\n"
+        + "  [[ -t 1 ]] || return 0\n"
+        + "  [ -n \"$__port42_ran\" ] && printf '\\e]133;D;%s\\a' \"$s\"\n"
+        + "  __port42_ran=\n"
+        + "  printf '\\e]133;A\\a'\n"
+        + "}\n"
+        + "typeset -ag precmd_functions preexec_functions chpwd_functions\n"
+        + "precmd_functions+=(__port42_precmd)\n"
+        + "preexec_functions+=(__port42_preexec)\n"
+        + "chpwd_functions+=(__port42_osc7)\n"
+        + "__port42_osc7\n"
+
     static func writeZshIntegration(tempDir dir: String, producerLines: [String] = []) -> Bool {
         let real = "${PORT42_REAL_ZDOTDIR:-$HOME}"
         func sourceLine(_ f: String) -> String { "[ -f \"\(real)/\(f)\" ] && source \"\(real)/\(f)\"\n" }
@@ -375,6 +399,7 @@ public enum TerminalSessionBootstrap {
             + "  chpwd_functions+=(__port42_track_cwd)\n"
             + "  __port42_track_cwd\n"
             + "fi\n"
+            + shellReports
             + ownCLI
         // ownCLI goes after the user's own files, which may put another `port42` first (PORT42_BIN).
         let files: [String: String] = [

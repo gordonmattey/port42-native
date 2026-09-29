@@ -160,6 +160,9 @@ public final class AppState: ObservableObject {
     public let chats = PortChatStore()
     /// Who is on each chat's message right now (received, working, waiting), shown under the chat.
     public let presence = ChatPresenceStore()
+    /// What each port has told Port42 about itself, for its card, the hidden list and ⌘K
+    /// (docs/plan-port-state-v1.md).
+    public let portStates = PortStateStore()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
     /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
     /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
@@ -562,6 +565,14 @@ public final class AppState: ObservableObject {
         }
         portWindows.setDatabase(db)
         portWindows.appState = self
+        // A terminal's own reports (title, directory, finished commands, progress, bell) land on its
+        // port, found by the surface they came from.
+        if !AppState.isTestProcess {
+            GhosttyApp.shared.onTerminalEvent = { [weak self] surface, event in
+                guard let self, let id = self.portWindows.terminalPort(surface: surface) else { return }
+                self.portStates.apply(event, port: id)
+            }
+        }
         // The gateway names this instance's peer id in its welcome (nautilus Phase 4, 4.2).
         door.onSelfPeer = { [weak self] peer in
             guard let self else { return }

@@ -162,6 +162,11 @@ public final class PortWindowManager: ObservableObject {
         return terminalViews[id]
     }
 
+    /// The port whose terminal surface this is, if any.
+    func terminalPort(surface: UnsafeMutableRawPointer) -> String? {
+        terminalViews.first { id, view in view.surface.map { UnsafeMutableRawPointer($0) } == surface }?.key
+    }
+
     /// Register a hoisted terminal surface for a tiled terminal port (built by AppState, which owns
     /// the controller the surface binds to).
     func storeTerminalView(id: String, view: GhosttyInputView, coordinator: GhosttyTerminalView.Coordinator) {
@@ -634,6 +639,7 @@ public final class PortWindowManager: ObservableObject {
         terminalCoordinators.removeValue(forKey: id)?.teardown()
         terminalViews[id]?.removeFromSuperview()
         terminalViews.removeValue(forKey: id)
+        appState?.portStates.forget(port: id)
         // Closing ARCHIVES (nautilus Phase 2 step 2, GM: "we should never close them"): the row
         // stays, marked closed, with its latest state, so `reopen` brings back the same port with
         // the same id. A terminal keeps its live cwd for that. Only `deleteForever` removes it.
