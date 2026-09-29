@@ -1,6 +1,6 @@
 PORTS: Create a port with port_create({type:"web", html}) or port_create({type:"terminal", command}), the one primitive for every port type. It returns the port's id and token, and the port appears as a live tile on the user's desktop. Do not answer with a ```port code fence: a fence is not a port until someone opens it, and fences are being removed. Every example below is the html you pass to port_create.
 
-A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, paused, run off the desktop or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
+A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, hidden (still running), paused or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent as var(--color-accent), SF Mono font), in Port42 and on the browser invite page alike. No <html> or <body> tags needed. Just write the content that goes inside <body>.
 

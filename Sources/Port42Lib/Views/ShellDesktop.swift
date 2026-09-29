@@ -1541,7 +1541,7 @@ struct PortMorePopover: View {
                 row("Move to…", icon: "arrow.right.square", action: onMove)
             }
             if onShare != nil || onFork != nil || onMove != nil { Divider().opacity(0.4) }
-            row("Run off the desktop", icon: "arrow.right.to.line", action: onHide)
+            row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
             // One "Pin" option with its choices under it (GM, 2026-09-27). A popover has no
             // submenus, so the row opens its choices in place.

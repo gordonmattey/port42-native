@@ -56,13 +56,13 @@ struct HiddenPortTests {
         let udid = try #require(pw.panels.first { $0.id == "p" }?.udid)
         let before = pw.panels.first { $0.id == "p" }?.position(on: w.space.id)
         _ = try await call(w, "port.manage", ["id": udid, "action": "hide", "token": token(w, udid)])
-        #expect(try await status(w, udid) == "running", "hide is the older name for run")
+        #expect(try await status(w, udid) == "running", "a hidden port is running")
         _ = try await call(w, "port.manage", ["id": udid, "action": "show", "token": token(w, udid)])
         #expect(try await status(w, udid) == "tiled")
         #expect(pw.panels.first { $0.id == "p" }?.position(on: w.space.id) == before)
     }
 
-    @Test("run, pause and show: one word per state, each reachable from the others (GM, 2026-09-29)")
+    @Test("hide, pause and show: one word per state, each reachable from the others (GM, 2026-09-29)")
     @MainActor
     func runPauseShow() async throws {
         let w = try world()
@@ -74,7 +74,7 @@ struct HiddenPortTests {
         try await act("pause")
         #expect(try await status(w, udid) == "paused")
         #expect(pw.railIds(in: w.space.id) == ["q"])
-        try await act("run")                     // paused → running directly
+        try await act("hide")                    // paused → running directly
         #expect(try await status(w, udid) == "running")
         #expect(pw.railIds(in: w.space.id).isEmpty, "a running port is not also paused")
         try await act("pause")                   // running → paused directly

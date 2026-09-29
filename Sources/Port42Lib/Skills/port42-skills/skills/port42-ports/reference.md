@@ -126,9 +126,9 @@ Return the calling port's own id, title, space, capabilities, and activity token
 
 ## port.manage
 
-Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), run (off the desktop at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
+Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
 
-        action (string, required): One of: focus, close, run, pause, show, pin, pinEverywhere, unpin (hide, minimize and dock are older names for run; park for pause; restore and undock for show)
+        action (string, required): One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
 

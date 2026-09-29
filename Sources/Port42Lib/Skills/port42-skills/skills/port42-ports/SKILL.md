@@ -82,7 +82,7 @@ A port with nothing to show (a pipe stage, a poller, a scheduler, a watcher) run
     port42 port.create type=web presentation=running html=@stage.html
 
 It runs with its storage, chat and subscriptions, as a card under Running in the rail. `port42
-port.manage id=<id> action=show token=<token>` brings it back; `run` or `pause` (slowed) sends it
+port.manage id=<id> action=show token=<token>` brings it back; `hide` or `pause` (slowed) sends it
 off. A running claude or codex terminal is an agent reached through its chat.
 
 ## Share one
