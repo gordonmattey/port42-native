@@ -126,8 +126,6 @@ What the layout does with it:
   `landscape`.
 - **Resizing** snaps `columns` and keeps a `ratio`.
 - **Focus** keeps a `ratio` instead of filling the focus frame.
-- **⌘L (arrange)** groups by shape: terminals in an even grid, portrait ports side by side as columns,
-  a landscape port in the wide slot.
 
 ### Open questions for Phase B's plan
 
@@ -139,13 +137,14 @@ What the layout does with it:
 ### Checks
 
 - Pure layout tests: birth size per shape and area, placement by orientation, column snapping, ratio
-  kept on resize and focus, ⌘L grouping.
+  kept on resize and focus.
 - `shape` through the registry (schemas, generated references, refused without write access).
 - Live on Dev5: a portrait web port is born tall and placed in a tall gap; a terminal snaps to columns;
-  a shader keeps its ratio; ⌘L lays out a mixed desktop by shape.
+  a shader keeps its ratio.
 
 ## Not in v1
 
 - State in the galaxy view.
 - A terminal's git branch, and other facts Port42 does not track.
+- Arranging the desktop by shape.
 - Keeping declared state across a restart.
