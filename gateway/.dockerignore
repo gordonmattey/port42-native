@@ -1,0 +1,11 @@
+# The relay image's build context is gateway/ (BLD-08). Only sources go in: no binaries, which once
+# included stale pre-credential gateways, no local build output and no test data.
+**
+!go.mod
+!go.sum
+!*.go
+!cmd/**
+!relay/**
+!tele/**
+!transport/**
+**/*_test.go

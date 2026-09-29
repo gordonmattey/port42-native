@@ -1,0 +1,14 @@
+# tele.Dockerfile builds from the repo root (BLD-08). Only what it copies goes in the context: the
+# gateway's sources and the three guest files it serves. Nothing else in the repo is sent to the builder.
+**
+!gateway/go.mod
+!gateway/go.sum
+!gateway/*.go
+!gateway/cmd/**
+!gateway/relay/**
+!gateway/tele/**
+!gateway/transport/**
+!guest/invite.html
+!guest/frame.html
+!guest/dist/port42-guest.js
+**/*_test.go
