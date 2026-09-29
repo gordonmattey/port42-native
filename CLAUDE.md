@@ -139,6 +139,13 @@ This single command handles the full pipeline:
 git add -f dist/Port42.app dist/Port42.dmg && git commit -m "Release: <description>" && git push
 ```
 
+**Then tell growth, every release** (GM, 2026-09-28: 1.0.2 shipped and growth did not know). Post in the
+operator space (`port42-app`) to the growth lead (`@lucky-ibis`): the version and build, the release
+link, what changed in a line or two, and whether anything the site mirrors changed (`llms.txt`,
+`ports-context`, the method index). Growth owns the site's Releases entry and its sync; the Download
+buttons follow `releases/latest` on their own. Mark the release shipped on the operator dash
+(`dash:item:dev-release-*`).
+
 build.sh auto-detects signing identity from Keychain:
 - **Release**: Developer ID Application cert, hardened runtime, `Port42.release.entitlements`
 - **Debug + dev profile**: Apple Development cert, `Port42.dev.entitlements` (has applesignin)

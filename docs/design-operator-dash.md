@@ -73,6 +73,11 @@ a companion's terminal cannot write it until APP-15 binds its calls to its space
 
 Built 2026-09-28: the `operator` port in `port42-app` reads the board every 20 seconds.
 
+**Hand-offs across areas are told, not assumed.** When one area finishes something another depends
+on, its lead posts to the other lead in the operator space: a dev release to growth (its Releases entry
+and site sync), a launch date to dev (a build to have out by then). The standing case, a release, is
+in the release steps in `CLAUDE.md`.
+
 ## What the dash shows
 
 1. **Needs you.** Every item waiting on GM, soonest `due` first, then oldest: the ask, the options, which lead owns it.
