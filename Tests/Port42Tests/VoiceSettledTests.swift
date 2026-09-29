@@ -38,10 +38,10 @@ struct VoiceSettledTests {
 /// The hold's sounds are the ones Gordon picked, and never the system's alert sound.
 @Suite("Hold-to-talk sounds")
 struct VoiceCueTests {
-    @Test("Bottle to start, Glass to end, and never Tink (macOS's default alert)")
+    @Test("Bottle to start and to end, and never Tink (macOS's default alert)")
     func sounds() {
         #expect(VoiceCue.sound(for: .start).name == "Bottle")
-        #expect(VoiceCue.sound(for: .end).name == "Glass")
+        #expect(VoiceCue.sound(for: .end).name == "Bottle")
         #expect(VoiceCue.sound(for: .start).name != "Tink" && VoiceCue.sound(for: .end).name != "Tink")
     }
 }

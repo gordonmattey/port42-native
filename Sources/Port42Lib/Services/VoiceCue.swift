@@ -1,7 +1,7 @@
 import AppKit
 
-/// The sound of hold-to-talk (GM, 2026-09-29, picked by ear): Bottle when listening starts and Glass when
-/// the key comes up, so a hold is heard as well as seen. Never Tink: it is macOS's default alert sound,
+/// The sound of hold-to-talk (GM, 2026-09-29, picked by ear): Bottle when listening starts and again when
+/// the key comes up, at 10%, so a hold is heard as well as seen. Never Tink: it is macOS's default alert sound,
 /// and a start cue that sounds like an error is worse than none (the first choice did exactly that). Before this there was no sound of our own; the
 /// beep people heard was macOS refusing a delete the terminal did not take (fixed the same day).
 ///
@@ -15,7 +15,7 @@ enum VoiceCue {
     static func sound(for moment: Moment) -> (name: String, volume: Float) {
         switch moment {
         case .start: return ("Bottle", 0.1)
-        case .end:   return ("Glass", 0.1)
+        case .end:   return ("Bottle", 0.1)
         }
     }
 
