@@ -593,7 +593,10 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
     # on failure: the old `|| echo WARNING` defeated `set -e`, so a release that was never created
     # (an existing tag, an auth failure) still reported success and users got nothing.
     echo "[build] Creating GitHub Release v${APP_VERSION} at ${RELEASE_SHA}..."
+    # --latest: the app's release is always the one `releases/latest` serves, which is where every
+    # download button points; a relay release made after it took the flag and broke them (2026-09-29).
     if ! gh release create "v${APP_VERSION}" "$DMG" \
+        --latest \
         --title "v${APP_VERSION}" \
         --target "$RELEASE_SHA" \
         --notes-file "$NOTES_FILE"; then

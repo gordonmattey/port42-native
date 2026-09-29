@@ -57,6 +57,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "Port42 relay ${GITHUB_REF_NAME#relay-}" \
+            || gh release create "$GITHUB_REF_NAME" --latest=false --title "Port42 relay ${GITHUB_REF_NAME#relay-}" \
                  --notes "The relay anyone can run. See docs/run-a-relay.md."
           gh release upload "$GITHUB_REF_NAME" dist/relay/*.tar.gz dist/relay/*.zip dist/relay/SHA256SUMS --clobber
