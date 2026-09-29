@@ -55,6 +55,17 @@ struct ShellBackground: View {
         return .animation(minimumInterval: Self.fpsCap > 0 ? 1.0 / Double(Self.fpsCap) : nil, paused: paused)
     }
 
+    /// A floor line's opacity at `f`, its way from the horizon (0) to the bottom edge (1). It brightens
+    /// as it comes forward, then fades to nothing just before the edge: at full brightness the line
+    /// left the screen in one frame and came back faint at the horizon, and that jump read as a flash
+    /// at the bottom (GM, 2026-09-29). The fade is measured on screen (a line sits at f² of the floor's
+    /// height), over its last 4%, so it happens at the last moment; there a line moves about a pixel
+    /// and a half a frame, so the fade still takes a dozen frames or so.
+    static func floorLineOpacity(_ f: Double) -> Double {
+        let e = min(1, max(0, (1 - f * f) / 0.04))
+        return (0.05 + 0.18 * f) * e * e * (3 - 2 * e)
+    }
+
     @ObservedObject var shell: ShellState
 
     private var accent: Color { shell.accent }           // per-space theme
@@ -104,7 +115,7 @@ struct ShellBackground: View {
                     let f = (Double(i) + scroll) / 24.0
                     let y = horizon + (size.height - horizon) * f * f
                     var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y))
-                    ctx.stroke(p, with: .color(accent.opacity(0.05 + 0.18 * f)), lineWidth: 1)
+                    ctx.stroke(p, with: .color(accent.opacity(Self.floorLineOpacity(f))), lineWidth: 1)
                 }
                 let cx = size.width / 2 + px
                 for i in -11...11 {
