@@ -65,7 +65,7 @@ Create a port and return its id. The uniform way to make any port. type:"web" ne
         env (object): type:"terminal" — custom environment variables for the shell.
         html (string): type:"web" — full port HTML body (include a <title> and <meta name="version">).
         initialInput (string): type:"terminal" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input.
-        presentation (string): Where the port appears: "tiled" (default, a desktop tile), "parked" (a chip in the rail) or "hidden" (runs with no tile: a background job, a pipe stage, or an agent nobody needs to watch; show it with port.manage show).
+        presentation (string): Where the port appears: "tiled" (default, a desktop tile), "running" (off the desktop at full speed, a card under Running in the rail: a background job, a pipe stage, or an agent nobody needs to watch) or "paused" (off the desktop, slowed, listed under Paused). Show it with port.manage show. "hidden" and "parked" are the older names.
         space_id (string): Space to create the port in (default: current space).
         systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
         title (string): Port title (default: derived from html <title>, or the command).
@@ -126,9 +126,9 @@ Return the calling port's own id, title, space, capabilities, and activity token
 
 ## port.manage
 
-Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.
+Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), run (off the desktop at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
 
-        action (string, required): One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)
+        action (string, required): One of: focus, close, run, pause, show, pin, pinEverywhere, unpin (hide, minimize and dock are older names for run; park for pause; restore and undock for show)
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
 

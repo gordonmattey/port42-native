@@ -1195,9 +1195,9 @@ struct ShellSettingsView: View {
             // is its space membership and its watches (`companions.watch`).
             if c.openInTerminal {
                 fieldLabel("RUNS")
-                segmented(["in a port", "hidden"], selected: c.runsHidden ? "hidden" : "in a port") { v in
-                    edit(c) { $0.runsHidden = v == "hidden" }
-                    appState.setCompanionHidden(c, hidden: v == "hidden")
+                segmented(["in a port", "running"], selected: c.runsHidden ? "running" : "in a port") { v in
+                    edit(c) { $0.runsHidden = v == "running" }
+                    appState.setCompanionHidden(c, hidden: v == "running")
                 }
             }
             fieldLabel("SYSTEM PROMPT")
@@ -1433,7 +1433,7 @@ struct ShellNewCompanionView: View {
     @State private var workingDir = ""
     @State private var cliChoice = ClaudeCodeSetup.findBinary("claude") == nil && ClaudeCodeSetup.findBinary("codex") != nil
         ? "codex" : "claude"                         // claude | codex | custom
-    @State private var runs = "in a port"            // in a port | hidden
+    @State private var runs = "in a port"            // in a port | running
     @State private var listensTo = "this space"      // this space | a port
     @State private var watchedPort: String?          // udid
     @State private var watchKinds: Set<String> = ["port"]
@@ -1511,8 +1511,8 @@ struct ShellNewCompanionView: View {
 
             label("RUNS")
             if isCLI {
-                seg(["in a port", "hidden"], sel: runs) { runs = $0 }
-                Text(runs == "hidden" ? "a terminal port kept off the desktop: talk to it in its chat, show it from ⌘K"
+                seg(["in a port", "running"], sel: runs) { runs = $0 }
+                Text(runs == "running" ? "off the desktop, a card under Running in the rail: talk to it in its chat, show it from there or ⌘K"
                                       : "a terminal port on this desktop")
                     .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
             } else {
@@ -1649,7 +1649,7 @@ struct ShellNewCompanionView: View {
         guard canCreate, let user = appState.currentUser else { return }
         let c = Self.makeCompanion(owner: user.id, name: effectiveName, cli: cliChoice, command: command,
                                    argsText: argsText, workingDir: workingDir, prompt: promptText,
-                                   hidden: runs == "hidden", secrets: [])
+                                   hidden: runs == "running", secrets: [])
         guard let sid = appState.currentSpace?.id else { return }
         // The same path `companions.create` takes, so what the harness proves is what this does.
         do {

@@ -1047,8 +1047,9 @@ struct ShellParkRail: View {
     /// restore. It is also the drop zone that parks a tile.
     private func parkedSection(active: Bool) -> some View {
         let parked = railPanels
-        // Words, not icons (GM, 2026-09-29): a parked port is stopped, a hidden one is running.
-        let label = Text("Stopped (\(parked.count))")
+        // Words, not icons (GM, 2026-09-29): a parked port is paused (slowed; a terminal keeps running),
+        // a hidden one is running.
+        let label = Text("Paused (\(parked.count))")
             .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
             .foregroundStyle(active ? shell.accent : Self.railInk)
         // A plain menu keeps the label's own color and size; the frame centers it in the rail.
@@ -1058,7 +1059,7 @@ struct ShellParkRail: View {
             } else {
                 Menu {
                     ForEach(parked) { p in
-                        Button("Restore \(p.title)") {
+                        Button("Show \(p.title)") {
                             appState.portWindows.unpark(id: p.id)
                             shell.bringToFront(p.id)
                         }
@@ -1070,8 +1071,8 @@ struct ShellParkRail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
-        .help(parked.isEmpty ? "Drag a port here to stop it until you restore it."
-                             : "Stopped ports: click to restore one. Drag a port here to stop it.")
+        .help(parked.isEmpty ? "Drag a port here to pause it: off the desktop and slowed (a terminal keeps running)."
+                             : "Paused ports: click to show one. Drag a port here to pause it.")
     }
 
     /// HIDDEN PORTS in this space: a card each, with its state, since a hidden port keeps running and
@@ -1540,7 +1541,7 @@ struct PortMorePopover: View {
                 row("Move to…", icon: "arrow.right.square", action: onMove)
             }
             if onShare != nil || onFork != nil || onMove != nil { Divider().opacity(0.4) }
-            row("Hide: keeps running", icon: "eye.slash", action: onHide)
+            row("Run off the desktop", icon: "arrow.right.to.line", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
             // One "Pin" option with its choices under it (GM, 2026-09-27). A popover has no
             // submenus, so the row opens its choices in place.

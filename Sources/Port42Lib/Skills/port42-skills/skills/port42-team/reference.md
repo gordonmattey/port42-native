@@ -8,7 +8,7 @@ arrays and objects; `key=@<file>` for a file's contents).
 
 _needs the terminal permission_
 
-Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: "port" (default, on the desktop) or "hidden" (no place on the desktop; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default ["port"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.
+Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: "port" (default, on the desktop) or "running" (off the desktop, a card under Running in the rail; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default ["port"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.
 
         agent (string): The CLI (default claude).
         args (array): Arguments for the CLI or command.
@@ -18,7 +18,7 @@ Make a companion, as the new-companion card does: an agent CLI (claude or codex)
         name (string, required): Its name; @mention it by this.
         port (string): A port to watch instead of listening to the space.
         prompt (string): Its system prompt.
-        runs (string): Where its terminal runs (default port).
+        runs (string): Where its terminal runs: port (a tile on the desktop, the default) or running (off the desktop, a card under Running in the rail; hidden is the older name).
         space_id (string): The space (default: yours, else the current one).
 
     port42 companions.create name=… agent=… args=… runs=… port=… kinds=… cwd=… prompt=… command=… space_id=…

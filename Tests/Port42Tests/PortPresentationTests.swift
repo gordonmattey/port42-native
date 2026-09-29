@@ -270,7 +270,7 @@ struct PortPresentationFunnelTests {
         #expect(d[0].id == "p1")
         #expect(d[0].presentation.state == .parked)
         #expect(d[0].presentation.visible == false)
-        #expect(d[0].presentation.reason == "parked")
+        #expect(d[0].presentation.reason == "paused", "a port is told it is paused, the word the person sees")
     }
 
     @Test("an unchanged snapshot yields no deltas (idempotent diff)")

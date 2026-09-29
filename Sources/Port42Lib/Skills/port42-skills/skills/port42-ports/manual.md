@@ -1,6 +1,6 @@
 PORTS: Create a port with port_create({type:"web", html}) or port_create({type:"terminal", command}), the one primitive for every port type. It returns the port's id and token, and the port appears as a live tile on the user's desktop. Do not answer with a ```port code fence: a fence is not a port until someone opens it, and fences are being removed. Every example below is the html you pass to port_create.
 
-A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, parked or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
+A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, paused, run off the desktop or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent as var(--color-accent), SF Mono font), in Port42 and on the browser invite page alike. No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
@@ -332,9 +332,9 @@ BRIDGE API REFERENCE:
 
   port42.presentation()  /  port42.on('presentation', callback)
     This port's presentation state: { state, visible, w, h, tier, orientation }.
-    - state: "focused" | "tiled" | "peek" | "parked" | "background" | "hidden" — your placement/mode ("background" is the desktop wallpaper; "hidden" runs with no tile).
+    - state: "focused" | "tiled" | "peek" | "paused" | "running" | "background" — your placement/mode ("paused" is off the desktop and slowed; "running" is off the desktop at full speed, a card in the rail; "background" is the desktop wallpaper).
     - visible: true only when your pixels are actually on screen right now. False when off-desktop
-      (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
+      (another space is showing), in the galaxy overview, paused, running off the desktop, or behind another
       port's focus. This is the one authoritative "render now" flag.
     - w, h: your on-screen content size in points (0 when not visible).
     - tier (when visible): "card" | "compact" | "full". At "card" (narrower than 220 or shorter than 160,
@@ -346,14 +346,14 @@ BRIDGE API REFERENCE:
     Call presentation() for the current value at startup (no race). Use on('presentation', cb) for
     updates; the same value also arrives as a window CustomEvent 'port42:presentation' (e.detail).
     DISCIPLINE (do this if you animate): gate your requestAnimationFrame loop on visible — cancel it on
-    visible:false, resume on visible:true — so a hidden port burns no CPU. Scale fidelity to state and
+    visible:false, resume on visible:true — so a port nobody sees burns no CPU. Scale fidelity to state and
     size: full when focused; reduced (cap fps, cap devicePixelRatio, fewer particles) when tiled/peek
     or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
     before your webview is dropped, so you re-mount clean rather than blank.
 
   port42.state.set([{label, value}, …])  /  port42.state.get()
     Say what you are doing, in up to 5 short lines, most important first: shown on your card when you
-    are small (a peek), in the hidden list and in ⌘K, before what Port42 knows about you (console
+    are small (a peek), on your card under Running in the rail and in ⌘K, before what Port42 knows about you (console
     errors). Set it when something changes, not on a timer: [{label: "doing", value: "fetching
     prices"}, {label: "last run", value: "2m ago · 0 errors"}]. Values over 80 characters are cut. An
     empty list clears it. It is kept until you set it again or close. An agent sets a port's state from
@@ -411,7 +411,7 @@ BRIDGE API REFERENCE:
   port42.ports.list(opts?)
     Returns: [{id, title, capabilities, status, createdBy, cwd?, x?, y?}]
     List all active ports. opts: { capabilities: ['terminal'] } to filter.
-    status is 'tiled', 'parked' or 'docked'. Use id for all subsequent calls.
+    status is 'tiled', 'running' or 'paused'. Use id for all subsequent calls.
     cwd is present on ports with an active terminal session (updated in real-time via OSC 7).
     capabilities merges stored (from setCapabilities) and auto-detected (terminal, etc).
     x, y are present for positioned ports (desktop coordinates of the tile origin).
@@ -975,7 +975,7 @@ FINDING PORTS:
       id           — stable UDID, use this to identify ports reliably
       title        — the port's <title> tag content
       capabilities — array of what the port can do, e.g. ["terminal"]
-      status       — "tiled"/"parked" (on the desktop/rail) or "docked" (hidden, still running)
+      status       — "tiled" (on the desktop), "running" (off the desktop at full speed) or "paused" (off the desktop, slowed)
       createdBy    — which companion created the port
 
   ports_list(capabilities: ["terminal"])

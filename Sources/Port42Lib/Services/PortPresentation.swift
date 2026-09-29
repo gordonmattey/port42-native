@@ -17,7 +17,11 @@ import CoreGraphics
 public struct PortPresentation: Equatable {
 
     public enum State: String, Equatable, CaseIterable {
-        case focused, tiled, peek, parked, background, hidden
+        case focused, tiled, peek, background
+        /// Off the desktop, slowed (stored as "parked"), and off the desktop at full speed (stored as
+        /// `isBackground`), in the words the person sees (GM, 2026-09-29).
+        case parked = "paused"
+        case hidden = "running"
     }
 
     /// The placement/mode.

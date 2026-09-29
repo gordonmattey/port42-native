@@ -451,14 +451,14 @@ func registerWatchMethods(into r: inout BridgeRegistry, appState: AppState) {
 @MainActor
 func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
     r["companions.create"] = BridgeMethod(permission: .terminal, paramNames: ["name", "agent", "args", "runs", "port", "kinds", "cwd", "prompt", "command", "space_id"],
-        description: "Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: \"port\" (default, on the desktop) or \"hidden\" (no place on the desktop; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default [\"port\"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.",
+        description: "Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: \"port\" (default, on the desktop) or \"running\" (off the desktop, a card under Running in the rail; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default [\"port\"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "name": ["type": "string", "description": "Its name; @mention it by this."],
                 "agent": ["type": "string", "enum": ["claude", "codex", "custom"], "description": "The CLI (default claude)."],
                 "args": ["type": "array", "items": ["type": "string"], "description": "Arguments for the CLI or command."],
-                "runs": ["type": "string", "enum": ["port", "hidden"], "description": "Where its terminal runs (default port)."],
+                "runs": ["type": "string", "enum": ["port", "running", "hidden"], "description": "Where its terminal runs: port (a tile on the desktop, the default) or running (off the desktop, a card under Running in the rail; hidden is the older name)."],
                 "port": ["type": "string", "description": "A port to watch instead of listening to the space."],
                 "kinds": ["type": "array", "items": ["type": "string"], "description": "With `port`: event kinds that wake it."],
                 "cwd": ["type": "string", "description": "Working directory (default: the space's)."],
@@ -478,11 +478,11 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
             owner: user.id, name: name, cli: agent, command: args.string("command") ?? "",
             argsText: ((args.any("args") as? [String]) ?? []).joined(separator: " "),
             workingDir: args.string("cwd") ?? "", prompt: args.string("prompt") ?? "",
-            hidden: args.string("runs") == "hidden", secrets: [])
+            hidden: ["running", "hidden"].contains(args.string("runs") ?? ""), secrets: [])
         let sid = args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
         try appState.createCompanion(c, spaceId: sid, watchPort: args.string("port"),
                                      watchKinds: (args.any("kinds") as? [String]) ?? WatchKinds.defaultKinds)
         return .object(["id": .string(c.id), "name": .string(c.displayName), "agent": .string(agent),
-                        "runs": .string(c.runsHidden ? "hidden" : (c.openInTerminal ? "port" : "headless"))])
+                        "runs": .string(c.runsHidden ? "running" : (c.openInTerminal ? "port" : "headless"))])
     }
 }

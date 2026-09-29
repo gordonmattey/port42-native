@@ -41,9 +41,9 @@ than making a second.
 
 ## Making a teammate
 
-    port42 companions.create name=reviewer-two agent=codex runs=hidden port=<id> kinds:='["state"]'
+    port42 companions.create name=reviewer-two agent=codex runs=running port=<id> kinds:='["state"]'
 
-- `agent`: claude or codex. `runs`: `port` (a terminal on the desktop) or `hidden` (reached through
+- `agent`: claude or codex. `runs`: `port` (a terminal on the desktop) or `running` (off the desktop, reached through
   its chat). With `port`, it watches that port instead of listening to the space.
 - It needs the terminal permission, since it starts one.
 

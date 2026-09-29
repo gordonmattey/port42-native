@@ -327,7 +327,7 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space: return "spaces"
         case .companion: return "companions"
-        case .hiddenPort: return "hidden"
+        case .hiddenPort: return "running"
         case .closedPort: return "recently closed"
         case .bringInSessions: return "actions"
         }

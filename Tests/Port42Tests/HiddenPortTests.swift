@@ -43,7 +43,7 @@ struct HiddenPortTests {
         #expect(!pw.panels(in: w.space.id).contains { $0.id == panel.id }, "a hidden port is on a desktop")
         #expect(!pw.railIds(in: w.space.id).contains(panel.id), "a hidden port is in the rail")
         #expect(pw.webViews[panel.id] != nil, "a hidden port must still run")
-        #expect(try await status(w, panel.udid) == "hidden")
+        #expect(try await status(w, panel.udid) == "running", "the API says running, not hidden (GM)")
     }
 
     @Test("hide then show round-trips through port.manage and keeps the spot")
@@ -56,10 +56,34 @@ struct HiddenPortTests {
         let udid = try #require(pw.panels.first { $0.id == "p" }?.udid)
         let before = pw.panels.first { $0.id == "p" }?.position(on: w.space.id)
         _ = try await call(w, "port.manage", ["id": udid, "action": "hide", "token": token(w, udid)])
-        #expect(try await status(w, udid) == "hidden")
+        #expect(try await status(w, udid) == "running", "hide is the older name for run")
         _ = try await call(w, "port.manage", ["id": udid, "action": "show", "token": token(w, udid)])
         #expect(try await status(w, udid) == "tiled")
         #expect(pw.panels.first { $0.id == "p" }?.position(on: w.space.id) == before)
+    }
+
+    @Test("run, pause and show: one word per state, each reachable from the others (GM, 2026-09-29)")
+    @MainActor
+    func runPauseShow() async throws {
+        let w = try world()
+        let pw = w.state.portWindows
+        pw.registerTiledPort(id: "q", html: "<title>q</title>", spaceId: w.space.id, createdBy: nil,
+                             title: "q", position: CGPoint(x: 300, y: 200))
+        let udid = try #require(pw.panels.first { $0.id == "q" }?.udid)
+        func act(_ a: String) async throws { _ = try await call(w, "port.manage", ["id": udid, "action": a, "token": token(w, udid)]) }
+        try await act("pause")
+        #expect(try await status(w, udid) == "paused")
+        #expect(pw.railIds(in: w.space.id) == ["q"])
+        try await act("run")                     // paused → running directly
+        #expect(try await status(w, udid) == "running")
+        #expect(pw.railIds(in: w.space.id).isEmpty, "a running port is not also paused")
+        try await act("pause")                   // running → paused directly
+        #expect(try await status(w, udid) == "paused")
+        #expect(pw.hiddenPanels(in: w.space.id).isEmpty, "a paused port is not also running")
+        try await act("show")                    // show brings a paused port back too
+        #expect(try await status(w, udid) == "tiled")
+        try await act("park")                    // the older name for pause
+        #expect(try await status(w, udid) == "paused")
     }
 
     @Test("hidden is persisted, so it survives a restart")

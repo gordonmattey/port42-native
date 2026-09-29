@@ -118,7 +118,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
                 "initialInput": ["type": "string", "description": "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input."],
                 "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."],
-                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile), \"parked\" (a chip in the rail) or \"hidden\" (runs with no tile: a background job, a pipe stage, or an agent nobody needs to watch; show it with port.manage show)."]
+                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile), \"running\" (off the desktop at full speed, a card under Running in the rail: a background job, a pipe stage, or an agent nobody needs to watch) or \"paused\" (off the desktop, slowed, listed under Paused). Show it with port.manage show. \"hidden\" and \"parked\" are the older names."]
             ],
             "required": ["type"]
         ] as [String: Any]) { p, args in
@@ -380,12 +380,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), run (off the desktop at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)"]
+                "action": ["type": "string", "description": "One of: focus, close, run, pause, show, pin, pinEverywhere, unpin (hide, minimize and dock are older names for run; park for pause; restore and undock for show)"]
             ],
             "required": ["id", "action"]
         ]) { p, args in
@@ -404,9 +404,15 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             await appState.shell?.setBackgroundPort(id: nil)
         case "close":
             appState.portWindows.close(panel.id)
-        case "hide", "minimize", "dock":
+        // One word per state (GM, 2026-09-29): run, pause, show. The older names still work.
+        case "run", "hide", "minimize", "dock":
+            if panel.presentation == "parked" { appState.portWindows.unpark(id: panel.id) }
             appState.portWindows.minimize(panel.id)
+        case "pause", "park":
+            if panel.isBackground { _ = appState.portWindows.restore(panel.id) }
+            appState.portWindows.park(id: panel.id)
         case "show", "restore", "undock":
+            if panel.presentation == "parked" { appState.portWindows.unpark(id: panel.id) }
             _ = appState.portWindows.restore(panel.id)
         case "pin":
             appState.portWindows.setPin(id: panel.id, .space)
@@ -415,7 +421,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         case "unpin":
             appState.portWindows.setPin(id: panel.id, .none)
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, show, pin, pinEverywhere, unpin, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, run, pause, show, pin, pinEverywhere, unpin, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
@@ -1528,7 +1534,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         }
         for pt in registered {
             entry(id: pt.udid, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
-                  cwd: pt.cwd, status: pt.isBackground ? "hidden" : pt.presentation, spaceId: pt.spaceId,
+                  cwd: pt.cwd, status: PortPanel.status(isBackground: pt.isBackground, presentation: pt.presentation), spaceId: pt.spaceId,
                   x: pt.x, y: pt.y,
                   surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
         }

@@ -1,6 +1,6 @@
 ---
 name: port42-compose
-description: Use when one Port42 port should feed another, when building a pipeline of ports, or when you want to be woken by a port's events instead of by a mention. Covers publish and subscribe, hidden pipe stages, what runs off screen, and watching a port.
+description: Use when one Port42 port should feed another, when building a pipeline of ports, or when you want to be woken by a port's events instead of by a mention. Covers publish and subscribe, pipe stages that run off the desktop, what runs off screen, and watching a port.
 ---
 
 # Ports feeding ports
@@ -22,9 +22,9 @@ publishes for the one after. No code outside the ports.
 
 ## Stages nobody needs to see
 
-Make the middle stages hidden (`presentation=hidden`, see `port42-ports`). They run in full with no
-tile. Off screen a port still receives every event at full rate; a hidden port's timers also run at
-full rate, while a parked port's or one in another space slow to about once a second.
+Make the middle stages run off the desktop (`presentation=running`, see `port42-ports`). They run in
+full with no tile. Off screen a port still receives every event at full rate; a running port's timers
+also run at full rate, while a paused port's or one in another space slow to about once a second.
 
 ## Being woken by a port
 

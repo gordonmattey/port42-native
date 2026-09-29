@@ -80,6 +80,14 @@ public struct PortPanel: Identifiable {
     /// in the `dockOrder` column (nautilus Phase 2 step 3).
     public var railOrder: Int? = nil
 
+    /// A port's status as the API says it (GM, 2026-09-29): "tiled", "running" (off the desktop at full
+    /// speed; stored as `isBackground`) or "paused" (off the desktop, slowed; stored as "parked"), or
+    /// "background" for the wallpaper. The stored names are older and stay as they are.
+    public static func status(isBackground: Bool, presentation: String) -> String {
+        if isBackground { return "running" }
+        return presentation == "parked" ? "paused" : presentation
+    }
+
     /// Resolved display title: userTitle > HTML <title> > "port"
     public var title: String {
         if let ut = userTitle, !ut.isEmpty { return ut }
@@ -248,8 +256,8 @@ public final class PortWindowManager: ObservableObject {
     func applyPresentation(_ presentation: String?, to idOrUdid: String) {
         guard let id = panels.first(where: { $0.id == idOrUdid || $0.udid == idOrUdid })?.id else { return }
         switch presentation {
-        case "parked": park(id: id)
-        case "hidden": minimize(id)
+        case "paused", "parked": park(id: id)
+        case "running", "hidden": minimize(id)
         default: break
         }
     }
