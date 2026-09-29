@@ -166,5 +166,19 @@ The macOS binaries built there are unsigned; run `scripts/relay-dist.sh <version
 Developer ID and replace them on the release. After the first publish, make the image public in the
 package's settings on GitHub, or `docker run` asks for a login.
 
+**Redeploying port42's own relay1 and tele** (the `port42-relay` project on Railway), after a change to
+their images or code. `railway up` uploads the directory it runs in, and each service expects a
+different one:
+
+- tele, from the repository root (it builds `tele.Dockerfile` and copies `guest/`):
+  `railway up --service tele --ci`
+- the relay, from `gateway/` (it builds `relay.Dockerfile` there, per `gateway/railway.json`):
+  `cd gateway && railway up --service relay --ci`
+
+Run from the wrong directory, the build stops at "couldn't locate the dockerfile" and the running
+service is left as it was. Deploy tele first and check that the invite page, `frame.html` and
+`dist/port42-guest.js` serve what `guest/` holds; then the relay, and check `/health` and a share
+between two instances.
+
 A one-click "Deploy on Railway" button needs a template, made once in Railway from this repository with
 the root directory `gateway`; its link then goes at the top of the Railway section above.
