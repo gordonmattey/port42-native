@@ -448,18 +448,76 @@ them; an item leaves only when it is done and verified.
 
 ## Future roadmap
 
-Things that would be cool once the five scenarios hold.
+Things that would be cool once the five scenarios hold. Grouped 2026-09-28; built items leave the list (presence in chat, pinning, resizable chats and `/imagine` shipped in 1.0.0, presence detail in 1.0.1).
 
-- **The chrome is ports too.** The background, app bar, dock and rail become ports you author. Once
-  every scope is a port, the shell's own parts are next.
-- **Share a whole space** with one invite.
-- **Publish a port as a website.**
-- **Share a port's code** so someone installs it in their own space.
-- **MCP as a port capability**, running with the viewer's own credentials.
-- **A live media plane.** WebRTC across instances, with ports and agents as tracks, and native video
-  ports.
-- **Computer use.** An agent that sees the screen and acts on it in one loop.
-- **Multi-display.** Spaces placed across monitors.
+### Next up
+
+- **Sessions survive a restart** (GM, 2026-09-28; option C). A Port42 restart (an update, a crash, a
+  force-quit) ends every terminal's process, since terminals are children of the app. Run them in a small
+  session host that outlives the app, as tmux does, and reattach on launch. Needs a spike: Ghostty
+  spawns its own PTY, so a surface would run an attach client instead. Until then, A below.
+- **Pairing and scoped tokens** (GM, 2026-09-27; designed for v1, moved after 1.0.0). `port42 pair` from any
+  terminal or app asks Port42 for access; the person checks a six-digit code and accepts, and that process
+  gets its own credential. Every credential carries a scope: the galaxy, one space, or one port. Design,
+  decisions and tests in `docs/plan-pairing-scopes.md`. Closes the audit's NAU-07 (no per-client scopes).
+- **Codex reports its tools too** (2026-09-28). Presence says what a Claude Code agent is doing from
+  its PreToolUse and PostToolUse hooks; Port42 registers only SessionStart and Stop with Codex, so a
+  Codex companion shows "working" alone. Codex's hooks share Claude's event names; confirm with a live
+  Codex turn before relying on them (Codex's hooks have contradicted its documentation before).
+  With it: presence says why a Codex turn failed (Codex has no failure hook; Claude's is done).
+- **An agent can set up what the person should look at** (GM, 2026-09-28: "I wish you could just do
+  that for me, tile, etc."). An API to open a port's chat panel and lay tiles out side by side, so an
+  agent can stage a demo or a review (two instances' tiles for a sharing check) instead of asking the
+  person to click there. `port.move` and `port.position` exist; opening a chat panel does not.
+- **relay1 deploys from the published image** (GM, 2026-09-28). relay1's Railway service is an upload
+  (`railway up`), so a `relay-v*` tag does not reach it; relay-v1.0.0 was redeployed by hand. Make the
+  ghcr.io package public, point the service at `ghcr.io/gordonmattey/port42-relay`, and a release reaches
+  relay1 without a hand deploy. The same for tele.
+- **Dev instances write their gateway logs into production's data folder** (found 2026-09-28). Every
+  instance's `gateway127.0.0.1:<port>.log` lands in `~/Library/Application Support/Port42`, which held 870
+  of them; dev instances keep all other data apart. Write each into its own instance's folder.
+- **Embed a port in a web page** (GM, 2026-09-27). A snippet that puts a live, read-only port on any
+  site, as the invite page shows a shared one: the Issue Squad board published for anyone to watch. Builds
+  on the browser guest and the relay; needs a "see only, anyone" share that no one redeems.
+
+- **A per-session relay rate cap, once measured** (#122, sentinel, 2026-09-28). A token bucket per
+  direction, 1 MB/s in the Phase 4 design, never built; ready on sentinel's branch. Held because a
+  shared port streaming its screen or camera can pass 1 MB/s: measure the busiest real session end to
+  end, set the cap well above it, log when it bites. Relay-only, so it ships with a relay deploy.
+- **The release script records a version as released only once it is published** (2026-09-28).
+  `build.sh --release` writes `.last-release-version` at the start, so a build cut off early (the
+  app quit mid-test) made the next run bump to 1.0.2 though 1.0.1 was never published. Write it after
+  `gh release create` succeeds.
+
+### Small UX
+
+- **Rename a port, and copy its name** (GM, 2026-09-27). A port's title set by hand from its "…" menu,
+  and its name copied from there, as a space's is.
+- **Rename a space from the top bar** (GM, 2026-09-27). A long press on the space pill in the top bar
+  renames it in place.
+- **One way to close a sheet** (GM, 2026-09-27). Esc does not close the companion sheet, and sheets
+  across the app mix an X button, an esc label and neither. Every sheet and box closes on Esc and shows
+  the same close control.
+- **Review the port's "…" menu: agreed order (GM, 2026-09-27).**
+  Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
+  Share… · Fork, then Refresh · History… for web ports. No "Copy port id" (GM: no need found).
+- **Pick the model, not type it** (GM, 2026-09-27). Choosing a companion's model means knowing the
+  CLI's flag and typing it into its arguments. Offer the models each CLI can run (Claude Code's and
+  Codex's own lists) as a choice when making or editing a companion, and at first run, and write the
+  flag for the person.
+- **Move browser and terminal ports to another space** (GM, 2026-09-27). "Move to…" for a web port
+  exists; a browser or terminal port should move across spaces the same way, keeping its session (the
+  terminal keeps running, the browser keeps its page).
+- **Token usage charts, back** (GM, 2026-09-27). Settings had a Usage view with token charts; it went
+  with the in-app model (`0369388`). The CLIs record what they spend, so it can return for the agents
+  as they are now: every Claude Code transcript entry carries its `usage` (input, cache written, cache
+  read, output), and Codex's session log has `token_count` events (totals and its rate limits). Per
+  companion, per space, per imagine team, over time.
+- **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
+  focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
+
+### Agents and companions
+
 - **Support all the CLIs** (GM, 2026-09-27; was "more agents as equal first-run paths"). Every coding
   agent CLI as a first-class companion, not only Claude Code and Codex: Gemini CLI, Antigravity,
   Cursor's agent, OpenCode, Aider, Goose, Amp, Copilot CLI and whatever comes next. "Supported" means
@@ -468,69 +526,79 @@ Things that would be cool once the five scenarios hold.
   import, the port42 skills where it loads skills, and a place in first run. Per CLI, the hook system
   decides how much of that is possible; a CLI with no hooks gets a thinner tier (reply from its
   output, no presence), said plainly. One adapter per CLI behind the existing hook vocabulary.
-- **The program as the credential.** Authenticate a caller by its code signature, not a token.
-- **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
-  (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
-  and most come from agents running in Port42's terminals, which macOS attributes to Port42. Idea: a
-  first-run step for the ones nearly everyone hits (the Desktop, Documents and Downloads folders, or
-  Full Disk Access through System Settings, which macOS allows only by the person's own toggle), with
-  camera, microphone and screen left to first use. Product idea; not designed.
+- **Hosted (SaaS) agents as companions** (GM, 2026-09-26; again 2026-09-27: GM had them working on
+  Railway before). Agents that run as a service rather than
+  a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
+  GM wants them back. Product idea; demand unvalidated.
+- **Antigravity as a companion** (GM deferred, 2026-09-26). `agy` has hooks (PreToolUse, PostToolUse,
+  Pre/PostInvocation, Stop) from a workspace `.agents/hooks.json` or a plugin; open questions are an
+  undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
+  where the hooks live without writing into the user's project or global config. Findings in
+  `plan-nautilus-phase3.md` (3.7).
+- **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
+  every port it made (the card's "Remove from this space", as an API). Today the only removal is by
+  hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
+  up ten stale companions in prod's port42-app space.
+- **Crews by kind for imagine** (GM via growth, 2026-09-27: "for these application types surely you want
+  a set of agents appropriate to them"). Same shape and cost as today (a lead and two members, the same
+  version budget); only the member roles change by kind: data (analyst, engineer), design (designer,
+  engineer), sound (sound designer, engineer), work (writer, analyst), ops (operator, engineer), AI
+  work (evaluator, engineer), play (game master, world builder, engineer), learn (tutor, content writer,
+  engineer), and more on the Elements page. A crew is a small file of role briefs, the same path as
+  `Imagine.leadRole`/`engineerRole`; `imagine.start` and the deep link take an optional `crew`, else the
+  lead picks one from the line or defaults to engineers. Crews editable and shareable like ports.
+  **Decided (GM, 2026-09-27): after the v1 release.** Spec: `port42-growth/nautilus-crews-spec.md`. A
+  crew is data (a lead and two members, each a role from `catalog.json` `roles[]`, 17 roles with
+  briefs); `imagine.start` and the deep link take an optional crew; the choice is an explicit crew, then
+  the recipe's crew, then engineers, with no model call to pick; the ⌘I box shows the three crew chips,
+  changeable before Enter; cost unchanged. The site lists crews as coming soon.
+- **Record your workflow, then build it better in Port42** (GM via growth, 2026-09-27). Record: for
+  about ten minutes Port42 logs the front app and window title each second, and counts window and app
+  switches and clipboard changes (a hash, never the content), all on this Mac; frames and spoken
+  narration only by explicit opt-in, which says in plain words that they go to the companion's model
+  provider. Read: a companion maps the jumps, the repeated paste loops and the interruptions. Rebuild:
+  it writes imagine lines for the workflow into the ⌘I box (the person presses Enter), and a space
+  appears with the person's surfaces as ports and pipes where they were copying. Measure again: the
+  same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
+  Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
+  (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
+
+### Sharing
+
+- **Share a whole space** with one invite.
+- **Share a port's code** so someone installs it in their own space.
+- **Share with the people in the chat, and clickable port ids** (GM, 2026-09-27; decided in Phase
+  4.7b, not built). Found live: a browser guest asked ember for a shader, ember made a new port and
+  posted its id, and the guest could not see it. A port id in a chat becomes a link: it focuses the
+  port in Port42 and opens it on the invite page when you have access. A companion never grants
+  access on its own; it offers the new port to the machines already in this port's chat, and each
+  grant goes through the per-port card on the host. The companion instructions say that someone on
+  another machine sees only the ports shared with them.
+- **Publish a port as a website.**
+
+### Platform
+
+- **The chrome is ports too.** The background, app bar, dock and rail become ports you author. Once
+  every scope is a port, the shell's own parts are next.
+- **MCP as a port capability**, running with the viewer's own credentials.
+- **A live media plane.** WebRTC across instances, with ports and agents as tracks, and native video
+  ports.
+- **Computer use.** An agent that sees the screen and acts on it in one loop.
+- **Multi-display.** Spaces placed across monitors.
 - **Mac apps in spaces** (GM, 2026-09-27). Bring other macOS apps into Port42 and organize them in
   spaces. macOS gives no way to put another app's window inside ours. Two routes: manage the real
   windows through the Accessibility API (each space remembers its apps' windows and shows, places and
   hides them as you move between spaces; fully usable, but they sit over Port42 rather than in a
   tile), or a live mirror of a window as a tile through ScreenCaptureKit with input forwarded
   (in the tile, but input and fidelity are approximations). Research; demand unvalidated.
+- **One guided permission flow** in place of a series of dialogs. GM, 2026-09-27: macOS prompts
+  (files, photos, camera and the like) arrive at random, whenever a companion first touches something,
+  and most come from agents running in Port42's terminals, which macOS attributes to Port42. Idea: a
+  first-run step for the ones nearly everyone hits (the Desktop, Documents and Downloads folders, or
+  Full Disk Access through System Settings, which macOS allows only by the person's own toggle), with
+  camera, microphone and screen left to first use. Product idea; not designed.
+- **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
-- **Antigravity as a companion** (GM deferred, 2026-09-26). `agy` has hooks (PreToolUse, PostToolUse,
-  Pre/PostInvocation, Stop) from a workspace `.agents/hooks.json` or a plugin; open questions are an
-  undocumented SessionStart, reading the reply from its own transcript, hooks that must print JSON, and
-  where the hooks live without writing into the user's project or global config. Findings in
-  `plan-nautilus-phase3.md` (3.7).
-- **Pairing and scoped tokens: in v1, built after the Phase 4 merge (GM, 2026-09-27).** Design in
-  `docs/plan-pairing-scopes.md`.
-- **Pairing** (GM, 2026-09-27). `port42 pair` from any terminal or app: it asks Port42 for access,
-  the app shows who is asking, the person accepts, and that process gets its own credential (the
-  registry already has a `paired` kind; the verb was dropped earlier). Pairing agents across spaces
-  is sharing (Phase 4). Decision pending: v1 or after.
-- **Scoped tokens** (GM, 2026-09-27). A credential today can do anything its permissions allow,
-  anywhere. Scope it to the galaxy (everything), one space, or one port; pairing and sharing grant a
-  scope. Decision pending: v1 or after.
-- **Hosted (SaaS) agents as companions** (GM, 2026-09-26; again 2026-09-27: GM had them working on
-  Railway before). Agents that run as a service rather than
-  a CLI on this machine, as companions beside Claude Code and Codex. Removed with the in-app model;
-  GM wants them back. Product idea; demand unvalidated.
-- **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
-  every port it made (the card's "Remove from this space", as an API). Today the only removal is by
-  hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
-  up ten stale companions in prod's port42-app space.
-- **Presence in chat** (GM, 2026-09-26). When a message in a port's or the space's chat wakes an
-  agent, the chat shows it: received, working, done (and waiting on the person, when its CLI says so).
-  The signals exist (the terminal's "typing" state from a typed message to its turn's end, Claude's
-  submit confirmation, the needs-attention hook). **Done (2026-09-26):** `ChatPresenceStore`, shown
-  under the transcript of the chat that asked ("@alpha is working (42s)"), fed by the terminal's
-  events, no timeout. Codex reports no submit, so it shows "has your message" until its turn ends; a
-  Claude that was waiting on a permission shows waiting until the turn ends (no hook reports the
-  approval).
-- **Presence shows why an agent cannot reply** (GM, 2026-09-27). When a CLI's turn fails (an API
-  error, a dropped connection), the chat that asked shows only what the CLI's hooks report: on
-  intermittent wifi, Claude's notice surfaced as "@name is waiting for your input", not the error
-  itself. Surface the error in the presence line (and the chat) when the CLI reports one. Claude
-  first; Codex to check. **Done for Claude (2026-09-27):** Port42 registers Claude's `StopFailure`
-  hook; a failed turn clears the agent from the chat's presence and Port42 posts in the chat that
-  asked why, in words ("echo could not reply: the API is overloaded. Wait a moment and send it
-  again."), without @mentioning it, so it wakes no one. Codex has no failure hook; not covered.
-- **Pinning ports** (GM, 2026-09-27). Pin a port in its space (it keeps its place and stays up), and
-  pin a port across spaces (it shows in every space). **Built (2026-09-27):** "Pin in this space"
-  keeps the tile above every unpinned tile there (the `isAlwaysOnTop` column, unused since the old
-  windows went); "Pin in every space" shows it on every desktop, above the others, at one position
-  (migration `v62-port-pinned-everywhere`). Paint order is a rank, so a tile never climbs over the
-  shell's own layers. A pin mark shows in the title bar; `port.manage` takes pin, pinEverywhere,
-  unpin. Today "Pin" is one row whose choices open under it (in this space, in every space, unpin), at the end of the "…" menu; it moves into the placement group
-  with the menu review below, after the release (Phase 4 is changing the same menu).
-- **Review the port's "…" menu: agreed order (GM, 2026-09-27), held until after the release.**
-  Move to… (another space, background, hidden, parked) · Pin (in this space, in every space) ·
-  Share… · Fork, then Refresh · History… for web ports. No "Copy port id" (GM: no need found).
 - **A port shares its state, for the shapes where it is not drawn** (GM, 2026-09-27). Below a size a
   port should show what it is doing, not a shrunken window; a peek the same; hidden is size zero. Two
   layers. Where the port is drawn, it decides by drawing itself differently: a web port already gets its
@@ -546,97 +614,21 @@ Things that would be cool once the five scenarios hold.
   2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
   read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
   on `research`). **Straight after v1 (GM, 2026-09-27): the first thing built once v1 ships.**
-- **Token usage charts, back** (GM, 2026-09-27). Settings had a Usage view with token charts; it went
-  with the in-app model (`0369388`). The CLIs record what they spend, so it can return for the agents
-  as they are now: every Claude Code transcript entry carries its `usage` (input, cache written, cache
-  read, output), and Codex's session log has `token_count` events (totals and its rate limits). Per
-  companion, per space, per imagine team, over time.
+- **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
+  what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
+  people exchange data, not only prose.
+
+### Quality and tooling
+
 - **Verify the Elements recipes** (growth's plan, `port42-growth/nautilus-recipe-verification-plan.md`;
   GM, 2026-09-27: later). An imagine run per recipe on a dev instance, passing on a real web port, a
   zero error count, a non-empty page and DONE within budget, with evidence the site shows as
   "verified". Each recipe is a full three-agent run, so a sample first (about ten across the five
   groups) to measure what a run costs before the 129.
-- **Record your workflow, then build it better in Port42** (GM via growth, 2026-09-27). Record: for
-  about ten minutes Port42 logs the front app and window title each second, and counts window and app
-  switches and clipboard changes (a hash, never the content), all on this Mac; frames and spoken
-  narration only by explicit opt-in, which says in plain words that they go to the companion's model
-  provider. Read: a companion maps the jumps, the repeated paste loops and the interruptions. Rebuild:
-  it writes imagine lines for the workflow into the ⌘I box (the person presses Enter), and a space
-  appears with the person's surfaces as ports and pipes where they were copying. Measure again: the
-  same counter runs in the new space, before and after kept ("244 switches an hour before, N after").
-  Replaces the blank ⌘I box with "show me". Steps 1 and 4 exist as a web port on GM's desktop
-  (`port42-growth/port42-ports/switch-counter.html`). Product idea; demand unvalidated.
-- **Share with the people in the chat, and clickable port ids** (GM, 2026-09-27; decided in Phase
-  4.7b, not built). Found live: a browser guest asked ember for a shader, ember made a new port and
-  posted its id, and the guest could not see it. A port id in a chat becomes a link: it focuses the
-  port in Port42 and opens it on the invite page when you have access. A companion never grants
-  access on its own; it offers the new port to the machines already in this port's chat, and each
-  grant goes through the per-port card on the host. The companion instructions say that someone on
-  another machine sees only the ports shared with them.
-- **Crews by kind for imagine** (GM via growth, 2026-09-27: "for these application types surely you want
-  a set of agents appropriate to them"). Same shape and cost as today (a lead and two members, the same
-  version budget); only the member roles change by kind: data (analyst, engineer), design (designer,
-  engineer), sound (sound designer, engineer), work (writer, analyst), ops (operator, engineer), AI
-  work (evaluator, engineer), play (game master, world builder, engineer), learn (tutor, content writer,
-  engineer), and more on the Elements page. A crew is a small file of role briefs, the same path as
-  `Imagine.leadRole`/`engineerRole`; `imagine.start` and the deep link take an optional `crew`, else the
-  lead picks one from the line or defaults to engineers. Crews editable and shareable like ports.
-  **Decided (GM, 2026-09-27): after the v1 release.** Spec: `port42-growth/nautilus-crews-spec.md`. A
-  crew is data (a lead and two members, each a role from `catalog.json` `roles[]`, 17 roles with
-  briefs); `imagine.start` and the deep link take an optional crew; the choice is an explicit crew, then
-  the recipe's crew, then engineers, with no model call to pick; the ⌘I box shows the three crew chips,
-  changeable before Enter; cost unchanged. The site lists crews as coming soon.
-- **Pick the model, not type it** (GM, 2026-09-27). Choosing a companion's model means knowing the
-  CLI's flag and typing it into its arguments. Offer the models each CLI can run (Claude Code's and
-  Codex's own lists) as a choice when making or editing a companion, and at first run, and write the
-  flag for the person.
-- **Move browser and terminal ports to another space** (GM, 2026-09-27). "Move to…" for a web port
-  exists; a browser or terminal port should move across spaces the same way, keeping its session (the
-  terminal keeps running, the browser keeps its page).
-- **Rename a port, and copy its name** (GM, 2026-09-27). A port's title set by hand from its "…" menu,
-  and its name copied from there, as a space's is.
-- **Rename a space from the top bar** (GM, 2026-09-27). A long press on the space pill in the top bar
-  renames it in place.
-- **One way to close a sheet** (GM, 2026-09-27). Esc does not close the companion sheet, and sheets
-  across the app mix an X button, an esc label and neither. Every sheet and box closes on Esc and shows
-  the same close control.
-- **Embed a port in a web page** (GM, 2026-09-27). A snippet that puts a live, read-only port on any
-  site, as the invite page shows a shared one: the Issue Squad board published for anyone to watch. Builds
-  on the browser guest and the relay; needs a "see only, anyone" share that no one redeems.
-- **relay1 deploys from the published image** (GM, 2026-09-28). relay1's Railway service is an upload
-  (`railway up`), so a `relay-v*` tag does not reach it; relay-v1.0.0 was redeployed by hand. Make the
-  ghcr.io package public, point the service at `ghcr.io/gordonmattey/port42-relay`, and a release reaches
-  relay1 without a hand deploy. The same for tele.
-- **Dev instances write their gateway logs into production's data folder** (found 2026-09-28). Every
-  instance's `gateway127.0.0.1:<port>.log` lands in `~/Library/Application Support/Port42`, which held 870
-  of them; dev instances keep all other data apart. Write each into its own instance's folder.
-- **An agent can set up what the person should look at** (GM, 2026-09-28: "I wish you could just do
-  that for me, tile, etc."). An API to open a port's chat panel and lay tiles out side by side, so an
-  agent can stage a demo or a review (two instances' tiles for a sharing check) instead of asking the
-  person to click there. `port.move` and `port.position` exist; opening a chat panel does not.
-- **Codex reports its tools too** (2026-09-28). Presence says what a Claude Code agent is doing from
-  its PreToolUse and PostToolUse hooks; Port42 registers only SessionStart and Stop with Codex, so a
-  Codex companion shows "working" alone. Codex's hooks share Claude's event names; confirm with a live
-  Codex turn before relying on them (Codex's hooks have contradicted its documentation before).
-- **Sessions survive a restart** (GM, 2026-09-28; option C). A Port42 restart (an update, a crash, a
-  force-quit) ends every terminal's process, since terminals are children of the app. Run them in a small
-  session host that outlives the app, as tmux does, and reattach on launch. Needs a spike: Ghostty
-  spawns its own PTY, so a surface would run an attach client instead. Until then, A below.
-- **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
-  what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
-  people exchange data, not only prose.
-- **Resizable chats** (GM, 2026-09-26). Moved to the release's final hit list (item 2).
 - **A benchmark suite** (GM, 2026-09-26). Two layers: a free one that measures the size (bytes and
   estimated tokens) of every read method on real ports, with a size budget pinned per default; and the
   golden eval set (`eval-golden.md`) for tokens per task, run rarely since it spends the subscription.
   Prompted by `port.console` returning up to ~400 KB into an agent's context per check.
-- **Zoom into a chat** (GM, 2026-09-26). A chat as a level of the zoom spine, entered like a port's
-  focus, rather than a panel over the desktop. The space chat's expand button is the stopgap.
-- **`/imagine`** (GM, 2026-09-25; moved into the release's scope 2026-09-26, plan in `plan-imagine.md`). Type one line ("a shader that reacts to music") and Port42 writes
-  the brief, opens a new space with a lead and two engineers, and briefs the lead; the team builds and
-  improves the port in its chat by rounds and reports DONE. The pieces exist and ran live
-  (`scripts/scenarios/team.py`); what is new is turning the line into the brief. Product idea;
-  whether people want it is unvalidated.
 - **Windows and Linux** (GM wants Windows, 2026-09-25; demand unvalidated). A research branch
   (`research-windows-port`, `docs/recommend-kernel-boundary.md`) proposes moving the kernel to Go so
   other shells become clients of the door. Against this plan:
@@ -652,3 +644,4 @@ Things that would be cool once the five scenarios hold.
     panel model out of a view file, shell geometry out of kernel code, the gateway process behind a
     protocol), and a CI build of the kernel files on Linux to hold that line.
   - Its figures predate the engine removal and the chat work and need re-measuring on nautilus.
+
