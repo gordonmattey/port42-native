@@ -179,6 +179,18 @@ the order of the steps.
 `docs/ports-spec.md` with `docs/ports-implementation-plan.md`, and `docs/design-phase4-relay.md` with
 `docs/plan-nautilus-phase4.md`, are spec and plan pairs from shipped work.
 
+## Secrets
+
+A PostHog personal key once reached two releases. Turn on the pre-commit secret check once per clone:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+It runs gitleaks with `.gitleaks.toml` when gitleaks is installed (`brew install gitleaks`), and a
+pattern check otherwise. CI scans every push the same way (`.github/workflows/secrets.yml`). Only the
+public `phc_` PostHog key may ship; the build refuses any other.
+
 ## Signing commits
 
 Not required, but appreciated.
