@@ -305,8 +305,10 @@ public enum ChatRouting {
     /// Everyone who can be mentioned in a chat: this instance's companions, then everyone who has posted
     /// there (people, and another machine's companions), once each, newest first. Never Port42 itself or
     /// the person reading.
-    public static func mentionable(companions: [String], entries: [PortChatEntry], me: String?) -> [String] {
-        var seen = Set<String>()
+    public static func mentionable(companions: [String], people: [String] = [], entries: [PortChatEntry],
+                                   me: String?, myName: String? = nil) -> [String] {
+        // Never the person reading, by id or by name: you cannot @ yourself (GM, 2026-09-28).
+        var seen = Set<String>(myName.map { [$0.lowercased()] } ?? [])
         var out: [String] = []
         func add(_ n: String) {
             let k = n.lowercased()
@@ -314,6 +316,7 @@ public enum ChatRouting {
             seen.insert(k); out.append(n)
         }
         companions.forEach(add)
+        people.forEach(add)
         for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me { add(e.fromName) }
         return out
     }
@@ -588,6 +591,17 @@ extension AppState {
         // In a tile of someone else's port, the person's own companions answer to their plain names
         // (GM's brother, 2026-09-28: "@Ovi" there reached no one). Only the person's own post does this.
         if remotePort(for: key) != nil { wakeOwnCompanions(key: key, text: text, fromName: user.displayName, fromId: user.id) }
+    }
+
+    /// The people in a shared port's chat, whether or not they have posted yet: in a tile of someone
+    /// else's port, its host; on a port this instance shares, everyone it is shared with. Autocomplete
+    /// offered only names that had posted, so a guest could not @ a host who had not spoken (Dev6,
+    /// 2026-09-28).
+    func chatPeople(key: String) -> [String] {
+        if let tile = portWindows.panels.first(where: { $0.udid == key })?.id, let row = mirroredRemote(tile) {
+            return [row.hostName]
+        }
+        return (sharing[key]?.people ?? []).map(\.name)
     }
 
     /// Someone mentioned the person reading: say so, even when Port42 is not in front (GM, 2026-09-28:

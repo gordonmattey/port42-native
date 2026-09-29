@@ -158,7 +158,9 @@ struct PortChatPanel: View {
     /// this chat (the other person in a shared port, and their companions).
     private var mentionable: [String] {
         ChatRouting.mentionable(companions: appState.companions.map(\.displayName),
-                                entries: chats.entries[key] ?? [], me: appState.currentUser?.id)
+                                people: appState.chatPeople(key: key),
+                                entries: chats.entries[key] ?? [], me: appState.currentUser?.id,
+                                myName: appState.currentUser?.displayName)
     }
 
     /// Names matching the @name being typed, up to five.

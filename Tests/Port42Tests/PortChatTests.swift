@@ -444,4 +444,14 @@ struct PortChatTests {
         #expect(ChatRouting.unmatchedMentions("no mentions here", known: []).isEmpty)
     }
 
+
+    @Test("you cannot @ yourself: your own name is never offered, from the posts or the people list")
+    func notMyself() {
+        let t = Date()
+        let mine = PortChatEntry(seq: 1, at: t, text: "x", fromId: "u-me", fromName: "gordon", fromKind: "human")
+        let names = ChatRouting.mentionable(companions: ["echo"], people: ["Gordon", "Justin"], entries: [mine],
+                                            me: "u-me", myName: "gordon")
+        #expect(names == ["echo", "Justin"], "offered the person their own name: \(names)")
+    }
+
 }

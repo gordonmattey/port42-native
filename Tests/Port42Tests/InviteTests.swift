@@ -346,6 +346,14 @@ struct InviteTests {
         #expect(row([.move], "a", nil).isUsedUp, "a port moves once")
     }
 
+    @Test("the host can @ a guest who joined, before the guest has said anything")
+    func hostOffersSilentGuest() async throws {
+        let w = try world()
+        _ = try await remote(w, as: Self.ada, "invite.redeem", ["nonce": try coupon(try await create(w)).nonce, "name": "Justin"])
+        #expect(w.state.chatPeople(key: w.p).contains { $0.hasPrefix("Justin") }, "the guest is not offered: \(w.state.chatPeople(key: w.p))")
+        #expect(w.state.chatPeople(key: w.q).isEmpty, "a port not shared offers a guest")
+    }
+
     @Test("the host hears when a guest mentions them; their own posts and unrelated ones stay quiet")
     func hostHearsTheirName() async throws {
         let w = try world()

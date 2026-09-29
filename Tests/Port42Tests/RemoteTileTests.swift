@@ -281,6 +281,20 @@ struct RemoteTileTests {
         state.stopMirror(tile: tile)
     }
 
+    @Test("a guest can @ the host before the host has said anything in the chat")
+    func guestOffersSilentHost() async throws {
+        let (state, gw) = try world()
+        host(gw, html: { "<p>x</p>" })
+        let tile = try await accept(state)
+        let key = try #require(state.mirrorChatKey(tile))
+        let host = try #require(state.mirroredRemote(tile)?.hostName)
+        #expect(state.chatPeople(key: key) == [host])
+        let names = ChatRouting.mentionable(companions: [], people: state.chatPeople(key: key), entries: [], me: nil)
+        #expect(ChatRouting.mentionSuggestions(query: String(host.prefix(1)), names: names).contains(host),
+                "typing the first letter of the host's name offered nothing (Dev6, 2026-09-28)")
+        state.stopMirror(tile: tile)
+    }
+
     @Test("a guest hears when the host mentions them, by their name or the label the host knows them by")
     func guestHearsTheirName() async throws {
         let (state, gw) = try world()
