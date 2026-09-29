@@ -51,6 +51,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/relay-v')
     permissions:
       contents: write
+      id-token: write       # BLD-10: signs the build-provenance attestation (Sigstore)
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -59,6 +61,16 @@ jobs:
         with:
           go-version-file: gateway/go.mod
       - run: scripts/relay-dist.sh "${GITHUB_REF_NAME#relay-}"
+      # BLD-10: every archive and SHA256SUMS gets a signed build-provenance attestation, so a download
+      # can be checked against this repository and this workflow: gh attestation verify <file> --repo
+      # gordonmattey/port42-native. The checksums alone were unsigned, so they proved nothing about where
+      # a file came from.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/relay/*.tar.gz
+            dist/relay/*.zip
+            dist/relay/SHA256SUMS
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

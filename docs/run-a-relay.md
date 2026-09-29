@@ -57,8 +57,16 @@ Download the file for your machine from the
 | Windows, x86 | `port42-relay-<version>-windows-amd64.zip` |
 | Windows, ARM | `port42-relay-<version>-windows-arm64.zip` |
 
-Check it against `SHA256SUMS` from the same release (`shasum -a 256 -c SHA256SUMS --ignore-missing`,
-or `Get-FileHash` on Windows), unpack it, and run it:
+Check it before running it (BLD-10). Against `SHA256SUMS` from the same release
+(`shasum -a 256 -c SHA256SUMS --ignore-missing`, or `Get-FileHash` on Windows), and against the signed
+build provenance the release workflow attaches, which proves the file came from this repository's
+workflow and not just from whoever uploaded it:
+
+```
+gh attestation verify port42-relay-<version>-<os>-<arch>.tar.gz --repo gordonmattey/port42-native
+```
+
+Then unpack it and run it:
 
 ```
 ./port42-relay                                 # macOS and Linux
@@ -68,8 +76,9 @@ or `Get-FileHash` on Windows), unpack it, and run it:
 It listens on port 8080. Another port: `PORT=9000 ./port42-relay`, or on Windows
 `$env:PORT = "9000"; .\port42-relay.exe`.
 
-The macOS builds are signed with Port42's Developer ID. The Windows builds are not signed yet, so
-SmartScreen may warn on first run: choose **More info**, then **Run anyway**.
+The macOS builds are signed with Port42's Developer ID and notarized. The Windows builds are not signed
+yet, so SmartScreen warns about them as it does about any unsigned program: run one only after its
+checksum and attestation check out.
 
 ### Keep it running (Linux)
 

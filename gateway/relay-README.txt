@@ -28,8 +28,15 @@ It listens on port 8080 and serves /v1 (the relay) and /health. To use another p
     PORT=9000 ./port42-relay                 macOS and Linux
     $env:PORT = "9000"; .\port42-relay.exe   Windows PowerShell
 
-On macOS, the first run of a downloaded file may need: right-click, Open. On Windows, SmartScreen may
-warn because this build is not signed; choose "More info", then "Run anyway".
+Before running a download, check it came from Port42's own build (the file name is the one you got):
+
+    shasum -a 256 -c SHA256SUMS --ignore-missing                              macOS and Linux
+    gh attestation verify port42-relay-<version>-<os>-<arch>.tar.gz --repo gordonmattey/port42-native
+
+The second line checks the signed build provenance GitHub attached to the release. On Windows use
+Get-FileHash and compare with SHA256SUMS, and the same gh command. The macOS builds are signed and
+notarized. The Windows builds are not signed yet, so SmartScreen warns about them as it does about any
+unsigned program; only run one whose checksum and attestation you have just verified.
 
 
 2. PUT TLS IN FRONT

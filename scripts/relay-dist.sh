@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 VERSION="${1:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 OUT="dist/relay"
 rm -rf "$OUT"; mkdir -p "$OUT"
+NOTARY_PROFILE="${NOTARY_PROFILE:-notarytool}"   # the Keychain profile build.sh notarizes the app with
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | grep -o 'Developer ID Application: [^"]*' | head -1 || true)"
 
 for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 windows/arm64; do
@@ -25,6 +26,15 @@ for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 wi
   if [ "$os" = darwin ]; then
     if [ -n "$IDENTITY" ]; then
       codesign --force --options runtime --timestamp --sign "$IDENTITY" "$OUT/$name/port42-relay"
+      # Notarize as well (BLD-10), so Gatekeeper accepts the download without a right-click Open. A
+      # bare binary cannot be stapled; Gatekeeper checks the ticket online on first run.
+      if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+        (cd "$OUT/$name" && ditto -c -k --keepParent port42-relay ../"$name-notarize.zip")
+        xcrun notarytool submit "$OUT/$name-notarize.zip" --keychain-profile "$NOTARY_PROFILE" --wait
+        rm -f "$OUT/$name-notarize.zip"
+      else
+        echo "[relay-dist] no '$NOTARY_PROFILE' notary profile: $name is signed but not notarized" >&2
+      fi
     else
       echo "[relay-dist] no Developer ID identity: $name is unsigned" >&2
     fi
