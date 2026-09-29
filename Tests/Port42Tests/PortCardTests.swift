@@ -85,6 +85,14 @@ struct PortCardTests {
         #expect(t.lines.filter { $0.label == "working" }.count == 1)
     }
 
+    @Test("a card fills the room it has: a peek holds several lines, a tiny card at least one")
+    func linesFit() {
+        #expect(PortStateCard.lines(fitting: CGSize(width: 210, height: 116), progress: false) >= 6)
+        #expect(PortStateCard.lines(fitting: CGSize(width: 210, height: 116), progress: true)
+                < PortStateCard.lines(fitting: CGSize(width: 210, height: 116), progress: false))
+        #expect(PortStateCard.lines(fitting: CGSize(width: 150, height: 20), progress: true) == 1)
+    }
+
     @Test("a hidden port's rail card dot: red when something needs you, accent while someone works, else quiet")
     func railDot() {
         let accent = Color.orange

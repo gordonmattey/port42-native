@@ -29,11 +29,13 @@ struct PortStateCard: View {
                 } else if wide {
                     strip(card.lines)
                         .font(Port42Theme.mono(10))
-                        .lineLimit(2)
+                        .lineLimit(Self.lines(fitting: size, progress: card.progress != nil))
                     Spacer(minLength: 0)
                 } else {
+                    // Each value wraps into the room the card has, shared between its rows.
+                    let each = max(1, Self.lines(fitting: size, progress: card.progress != nil) / max(1, card.lines.count))
                     ForEach(Array(card.lines.enumerated()), id: \.offset) { _, line in
-                        row(line)
+                        row(line, lines: each)
                     }
                     Spacer(minLength: 0)
                 }
@@ -65,7 +67,15 @@ struct PortStateCard: View {
         }
     }
 
-    private func row(_ line: PortCard.Line) -> some View {
+    /// How many lines of text fit in a card this size: its height less the padding and a bar. The card
+    /// fills the room it has and cuts only when it runs out (GM, 2026-09-29: a peek cut its text with
+    /// room to spare).
+    static func lines(fitting size: CGSize, progress: Bool) -> Int {
+        let usable = size.height - 14 - (progress ? 8 : 0)
+        return max(1, Int(usable / 14))
+    }
+
+    private func row(_ line: PortCard.Line, lines: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(line.label)
                 .font(Port42Theme.mono(9))
@@ -74,7 +84,8 @@ struct PortStateCard: View {
             Text(line.value)
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(color(line.tone))
-                .lineLimit(1).truncationMode(.middle)
+                .lineLimit(lines).truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
