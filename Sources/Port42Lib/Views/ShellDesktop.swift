@@ -620,6 +620,11 @@ struct ShellTile: View {
         .overlay(alignment: .topTrailing)    { if !isFocused && !isPeeking { cornerHandle(.ne) } }
         .overlay(alignment: .bottomLeading)  { if !isFocused && !isPeeking { cornerHandle(.sw) } }
         .overlay(alignment: .bottomTrailing) { if !isFocused && !isPeeking { cornerHandle(.se) } }
+        // #130: VoiceOver finds the tile by its port's name and kind, and hears which one is in
+        // focus; the port's own content stays inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(ShellState.tileAccessibilityLabel(title: tile.title, portType: tile.panel?.portType,
+                                                              focused: isFocused))
         // In exposé, the whole tile is a pick target (over the body/handles): click → select + exit.
         .overlay {
             if shell.exposeActive && !isPeeking {

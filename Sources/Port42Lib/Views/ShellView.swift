@@ -299,6 +299,13 @@ public struct ShellView: View {
             }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
+        // #130: the window says where the person is: the space, and the port in focus. Read by
+        // VoiceOver and by tools that read window titles. Set on every update of the shell, so a
+        // zoom, a focus change, or a rename of the space or port shows at once.
+        .background(WindowRefAccessor { w in
+            let title = shell.windowTitle
+            if let w, w.title != title { w.title = title }
+        })
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
             shell.showSettings = true
         }

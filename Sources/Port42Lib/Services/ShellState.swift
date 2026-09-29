@@ -948,6 +948,49 @@ public final class ShellState: ObservableObject {
         showQuickSwitcher || showImagine || showImportSessions || shareTarget != nil || pendingInvite != nil
     }
 
+    // MARK: - Where the person is (#130)
+
+    /// The window's title: where the person is, for VoiceOver and for any tool that reads window
+    /// titles (Watch). Port42 set none, so every such reader saw only "Port42".
+    /// - locked (or not set up): "Port42" alone, so the lock screen names no space or port;
+    /// - the galaxy: "Port42 · All spaces";
+    /// - a space: its name;
+    /// - a focused port: "<space> · <port>", as in "port42-app · Drafts".
+    public static func windowTitle(locked: Bool, space: String?, zoom: Zoom, focusedTitle: String?) -> String {
+        if locked { return "Port42" }
+        let spaceName = (space?.isEmpty == false) ? space! : "Port42"
+        switch zoom {
+        case .galaxy: return "Port42 · All spaces"
+        case .space: return spaceName
+        case .focus:
+            guard let t = focusedTitle, !t.isEmpty else { return spaceName }
+            return "\(spaceName) · \(t)"
+        }
+    }
+
+    /// This window's title now.
+    public var windowTitle: String {
+        var focused: String?
+        if case .focus(let id) = zoom {
+            focused = appState.portWindows.panels.first { $0.id == id || $0.udid == id }?.title
+        }
+        return Self.windowTitle(locked: appState.showDreamscape || !appState.isSetupComplete,
+                                space: appState.currentSpace?.name, zoom: zoom, focusedTitle: focused)
+    }
+
+    /// What VoiceOver says for a port's tile: its name and what kind of port it is, and whether it
+    /// is the one in focus.
+    public static func tileAccessibilityLabel(title: String, portType: String?, focused: Bool) -> String {
+        let kind: String
+        switch portType {
+        case "terminal": kind = "terminal"
+        case "browser": kind = "browser"
+        default: kind = "port"
+        }
+        let name = title.isEmpty ? "Untitled" : title
+        return focused ? "\(name), \(kind), in focus" : "\(name), \(kind)"
+    }
+
     /// The port currently in focus is a terminal (its Esc must reach it, not the ladder).
     public var focusedPortIsTerminal: Bool {
         guard case .focus(let id) = zoom else { return false }

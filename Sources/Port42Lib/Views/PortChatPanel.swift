@@ -65,6 +65,18 @@ struct PortChatPanel: View {
     @State private var error: String?
     @FocusState private var inputFocused: Bool
 
+    /// #130: what VoiceOver calls this chat: the desktop's, a space's, or a port's.
+    static func accessibilityLabel(key: String, spaces: [Space], portTitle: String?) -> String {
+        if key == PortChat.desktopKey { return "Chat, desktop" }
+        if let space = spaces.first(where: { $0.id == key }) { return "Chat, space \(space.name)" }
+        return "Chat, \(portTitle?.isEmpty == false ? portTitle! : "port")"
+    }
+
+    private var chatLabel: String {
+        Self.accessibilityLabel(key: key, spaces: appState.spaces,
+                                portTitle: appState.portWindows.panels.first { $0.udid == key || $0.id == key }?.title)
+    }
+
     var body: some View {
         let list = chats.entries[key] ?? []
         VStack(spacing: 0) {
@@ -140,12 +152,16 @@ struct PortChatPanel: View {
                         .foregroundStyle(draft.isEmpty ? Port42Theme.textSecondary : accent)
                 }
                 .buttonStyle(.plain).disabled(draft.isEmpty)
+                .accessibilityLabel("Send")       // #130: an icon alone names nothing to VoiceOver
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(Port42Theme.bgInput)
         }
         .background(Port42Theme.shellCard)
         .overlay(alignment: .bottom) { Rectangle().fill(accent.opacity(0.35)).frame(height: 1).offset(y: 0.5) }
+        // #130: VoiceOver finds the chat by whose it is; the transcript and input stay inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(chatLabel)
         .onAppear {
             chats.load(key, from: appState.db)
             chats.markRead(key)

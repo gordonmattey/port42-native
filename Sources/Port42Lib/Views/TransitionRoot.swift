@@ -238,6 +238,10 @@ public struct TransitionRoot: View {
             startDiveTransition()
         }
         .background(WindowRefAccessor { w in nsWindow = w })
+        // #130: the lock screen names no space or port. The shell sets the title again on unlock.
+        .onChange(of: appState.showDreamscape) { locked in
+            if locked { nsWindow?.title = "Port42" }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = true }
         }
