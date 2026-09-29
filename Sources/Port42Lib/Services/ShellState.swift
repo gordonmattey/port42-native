@@ -984,9 +984,10 @@ public final class ShellState: ObservableObject {
     /// Minimum tile size (drag-resize floor).
     nonisolated public static let minTileSize = CGSize(width: 220, height: 160)
 
-    /// The right-edge rail's two drop zones: park (minimize to a chip) and close (delete the port).
-    /// `hide`: dropped on the top bar, where the hidden ports are listed (GM, 2026-09-26). The port
-    /// keeps running with no tile.
+    /// The right-edge rail's three drop zones, top to bottom: hide (the port keeps running with no tile;
+    /// one "N hidden" control lists them, not a chip each), park (minimize to a chip) and close
+    /// (delete the port). Hide moved from the top bar to the rail, so everything a tile is dragged to
+    /// is on the right (GM, 2026-09-29).
     public enum ParkZone: Equatable { case park, close, hide }
 
     /// Which rail zone the in-progress tile drag is currently over (drives the rail highlight); nil
@@ -1017,7 +1018,9 @@ public final class ShellState: ObservableObject {
     /// plus the tray icon put the first chip's top here, and every chip is one pitch below the last.
     nonisolated public static let railChipHeight: CGFloat = 44
     nonisolated public static let railChipSpacing: CGFloat = 10
-    nonisolated public static let railFirstChipTop: CGFloat = 46 + 12 + 14 + railChipSpacing
+    nonisolated public static let railFirstChipTop: CGFloat = hideZoneHeight + railHeaderHeight + railChipSpacing
+    /// The park section's heading row, under the hidden section.
+    nonisolated public static let railHeaderHeight: CGFloat = 26
 
     /// The rail slot under a desktop-space y, among `count` chips (count = append at the bottom).
     nonisolated public static func railSlot(forY y: CGFloat, count: Int) -> Int {
@@ -1026,16 +1029,18 @@ public final class ShellState: ObservableObject {
         return min(max(0, slot), count)
     }
 
-    /// The close sub-zone's height — the bottom portion of the rail.
-    nonisolated public static func closeZoneHeight(_ screenH: CGFloat) -> CGFloat { max(120, screenH * 0.2) }
+    /// The rail top to bottom (GM, 2026-09-29): hidden (one row, "N hidden"), park (the rest), and the
+    /// close zone (a trash icon) at the bottom.
+    nonisolated public static let hideZoneHeight: CGFloat = 40
+    nonisolated public static let closeZoneHeight: CGFloat = 64
 
-    /// Classify a point (in desktop coordinates) against the right rail: the bottom portion of the
-    /// strip is the **close** zone, the rest of the strip is **park**, everything left of the strip
-    /// is nil. Pure → headless-testable.
+    /// Classify a point (in desktop coordinates) against the right rail: the top band of the strip is
+    /// **hide**, the bottom **close**, the rest **park**, and everything left of the strip is nil.
+    /// Pure → headless-testable.
     nonisolated public static func parkZone(at p: CGPoint, in area: CGSize) -> ParkZone? {
-        if p.y < 0 { return .hide }                              // above the desktop: the top bar
         guard p.x >= area.width - parkWidth(area.width) else { return nil }
-        return p.y >= area.height - closeZoneHeight(area.height) ? .close : .park
+        if p.y < hideZoneHeight { return .hide }
+        return p.y >= area.height - closeZoneHeight ? .close : .park
     }
 
     /// The space's own chat, dropped down from the top bar. A space is a port, so its chat is the

@@ -46,33 +46,6 @@ struct ShellChrome: View {
                 .onChange(of: sid) { _, new in appState.chats.load(new, from: appState.db) }
             }
 
-            // HIDDEN PORTS in this space (Phase 3.2, decision 4): a person can always see what is
-            // running with no tile, and show it. Absent when there are none.
-            // While a tile is dragged it shows even with none hidden: dropping on the top bar hides.
-            let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
-            let overHide = shell.draggingOverPark == .hide
-            if !hidden.isEmpty || shell.isDraggingTile {
-                chromeRow {
-                    Menu {
-                        ForEach(hidden) { p in
-                            Button("Show \(p.title)") { shell.showHidden(p.id) }
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "eye.slash").font(.system(size: 10))
-                            Text(overHide ? "release to hide" : shell.isDraggingTile ? "drag here to hide" : "\(hidden.count) hidden")
-                                .font(Port42Theme.mono(11))
-                        }
-                        .foregroundStyle(overHide ? shell.accent : Port42Theme.textSecondary)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(overHide ? shell.accent.opacity(0.15) : .clear))
-                        .shadow(color: overHide ? shell.accent.opacity(0.6) : .clear, radius: 6)
-                    }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .help("Ports running here with no tile. Drag a port here to hide it.")
-                }
-            }
-
             // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
 
             Spacer()
@@ -1023,28 +996,34 @@ struct ShellParkRail: View {
         let w = ShellState.parkWidth(area.width)
         let overPark = shell.draggingOverPark == .park
         let overClose = shell.draggingOverPark == .close
+        let overHide = shell.draggingOverPark == .hide
 
-        VStack(spacing: ShellState.railChipSpacing) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 12))
-                .frame(height: 14)
-                .foregroundStyle(Port42Theme.textSecondary.opacity(overPark ? 1 : 0.5))
-                .padding(.top, 12)
-            // Parked ports, with a highlighted gap where a drag would land.
-            let ids = railPanels.map(\.id)
-            let gapAt = shell.railDropSlot.map { ShellState.railGapIndex(ids: ids, dragging: shell.railDraggingId, slot: $0) }
-            ForEach(Array(railPanels.enumerated()), id: \.element.id) { i, p in
-                if gapAt == .some(i) { dropGap }
-                chip(p).opacity(shell.railDraggingId == p.id ? 0.4 : 1)
+        // Top to bottom (GM, 2026-09-29): hidden ("N hidden", a menu), park (the chips), close (a trash
+        // icon). Each lights up while a tile is dragged over it.
+        VStack(spacing: 0) {
+            hiddenSection(active: overHide)
+                .frame(height: ShellState.hideZoneHeight)
+            section("park", icon: "tray.and.arrow.down", active: overPark, tint: shell.accent) {
+                // Parked ports, with a highlighted gap where a drag would land.
+                let ids = railPanels.map(\.id)
+                let gapAt = shell.railDropSlot.map { ShellState.railGapIndex(ids: ids, dragging: shell.railDraggingId, slot: $0) }
+                VStack(spacing: ShellState.railChipSpacing) {
+                    ForEach(Array(railPanels.enumerated()), id: \.element.id) { i, p in
+                        if gapAt == .some(i) { dropGap }
+                        chip(p).opacity(shell.railDraggingId == p.id ? 0.4 : 1)
+                    }
+                    if shell.railDropSlot != nil, gapAt == .some(nil) { dropGap }
+                }
+                .padding(.top, ShellState.railChipSpacing)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            if shell.railDropSlot != nil, gapAt == .some(nil) { dropGap }
-            Spacer(minLength: 12)
-            closeZone(height: ShellState.closeZoneHeight(area.height), active: overClose)
+            .frame(maxHeight: .infinity)
+            closeZone(active: overClose)
+                .frame(height: ShellState.closeZoneHeight)
         }
         .frame(width: w)
-        .padding(.top, 46)                       // clear the Chrome
-        .background(Rectangle().fill(shell.accent.opacity(overPark ? 0.16 : 0.05)))
-        .overlay(Rectangle().fill(shell.accent.opacity(overPark ? 0.6 : 0.15)).frame(width: 1), alignment: .leading)
+        .background(Rectangle().fill(Color.black.opacity(0.35)))
+        .overlay(Rectangle().fill(shell.accent.opacity(0.15)).frame(width: 1), alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: shell.railDropSlot)
@@ -1095,15 +1074,68 @@ struct ShellParkRail: View {
         .matchedGeometryEffect(id: "restore-\(p.id)", in: restoreNS, properties: .position, anchor: .center, isSource: true)
     }
 
-    private func closeZone(height: CGFloat, active: Bool) -> some View {
-        VStack(spacing: 5) {
-            Image(systemName: "trash").font(.system(size: 15, weight: active ? .bold : .regular))
-                .foregroundStyle(active ? Color.red : Port42Theme.textSecondary.opacity(0.5))
-            Text("close").font(Port42Theme.mono(8)).foregroundStyle(active ? Color.red : Port42Theme.textSecondary.opacity(0.5))
+    /// The rail's icons and the hidden count share one color, so the rail reads as one thing.
+    static let railInk = Port42Theme.textSecondary.opacity(0.6)
+
+    /// The park section: its heading, then the chips. Lit while a tile is dragged over it.
+    private func section<Content: View>(_ name: String, icon: String, active: Bool, tint: Color,
+                                         @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            Image(systemName: icon).font(.system(size: 11, weight: active ? .bold : .regular))
+                .foregroundStyle(active ? tint : Self.railInk)
+                .help(name)
+            .frame(maxWidth: .infinity).frame(height: ShellState.railHeaderHeight)
+            content()
         }
-        .frame(maxWidth: .infinity).frame(height: height)
-        .background(Rectangle().fill(Color.red.opacity(active ? 0.22 : 0)))
-        .overlay(Rectangle().fill(Color.red.opacity(active ? 0.7 : 0.12)).frame(height: 1), alignment: .top)
+        .frame(maxWidth: .infinity)
+        .background(Rectangle().fill(tint.opacity(active ? 0.18 : 0)))
+        .overlay(alignment: .top) { divider(active ? tint.opacity(0.6) : nil) }
+    }
+
+    private func divider(_ color: Color?) -> some View {
+        Rectangle().fill(color ?? Color.white.opacity(0.08)).frame(height: 1)
+    }
+
+    /// HIDDEN PORTS in this space, at the top of the rail: one control, an eye and a count, not a chip each
+    /// (they are hidden for a reason, GM 2026-09-29). Clicking it lists them to show. It is also the
+    /// drop zone that hides a tile. A person can always see something runs with no tile (Phase 3.2).
+    private func hiddenSection(active: Bool) -> some View {
+        let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+        let color = active ? shell.accent : Self.railInk
+        let label = HStack(spacing: 5) {
+            Image(systemName: "eye.slash").font(.system(size: 11, weight: active ? .bold : .regular))
+            Text("\(hidden.count)").font(Port42Theme.mono(10))
+        }
+        .foregroundStyle(color)
+        // A plain menu keeps the label's own color and size (the borderless style drew it as a system
+        // button: bright white, left-aligned); the frame around it centers it in the rail.
+        return Group {
+            if hidden.isEmpty {
+                label
+            } else {
+                Menu {
+                    ForEach(hidden) { p in
+                        Button("Show \(p.title)") { shell.showHidden(p.id) }
+                    }
+                } label: { label }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
+        .help(hidden.isEmpty ? "Drag a port here to hide it: it keeps running with no tile."
+                             : "Ports running here with no tile: click to show one. Drag a port here to hide it.")
+    }
+
+    /// The close zone at the bottom of the rail: a trash icon, red while a tile is over it.
+    private func closeZone(active: Bool) -> some View {
+        Image(systemName: "trash").font(.system(size: 18, weight: active ? .bold : .regular))
+            .foregroundStyle(active ? Color.red : Self.railInk)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Rectangle().fill(Color.red.opacity(active ? 0.22 : 0)))
+            .overlay(alignment: .top) { divider(active ? Color.red.opacity(0.7) : nil) }
+            .help("Drag a port here to close it")
     }
 }
 

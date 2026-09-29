@@ -103,7 +103,19 @@ public struct QuickSwitcher: View {
                                 .foregroundStyle(Port42Theme.textSecondary)
                                 .padding(.vertical, 20)
                         } else {
-                            ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
+                            let items = filteredItems
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                // One heading per group, where the group starts: the rows no longer
+                                // each say what they are (GM, 2026-09-29).
+                                if index == 0 || Self.section(items[index - 1]) != Self.section(item) {
+                                    Text(Self.section(item))
+                                        .font(Port42Theme.mono(10))
+                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 22)
+                                        .padding(.top, index == 0 ? 10 : 14)
+                                        .padding(.bottom, 4)
+                                }
                                 Button(action: { select(item) }) {
                                     HStack(spacing: 10) {
                                         Text(item.icon)
@@ -117,9 +129,11 @@ public struct QuickSwitcher: View {
 
                                         Spacer()
 
-                                        Text(kindLabel(item))
-                                            .font(Port42Theme.mono(10))
-                                            .foregroundStyle(Port42Theme.textSecondary)
+                                        if let detail = detail(item) {
+                                            Text(detail)
+                                                .font(Port42Theme.mono(10))
+                                                .foregroundStyle(Port42Theme.textSecondary)
+                                        }
                                         if case .closedPort(let id, _) = item.kind {
                                             Button { deleteForever(id) } label: {
                                                 Image(systemName: "trash").font(.system(size: 10))
@@ -300,12 +314,29 @@ public struct QuickSwitcher: View {
         }
     }
 
-    private func kindLabel(_ item: QuickSwitcherItem) -> String {
+    /// The group a row sits under; its heading is shown once, where the group starts.
+    static func section(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
-        case .space(let space): return space.isResting ? "resting" : "space"
-        case .companion: return "🏊"
-        case .closedPort: return "recently closed"
+        case .space: return "spaces"
+        case .companion: return "companions"
         case .hiddenPort: return "hidden"
+        case .closedPort: return "recently closed"
+        case .bringInSessions: return "actions"
+        }
+    }
+
+    /// What a row adds beyond its group, or nothing: a resting space, and where a hidden or closed
+    /// port lives (they are listed from every space).
+    private func detail(_ item: QuickSwitcherItem) -> String? {
+        func spaceName(_ id: String?) -> String? {
+            guard let id, id != appState.currentSpace?.id else { return nil }
+            return appState.spaces.first { $0.id == id }?.name
+        }
+        switch item.kind {
+        case .space(let space): return space.isResting ? "resting" : nil
+        case .companion: return nil
+        case .hiddenPort(let id): return spaceName(appState.portWindows.panels.first { $0.id == id }?.spaceId)
+        case .closedPort(_, let spaceId): return spaceName(spaceId)
         case .bringInSessions: return "claude code · codex"
         }
     }
