@@ -1,0 +1,33 @@
+# The guest bundle is what its source builds to (BLD-11). guest/dist/port42-guest.js is a committed
+# build artifact that tele.port42.ai serves, with its SRI hash in invite.html. This rebuilds it from
+# the lockfile on every change that could touch it and fails if the bundle or the page's hash differs
+# by a byte, so what is served is always what the reviewed source builds to.
+name: guest bundle
+
+on:
+  push:
+    paths: ['guest/**', '.github/workflows/guest.yml']
+  pull_request:
+    paths: ['guest/**', '.github/workflows/guest.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: guest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: the committed bundle and its hash are a byte-identical rebuild
+        run: git diff --exit-code -- dist/port42-guest.js invite.html
+      # The page's own tests; the layout test skips itself where there is no Chrome.
+      - run: node --test test/*.test.mjs
