@@ -446,9 +446,11 @@ struct ShellTile: View {
     }
 
     /// Two-state peek click: unseen previews (zoom in, in place); seen keeps (adopts as a tile).
+    /// Clicking a peek keeps it as a tile here (GM, 2026-09-29): the confident action is one click.
+    /// Looking is the magnifier (or ⌘↓ / a pinch while hovering); skipping is the ✕ or a flick left.
+    /// A kept tile you did not want costs one ✕, which only takes it off this space.
     private func clickPeek(_ p: ShellState.PeekPort) {
-        let cur = shell.peekingPorts.first { $0.id == p.id } ?? p
-        if cur.seen { shell.keepPeek(cur) } else { shell.previewPeek(cur) }
+        shell.keepPeek(shell.peekingPorts.first { $0.id == p.id } ?? p)
     }
 
     /// A tile that belongs to ANOTHER space (adopted from a peek) keeps its HOME space's accent, so it
@@ -556,10 +558,6 @@ struct ShellTile: View {
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
-            // Keep and dismiss along the foot, above the click catcher so they take their own clicks.
-            .overlay(alignment: .bottom) {
-                if isPeeking, let peek { AppKitLayer(content: peekActions(peek)).frame(height: 22) }
-            }
             // The chat and console slide down OVER the port from its title bar. They used to push the
             // port down, which resized it, so a shader redrew squeezed every time the chat opened (GM,
             // 2026-09-25). Hosted in their own AppKit view, so they take clicks over a web or terminal
@@ -856,32 +854,23 @@ struct ShellTile: View {
                         .rotationEffect(.degrees(-90))
                 }.frame(width: 11, height: 11)
             }
-
+            // On hover only, so the peek stays clean: look (zoom in; zoom back out and it goes) and
+            // skip (it stays in its own space).
+            if peekHovered {
+                Button { shell.previewPeek(p) } label: {
+                    Image(systemName: "magnifyingglass").font(.system(size: 9, weight: .semibold)).foregroundStyle(col)
+                        .frame(width: 16, height: 16).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Look (⌘↓)")
+                Button { shell.dismissPeek(p) } label: {
+                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 16, height: 16).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Skip: it stays in \(p.spaceName)")
+            }
         }
         .padding(.horizontal, 9).frame(height: peekHeaderH).background(Color.black.opacity(0.45))
         .contentShape(Rectangle())
-        .onTapGesture { clickPeek(p) }                          // tap → preview (unseen) / keep (seen)
+        .onTapGesture { clickPeek(p) }                          // tap → keep
         .gesture(moveGesture)                                   // drag-to-keep starts from the header too
-    }
-
-    /// A peek's two choices, in words along its foot: keep it here as a tile, or skip it. Not a ✕:
-    /// neither closes the port, which stays in its own space (GM, 2026-09-29).
-    private func peekActions(_ p: ShellState.PeekPort) -> some View {
-        let col = peekAccent(p)
-        return HStack(spacing: 0) {
-            Button { shell.keepPeek(p) } label: {
-                Text("keep").font(Port42Theme.monoBold(10)).foregroundStyle(col)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-            }.buttonStyle(.plain).help("Keep it here as a tile")
-            Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1, height: 12)
-            Button { shell.dismissPeek(p) } label: {
-                Text("skip").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-            }.buttonStyle(.plain).help("Let it go; it stays in \(p.spaceName)")
-        }
-        .frame(height: 22)
-        .background(Color.black.opacity(0.85))
-        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1) }
     }
 
     /// An invisible 16×16 corner drag zone that resizes from that corner.
@@ -926,6 +915,8 @@ struct ShellTile: View {
                 if isPeeking, let peek, let pf = peekFrame {
                     guard hypot(v.translation.width, v.translation.height) > 40 else { return }   // a wiggle isn't a keep
                     if railZone(at: v.location) == .close { shell.dismissPeek(peek); return }
+                    // Flicked off the left edge: skipped, as the ✕ does.
+                    if v.translation.width < -60 || v.location.x < 8 { shell.dismissPeek(peek); return }
                     shell.keepPeek(peek, arrange: false)
                     commit(origin: CGPoint(x: pf.minX + v.translation.width, y: pf.minY + v.translation.height),
                            size: tile.panel?.size ?? pf.size)
