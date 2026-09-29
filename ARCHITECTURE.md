@@ -228,8 +228,10 @@ companions (a lead and two engineers) on the CLI the person chose, with a versio
 Claude Code and Codex sessions and brings them into spaces. `port42 teleport` does the same for one
 Claude Code session from its own terminal.
 
-**What agents are told.** `InstructionService` writes a short pointer block into `~/.claude/CLAUDE.md`,
-`~/.gemini/GEMINI.md` and `~/.codex/AGENTS.md`. The skills plugin
+**What agents are told.** A companion gets its instructions per session: Claude Code through the
+shim's appended system prompt, Codex through the `AGENTS.md` in Port42's own Codex home. Port42 does
+not write the person's global instruction files (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
+`~/.gemini/GEMINI.md`); older versions did, and a block they left is not touched. The skills plugin
 (`Sources/Port42Lib/Skills/port42-skills`: `port42`, `port42-ports`, `port42-compose`, `port42-team`,
 `port42-devices`) loads in Port42 terminals; `port42 skills install` installs it for other sessions.
 

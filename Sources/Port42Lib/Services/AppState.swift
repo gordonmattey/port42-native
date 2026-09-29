@@ -1013,7 +1013,10 @@ public final class AppState: ObservableObject {
             // Same test-process guard, and for the same reason: this writes to the user's real
             // ~/.local/bin, which a test run must never touch.
             if !AppState.isTestProcess {
-                InstructionService.shared.refreshInstalled()
+                // No instruction blocks written here any more (GM, 2026-09-28): the Port42 block in
+                // ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md reached every session
+                // on the Mac, not only Port42's, and Port42's own companions get their instructions
+                // per session. Blocks already there are left as they are.
                 CLIInstallService.shared.install(registry: self.clientRegistry)
 
                 // AFTER the boot enrolments, never before (E1): the CLI enrols here, and reaping
