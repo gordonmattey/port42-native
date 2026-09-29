@@ -14,8 +14,8 @@ enum VoiceCue {
 
     static func sound(for moment: Moment) -> (name: String, volume: Float) {
         switch moment {
-        case .start: return ("Bottle", 0.5)
-        case .end:   return ("Glass", 0.4)
+        case .start: return ("Bottle", 0.1)
+        case .end:   return ("Glass", 0.1)
         }
     }
 
