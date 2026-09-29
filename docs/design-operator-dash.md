@@ -21,6 +21,11 @@ on as they are.
 - **Deliberate.** New things and major changes: features, a launch moment. These need reasoning, a
   plan and GM's decision before anyone builds, and they are discussed in chat, not run from a playbook.
 
+**Features never go to the issues board.** The squad's board and playbooks are built for issues and
+cannot handle new features (GM). A feature is discussed and decided at the operator level, then built
+by the dev lead or by a session or team spun up for it; the squad takes the bugs it produces later, as
+issues.
+
 Discussion happens where it already happens: dev in the dev lead's chat, growth in lucky-ibis's. There
 is no chat per item. When GM wants to drive several things in tandem, an item can be spun out to its own
 session, and the item records where it went. That is the exception.
@@ -36,16 +41,20 @@ Each deliberate item, and each autopilot lane's summary, is one record:
 | `mode` | `deliberate` or `autopilot` |
 | `title` | One line |
 | `state` | Deliberate: `proposed`, `discussing`, `decided`, `building`, `shipped`, `dropped`. Autopilot: `running`, `stalled`, `idle` |
-| `waitingOn` | `gm` when it needs a decision, or the lead's name, or empty |
+| `waitingOn` | Free text: who or what it waits on (a lead, the HN moderators, Product Hunt), with `gm` as the special value that puts it in "needs you" |
+| `blockedBy` | Another item's `id`, for a wait across areas (a growth item waiting on a dev change) |
+| `due` | When it must happen, for anything with a date (a launch) |
 | `ask` | When `waitingOn` is `gm`: the decision needed, in one sentence, with the options |
 | `decision` | Once decided: what, and when |
 | `where` | Where it is discussed or run: a chat, a spun-out session, a working space |
 | `next` | The next concrete step |
+| `result` | After `shipped`, what came of it (rank, signups, downloads): for growth, shipping is not the end |
 | `updated` | When the record last changed |
 
 For an autopilot lane, `title` is the lane ("Issues: 1.0.2 batch", "Content: weekly posts"), `next` is
 its progress in one line ("APP-05 verified, NAU-02 in progress"), and `waitingOn` is set only when it
-needs GM.
+needs GM. A lane with a stream of small approvals says so with a count ("3 posts waiting on the desk")
+rather than one item per approval: the approvals stay on the growth desk, and "needs you" gets one line.
 
 ## Who writes what
 
@@ -60,13 +69,13 @@ bucket is readable by anything in the space (APP-20); these are plans, not secre
 
 ## What the dash shows
 
-1. **Needs you.** Every item waiting on GM, oldest first: the ask, the options, which lead owns it.
+1. **Needs you.** Every item waiting on GM, soonest `due` first, then oldest: the ask, the options, which lead owns it.
    This is the top of the page and the reason to open it.
 2. **Deliberate.** Features and moments by state, dev and growth side by side: what is proposed,
    being discussed, decided, being built.
 3. **Autopilot.** One line per lane: running, stalled or idle, and its progress. A stalled lane moves
    up to "needs you" only if its lead sets `waitingOn: gm`.
-4. **Shipped lately.** The last few items shipped, for a sense of momentum.
+4. **Shipped lately.** The last few items shipped, with their `result` once known.
 
 Clicking an item's owner posts in the operator space's chat with an @mention of that lead and the
 item's id, so "let's talk about this" is one click and the conversation stays where it belongs.
@@ -78,7 +87,11 @@ item's id, so "let's talk about this" is one click and the conversation stays wh
   later list stays in the doc until one is picked up.
 - **Dev autopilot:** the squad's 1.0.2 batch, from `port42-issues`.
 - **Dev waiting on GM today:** the relay rate cap (#122).
-- **Growth:** from lucky-ibis, for the content lane and any moment in progress (a Tuesday launch).
+- **Growth** (lucky-ibis, 2026-09-28). Autopilot lanes: content (the Drafts desk in `port42-growth`),
+  publishing, the site following releases, moments, desk upkeep. Deliberate: the Product Hunt launch
+  (Tuesday 2026-09-29, 12:01am PT), the flagged Show HN, the protocol RFC, auto-publish on approval,
+  retiring the old Drafts in `port42-app`, the horizon essay. The Download-latest item is resolved:
+  the relay workflow marks its releases `--latest=false`, and v1.0.1 is Latest.
 
 ## Not in this version
 
@@ -91,4 +104,5 @@ item's id, so "let's talk about this" is one click and the conversation stays wh
 1. The two levels and the two modes as described.
 2. That leads update the dash (not the dash scraping sources).
 3. The four sections, with "needs you" at the top.
-4. The growth side, once lucky-ibis has read it.
+4. The growth side: lucky-ibis has read it, and its four changes are in (a count for streams of
+   approvals, `due`, `result`, free-text `waitingOn` with `blockedBy`).
