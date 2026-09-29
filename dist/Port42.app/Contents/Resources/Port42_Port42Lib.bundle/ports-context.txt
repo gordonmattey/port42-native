@@ -287,6 +287,13 @@ BRIDGE API REFERENCE:
   port42.chat.post(port, text)
     Post to a port's chat, attributed to this port. An @mention wakes that companion.
 
+  port42.presence.list(port)
+    Returns: {presence: [{name, state, since, why?, doing?}]}
+    Who is on a chat's messages right now: `received` (it has one), `working`, or `waiting` for
+    the person (`why` says for what, when it said). `doing` is what it is doing now ("editing
+    ShellView.swift"), when its CLI reports it. Empty when nobody is. Each change is also a
+    `presence` event on the port's topic, where `doing` is only the kind ("editing a file").
+
   port42.space.current()
     Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}
     Get the current space context. type is the space type — e.g. 'direct' for a 1:1 DM, 'team'.
@@ -639,6 +646,13 @@ STORAGE SCOPING:
   - {shared: true}: all companions, per-space (collaborative data in this space)
   - {scope: 'global', shared: true}: all companions, all spaces (app-wide shared data)
 
+  {scope: 'global', shared: true} IS A PUBLIC BOARD. Every caller on this machine can read it and
+  overwrite it: every port's JS in every space, every companion, and every client of the gateway,
+  with no permission asked (a caller on another machine cannot reach it). Never put a secret, a
+  token or anything personal there, and do not trust what you read back: any other caller may have
+  replaced it. {shared: true} alone is the same board for everyone in one space. Use the default
+  (private) scope for anything that must stay yours.
+
 STORAGE EXAMPLE (get returns {value}, destructure it):
   // Space-scoped, private (default) — only this companion in this space
   await port42.storage.set('count', 42);
@@ -652,7 +666,7 @@ STORAGE EXAMPLE (get returns {value}, destructure it):
   await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
   const { value: game } = await port42.storage.get('game-state', {shared: true});
 
-  // Global, shared — any companion anywhere can read/write
+  // Global, shared (the PUBLIC board) — anyone on this machine can read/write; never secrets
   await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
   const { value: scores } = await port42.storage.get('high-scores', {scope: 'global', shared: true});
 
@@ -1017,4 +1031,3 @@ FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Events (coming soon):
   - port42.on('space.switch') — fires when user navigates to a different space
-  - port42.on('presence') — fires when online status changes. Payload: {online: [...]}

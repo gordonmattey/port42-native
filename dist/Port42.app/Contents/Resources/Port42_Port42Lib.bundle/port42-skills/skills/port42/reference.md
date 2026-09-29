@@ -48,6 +48,14 @@ Return the Port42 API reference. Pass topic:"ports" for the port-authoring manua
 
     port42 help topic=…
 
+## presence.list
+
+Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now ("editing ShellView.swift", "running swift test") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind ("editing a file"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.
+
+        port (string, required): Whose chat: a space id, or a port id / udid / title.
+
+    port42 presence.list port=…
+
 ## space.create
 
 Create a space. Returns {id, name}. The name is lowercased with spaces as dashes. Pass switch: true to also make it the current space; by default the person stays where they are.
@@ -81,6 +89,8 @@ List all spaces the user belongs to
     port42 space.list
 
 ## space.setWorkingDirectory
+
+_needs the filesystem permission_
 
 Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.
 

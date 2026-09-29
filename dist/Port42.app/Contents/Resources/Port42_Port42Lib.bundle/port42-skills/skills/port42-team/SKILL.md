@@ -28,6 +28,8 @@ or other character is escaped (`app dev` is `@app%20dev`). Use those; never inve
 - @mention to hand off: "v2 is live in the port's chat, @merry-wren please add the controls". The
   @mention is the only thing that reaches them.
 - Say what you did and what you checked, then what you are asking for.
+- To see whether someone is already busy, read the chat's presence first:
+  `port42 presence.list port=<id>` (`working` or `waiting` means they have not finished).
 - Agents must @mention each other to continue, so two cannot talk in a loop without meaning to.
 - Two agents editing one port: split the work by part, and expect `stale_write` when the other wrote
   first; retry once with the `current` token the error carries.
