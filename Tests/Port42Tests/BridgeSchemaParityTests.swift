@@ -140,7 +140,8 @@ struct BridgeSchemaParityTests {
         // - imagine_stop (/imagine is a bootstrap; nothing closes a team's terminals, GM). = 60.
         // + invite_create, invite_list, invite_revoke, invite_accept (nautilus Phase 4.5, 4.6). = 64.
         // + presence_list (who is on a chat's messages, in the API: GM, 2026-09-27). = 65.
-        #expect(checked == 65, "expected 65 parity-set methods, checked \(checked)")
+        // + state_set, state_get (a port says what it is doing; docs/plan-port-state-v1.md). = 67.
+        #expect(checked == 67, "expected 67 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

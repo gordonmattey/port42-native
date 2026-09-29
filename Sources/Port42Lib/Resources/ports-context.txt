@@ -311,7 +311,7 @@ BRIDGE API REFERENCE:
     Subscribe to live events. Events:
     - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
     - 'companion.activity': fires when companion typing state changes. Payload: {activeNames: [...]}
-    - 'presentation': fires when this port's presentation changes. Payload: {state, visible, w, h} (see port42.presentation() below)
+    - 'presentation': fires when this port's presentation changes. Payload: {state, visible, w, h, tier, orientation} (see port42.presentation() below)
 
   port42.connection.status()
     Returns: 'connected' or 'disconnected'
@@ -331,12 +331,18 @@ BRIDGE API REFERENCE:
     Use this to reflow content when the port changes size.
 
   port42.presentation()  /  port42.on('presentation', callback)
-    This port's presentation state: { state, visible, w, h }.
+    This port's presentation state: { state, visible, w, h, tier, orientation }.
     - state: "focused" | "tiled" | "peek" | "parked" | "background" | "hidden" — your placement/mode ("background" is the desktop wallpaper; "hidden" runs with no tile).
     - visible: true only when your pixels are actually on screen right now. False when off-desktop
       (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
       port's focus. This is the one authoritative "render now" flag.
     - w, h: your on-screen content size in points (0 when not visible).
+    - tier (when visible): "card" | "compact" | "full". At "card" (narrower than 220 or shorter than 160,
+      which is a peek) Port42 draws your state card over you, not your pixels: see port42.state below.
+      At "compact" (narrower than 560 or shorter than 360) lay yourself out small, like a responsive
+      site at a phone width: fewer panels, the one number that matters. At "full", everything.
+    - orientation (when visible): "wide" | "tall" | "square". A wide port lays out in a row, a tall one
+      in a column.
     Call presentation() for the current value at startup (no race). Use on('presentation', cb) for
     updates; the same value also arrives as a window CustomEvent 'port42:presentation' (e.detail).
     DISCIPLINE (do this if you animate): gate your requestAnimationFrame loop on visible — cancel it on
@@ -344,6 +350,15 @@ BRIDGE API REFERENCE:
     size: full when focused; reduced (cap fps, cap devicePixelRatio, fewer particles) when tiled/peek
     or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
     before your webview is dropped, so you re-mount clean rather than blank.
+
+  port42.state.set([{label, value}, …])  /  port42.state.get()
+    Say what you are doing, in up to 5 short lines, most important first: shown on your card when you
+    are small (a peek), in the hidden list and in ⌘K, before what Port42 knows about you (console
+    errors). Set it when something changes, not on a timer: [{label: "doing", value: "fetching
+    prices"}, {label: "last run", value: "2m ago · 0 errors"}]. Values over 80 characters are cut. An
+    empty list clears it. It is kept until you set it again or close. An agent sets a port's state from
+    its terminal with `port42 state.set port=<id> lines:='[…]'`, and reads any port's card with
+    `port42 state.get port=<id>` (a lead can check its engineers' ports without asking).
 
   port42.self.id
     This page's own port id, ready before your script runs. Use it whenever the page acts on

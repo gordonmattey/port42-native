@@ -517,6 +517,12 @@ struct ShellTile: View {
         return CGRect(x: x, y: y, width: w, height: h)
     }
 
+    /// Drawn at card size: the unit shows its state card. Measured on the unit, as the presentation
+    /// event measures it, so the card and what the port is told agree.
+    private var showsCard: Bool {
+        !isFocused && exposeFrame == nil && PortPresentation.tier(liveSize) == .card
+    }
+
     private var cornerRadius: CGFloat {
         isFocused ? ShellPlacement.focusCorner : (isPeeking ? ShellPlacement.peekCorner : 10)
     }
@@ -536,6 +542,17 @@ struct ShellTile: View {
             // SAME view — no placeholder, no second mount, the webview never detaches.
             ShellTileBody(shell: shell, appState: appState, tile: tile)
             .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
+            // At card size (a peek is card-sized) Port42 draws the port's state over its content, not a
+            // miniature of it (docs/plan-port-state-v1.md). The content stays mounted underneath, so
+            // growing the unit shows it again with no reload.
+            .overlay {
+                if showsCard, let panel = tile.panel {
+                    AppKitLayer(content: PortStateCard(appState: appState, states: appState.portStates,
+                                                       presence: appState.presence, panel: panel,
+                                                       size: CGSize(width: liveSize.width, height: max(0, liveSize.height - headerH)),
+                                                       accent: unitAccent))
+                }
+            }
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
@@ -645,6 +662,9 @@ struct ShellTile: View {
             HStack(spacing: 8) {
                 Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
                 Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1).truncationMode(.tail)
+                // At card size the bar keeps the title and close; the rest is out of room (GM, 2026-09-29).
+                if !showsCard {
                 // The sharing pill (nautilus Phase 4, 4.6b): whose this port is and who else is in it,
                 // with everything about sharing one click behind it. Silent on a port nobody shares.
                 if let id = tile.panel?.id, let pill = appState.sharePill(tile: id, key: tile.panel?.udid) {
@@ -673,6 +693,7 @@ struct ShellTile: View {
                         .font(.system(size: 8)).foregroundStyle(tileAccent.opacity(0.8))
                         .help(pin == .everywhere ? "Pinned in every space" : "Pinned in this space")
                 }
+                }
                 Spacer(minLength: 8)
             }
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
@@ -691,7 +712,7 @@ struct ShellTile: View {
             }
             .gesture(moveGesture)
             // The console: new errors counted on the icon; the panel slides down like the chat.
-            if let key = consoleKey {
+            if !showsCard, let key = consoleKey {
                 let errors = console.errorCounts[key] ?? 0
                 Button {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { consoleOpen.toggle() }
@@ -712,7 +733,7 @@ struct ShellTile: View {
                 .onChange(of: errors) { _, n in if consoleOpen { seenErrors = n } }
             }
             // The companion bar: who is in this port's chat, and what you have not read.
-            if let key = chatKey {
+            if !showsCard, let key = chatKey {
                 PortChatBar(chats: appState.chats, key: key, me: appState.currentUser?.id,
                             accent: tileAccent, open: chatOpen) {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { chatOpen.toggle() }
@@ -723,7 +744,7 @@ struct ShellTile: View {
             // code"). Secondary actions live under "…"; only focus-toggle and close stay visible.
             // Every port type can be the background (GM, 2026-09-25); refresh and history are for
             // authored web ports only.
-            if let bridge = tile.panel?.bridge {
+            if !showsCard, let bridge = tile.panel?.bridge {
                 // Overflow popover (NOT a SwiftUI Menu — Menu won't open reliably inside this
                 // scaled/positioned/animated tile). Holds pause, refresh, history, background.
                 Button { showMore = true } label: {
@@ -779,6 +800,7 @@ struct ShellTile: View {
                 }
             }
             // Focus toggle: enter focus, or shrink back out if already focused.
+            if !showsCard {
             Button {
                 if isFocused {
                     withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
@@ -791,6 +813,7 @@ struct ShellTile: View {
                     .font(.system(size: isFocused ? 11 : 9)).foregroundStyle(Port42Theme.textSecondary)
                     .frame(width: 22, height: 22).contentShape(Rectangle())
             }.buttonStyle(.plain).help(isFocused ? "Exit focus (Esc)" : "Focus (⌘↓)")
+            }
             // Close.
             if let panel = tile.panel {
                 Button { shell.dismissTile(panel) } label: {
@@ -1114,8 +1137,11 @@ struct ShellParkRail: View {
                 label
             } else {
                 Menu {
+                    // Each with its state's first line, so a person sees it is alive without showing it.
                     ForEach(hidden) { p in
-                        Button("Show \(p.title)") { shell.showHidden(p.id) }
+                        Button(appState.portSummary(p).map { "Show \(p.title) · \($0)" } ?? "Show \(p.title)") {
+                            shell.showHidden(p.id)
+                        }
                     }
                 } label: { label }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

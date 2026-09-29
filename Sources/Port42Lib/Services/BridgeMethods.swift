@@ -15,6 +15,7 @@ import WebKit
 public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     var r: BridgeRegistry = [:]
     registerStorageService(into: &r, appState: appState)   // storage.* KV (BridgeServiceStorage.swift)
+    registerStateMethods(into: &r, appState: appState)     // state.set / state.get (BridgeStateMethods.swift)
     registerPortMethods(into: &r, appState: appState)
     registerCommsMethods(into: &r, appState: appState)
     registerFileMethods(into: &r, appState: appState)

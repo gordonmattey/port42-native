@@ -614,6 +614,16 @@ Things that would be cool once the five scenarios hold. Grouped 2026-09-28; buil
   2m ago · 0 errors"), so a person knows it is alive without bringing it back (GM). Other agents can
   read it (a lead sees its engineers without asking) and ⌘K can search it. Status is declared or known, never scraped from the page (`docs/research/port-shape.md`
   on `research`). **Straight after v1 (GM, 2026-09-27): the first thing built once v1 ships.**
+  **Phase A BUILT 2026-09-29** (`docs/plan-port-state-v1.md`): size tiers and orientation, the card at
+  card size (peeks), terminal and browser facts, `state.set` / `state.get`, the first line in the
+  hidden list and ⌘K. Phase B (shapes) to plan.
+- **A companion's message to another companion arrives as pasted text** (lucky-ibis, 2026-09-29, from
+  the Watch spike; GM's call on priority). An @mention from one companion is typed into the other's
+  terminal, and Claude Code wraps it as pasted content, which it is trained to distrust: watch-spike
+  twice refused to act until Gordon confirmed ("it reached me as pasted text, not as a message from
+  @lucky-ibis"). A careful agent stalls on every hand-off and a careless one acts on anything pasted.
+  The ask: deliver it in a form the receiving CLI recognizes as a message from a named sender (for
+  Claude Code, perhaps a UserPromptSubmit hook that marks the sender) rather than a paste.
 - **Structured chat** (GM, 2026-09-26). A chat message carries structured data as well as text:
   what it is about, and payloads attached with what they are (a port, a file, a result), so agents and
   people exchange data, not only prose.

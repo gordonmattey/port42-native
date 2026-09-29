@@ -229,6 +229,8 @@ public final class PortWindowManager: ObservableObject {
     /// I2 · C3: one per browser port, watching `url` so every navigation counts (not just the
     /// address bar). Retained here for the port's lifetime; freed in `destroyWebView`.
     private var browserURLObservers: [String: PortBrowserURLObserver] = [:]
+    /// A browser port's page title, address and loading, for its card (docs/plan-port-state-v1.md).
+    private var browserFactsObservers: [String: PortBrowserFactsObserver] = [:]
 
     /// HIDDEN ports (nautilus Phase 3.2): running, persisted, with their chat and subscriptions, and
     /// on no desktop and in no rail. Stored as `isBackground` (the old "docked"). A person finds them
@@ -1137,6 +1139,10 @@ public final class PortWindowManager: ObservableObject {
             // I2 · C3 + C6. TWO signals, because neither covers the other: KVO on `url` catches an
             // SPA route change (pushState fires no load), and `didCommit` catches a reload (a load
             // with no URL change). C6 measured the gap: reload counted for nothing.
+            let panelId = panel.id
+            browserFactsObservers[panel.id] = PortBrowserFactsObserver(webView: webView) { [weak appState] facts in
+                DispatchQueue.main.async { appState?.portStates.setBrowser(facts, port: panelId) }
+            }
             browserURLObservers[panel.id] = PortBrowserURLObserver(
                 webView: webView, portKey: panel.udid) { [weak appState] key, url in
                     appState?.browserNavigated(port: key, to: url)
@@ -1187,6 +1193,7 @@ public final class PortWindowManager: ObservableObject {
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
         browserURLObservers.removeValue(forKey: id)
+        browserFactsObservers.removeValue(forKey: id)
         heightHandlers.removeValue(forKey: id)
         inputHandlers.removeValue(forKey: id)
         inlineHeights.removeValue(forKey: id)
@@ -1653,6 +1660,27 @@ final class PortBrowserURLObserver: NSObject {
     }
 
     deinit { observation?.invalidate() }
+}
+
+/// What a browser port's card says about its page: title, address, and a bar while it loads. Observed,
+/// never read from the page.
+final class PortBrowserFactsObserver: NSObject {
+    private var observations: [NSKeyValueObservation] = []
+
+    init(webView: WKWebView, onChange: @escaping (BrowserFacts) -> Void) {
+        super.init()
+        let report: (WKWebView) -> Void = { wv in
+            onChange(BrowserFacts(title: wv.title, url: wv.url, progress: wv.isLoading ? wv.estimatedProgress : nil))
+        }
+        observations = [
+            webView.observe(\.title, options: [.initial, .new]) { wv, _ in report(wv) },
+            webView.observe(\.url, options: [.new]) { wv, _ in report(wv) },
+            webView.observe(\.estimatedProgress, options: [.new]) { wv, _ in report(wv) },
+            webView.observe(\.isLoading, options: [.new]) { wv, _ in report(wv) },
+        ]
+    }
+
+    deinit { observations.forEach { $0.invalidate() } }
 }
 
 // MARK: - Reusable WebView Host

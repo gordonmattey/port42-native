@@ -56,8 +56,36 @@ public struct PortPresentation: Equatable {
     public var bridgeValue: BridgeValue {
         var o: [String: BridgeValue] = ["state": .string(state.rawValue), "visible": .bool(visible),
                                         "w": .int(w), "h": .int(h)]
+        if visible {
+            let size = CGSize(width: w, height: h)
+            o["tier"] = .string(Self.tier(size).rawValue)
+            o["orientation"] = .string(Self.orientation(size).rawValue)
+        }
         if let reason { o["reason"] = .string(reason) }
         return .object(o)
+    }
+
+    /// How much room a port has on screen (docs/plan-port-state-v1.md). At `card` Port42 draws the
+    /// port's state card instead of its content; a peek (210x140) is card-sized, so it shows the card.
+    public enum Tier: String, Equatable { case card, compact, full }
+    /// Its shape on screen.
+    public enum Orientation: String, Equatable { case wide, tall, square }
+
+    /// The thresholds live here and only here, so the card, the event and the tests agree.
+    public static let cardBelow = CGSize(width: 220, height: 160)   // a peek is a card; the smallest tile is not
+    public static let compactBelow = CGSize(width: 560, height: 360)
+
+    public static func tier(_ size: CGSize) -> Tier {
+        if size.width < cardBelow.width || size.height < cardBelow.height { return .card }
+        if size.width < compactBelow.width || size.height < compactBelow.height { return .compact }
+        return .full
+    }
+
+    public static func orientation(_ size: CGSize) -> Orientation {
+        guard size.width > 0, size.height > 0 else { return .square }
+        if size.width >= size.height * 1.6 { return .wide }
+        if size.height >= size.width * 1.33 { return .tall }
+        return .square
     }
 
     public var jsonObject: [String: Any] {

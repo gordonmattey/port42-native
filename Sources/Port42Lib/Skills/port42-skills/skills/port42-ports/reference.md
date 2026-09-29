@@ -239,6 +239,23 @@ The calling port's current presentation state { state, visible, w, h }: whether 
 
     port42 presentation
 
+## state.get
+
+What a port's card shows: its title, then its lines, declared first (known: false), then what Port42 knows (known: true): a terminal's running command, last exit code, directory and bell, a companion working or waiting, a browser's page, console errors. progress is 0 to 1 when there is a bar.
+
+        port (string): The port's id; omit from a port's own page.
+
+    port42 state.get port=…
+
+## state.set
+
+Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), in the hidden list and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.
+
+        lines (array, required): Up to 5 lines, first the most important, each {label, value}: e.g. [{"label":"doing","value":"building the join card"},{"label":"progress","value":"3 of 5"}]. Values are cut at 80 characters. An empty list clears it.
+        port (string): The port's id; omit from a port's own page.
+
+    port42 state.set lines=… port=…
+
 ## storage.delete
 
 Delete a value from persistent storage

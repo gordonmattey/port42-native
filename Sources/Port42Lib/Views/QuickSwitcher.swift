@@ -232,7 +232,8 @@ public struct QuickSwitcher: View {
 
         // No prefix: search all
         let all = spaceItems + companionItems + hiddenItems + closed + actionItems
-        return all.filter { match(raw, $0.name.lowercased()) }
+        // A hidden port also matches on what it says it is doing.
+        return all.filter { match(raw, $0.name.lowercased()) || stateMatches(raw, $0) }
     }
 
     private func match(_ query: String, _ name: String) -> Bool {
@@ -314,6 +315,13 @@ public struct QuickSwitcher: View {
         }
     }
 
+    private func stateMatches(_ query: String, _ item: QuickSwitcherItem) -> Bool {
+        guard case .hiddenPort(let id) = item.kind,
+              let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return false }
+        let text = appState.portCard(panel).lines.map { "\($0.label) \($0.value)" }.joined(separator: " ").lowercased()
+        return !text.isEmpty && text.contains(query)
+    }
+
     /// The group a row sits under; its heading is shown once, where the group starts.
     static func section(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
@@ -335,7 +343,11 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space(let space): return space.isResting ? "resting" : nil
         case .companion: return nil
-        case .hiddenPort(let id): return spaceName(appState.portWindows.panels.first { $0.id == id }?.spaceId)
+        case .hiddenPort(let id):
+            // Its state's first line (docs/plan-port-state-v1.md), and where it lives if elsewhere.
+            guard let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return nil }
+            let parts = [appState.portSummary(panel), spaceName(panel.spaceId)].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
         case .closedPort(_, let spaceId): return spaceName(spaceId)
         case .bringInSessions: return "claude code · codex"
         }

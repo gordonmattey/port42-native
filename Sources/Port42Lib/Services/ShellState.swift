@@ -981,8 +981,9 @@ public final class ShellState: ObservableObject {
     /// A tile's default full size (titlebar + body) when a panel carries none yet.
     public static let defaultTileSize = CGSize(width: 460, height: 400)
 
-    /// Minimum tile size (drag-resize floor).
-    nonisolated public static let minTileSize = CGSize(width: 220, height: 160)
+    /// Minimum tile size (drag-resize floor). Below card size (220x160), so a tile resized small becomes
+    /// its state card, as a peek is, and grows back into its content (GM, 2026-09-29).
+    nonisolated public static let minTileSize = CGSize(width: 150, height: 110)
 
     /// The right-edge rail's three drop zones, top to bottom: hide (the port keeps running with no tile;
     /// one "N hidden" control lists them, not a chip each), park (minimize to a chip) and close

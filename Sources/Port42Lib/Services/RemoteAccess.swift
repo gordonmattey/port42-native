@@ -158,6 +158,9 @@ public enum RemoteAccess {
         // the port's. Settled with the browser lane (4.7), which is where a port's storage calls first
         // arrive from a guest.
         // A shared port's own storage (4.7b): the copy names the port; see reads, use writes.
+        // A port's state: another machine may read it for a port it can see; only this Mac says it.
+        "state.get": .port(param: "port", right: .see),
+        "state.set": .never,
         "storage.get": .port(param: "port", right: .see),
         "storage.set": .port(param: "port", right: .use),
         "storage.delete": .port(param: "port", right: .use),

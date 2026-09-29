@@ -25,7 +25,7 @@ Port42 puts every drawn port in a size tier and an orientation, from its on-scre
 
 | Tier | When (on screen) | What shows |
 |---|---|---|
-| `card` | narrower than 320 or shorter than 200 | the port's state, not its content |
+| `card` | narrower than 220 or shorter than 160 | the port's state, not its content |
 | `compact` | narrower than 560 or shorter than 360 | the content, laid out small |
 | `full` | anything larger | the content |
 
@@ -35,9 +35,10 @@ Port42 puts every drawn port in a size tier and an orientation, from its on-scre
 | `tall` | height at least 1.33 times the width |
 | `square` | between the two |
 
-A peek is 210x140, so a peek is a `card` and shows the card straight away. Nothing about peeks is
-special: any port drawn at card size renders its card, and grows back into its content when it is made
-bigger. The thresholds live in one place and are tuned on Dev5.
+Nothing about peeks is special: any port drawn at card size renders its card, and grows back into its
+content when it is made bigger. A peek is 210x140, so a peek shows the card straight away. A tile can
+be resized down to 150x110, so a tile made small becomes its card too (GM). The thresholds live in one
+place (`PortPresentation`) and are tuned on Dev5.
 
 The `presentation` event every web port already receives gains `tier` and `orientation` beside the
 `w` and `h` it has, so a page does not have to invent its own breakpoints.
@@ -70,9 +71,9 @@ Port42 knows:
 
 ### Declaring state
 
-`port.state.set` takes an ordered list of lines, each a label and a value, from a page
+`state.set` takes an ordered list of lines, each a label and a value, from a page
 (`port42.state.set([{label: "doing", value: "building the join card"}])`) or an agent
-(`port42 port.state.set port=<id> lines:=[...]`). `port.state.get` reads a port's lines, declared and
+(`port42 state.set port=<id> lines:=[...]`). `state.get` reads a port's lines, declared and
 Port42's, so a lead sees its engineers without asking. Only the port or a caller that may write to it
 can set its state, as for `port.update`. Capped at 5 lines and 80 characters a value; kept in memory,
 since a port declares again when it runs.
@@ -90,7 +91,7 @@ and ⌘K searches the lines.
   port's state, one test each through the handler, calibrated.
 - Browser: title, URL and load progress reach the state.
 - Rendering: a port at card size renders Port42's card, and above it renders live content.
-- Registry: `port.state.set` and `port.state.get` with schemas, the generated references regenerated,
+- Registry: `state.set` and `state.get` with schemas, the generated references regenerated,
   refused without write access, the caps held.
 - The hidden list and ⌘K show the first line, and ⌘K matches on it.
 - ImagineTeamScenarioTests green. Live on Dev5: a web port declaring state, a companion working, a

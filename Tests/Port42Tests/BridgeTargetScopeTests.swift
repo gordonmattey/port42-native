@@ -55,6 +55,8 @@ struct BridgeTargetScopeTests {
         // chooses exactly the files or cancels; while locked the pick is refused as `locked` (APP-16).
         "fs.pick": "the native panel is the consent, shown only to the person; refused while locked (APP-19, APP-16)",
         // Storage: the caller's own space and bucket; global and shared are a public board (APP-20).
+        "state.get": "canRead on the named port, else the caller's own",
+        "state.set": "maySetState: the port, its author, the person or a companion in its space",
         "storage.get": "caller-scoped bucket", "storage.set": "caller-scoped bucket",
         "storage.delete": "caller-scoped bucket", "storage.list": "caller-scoped bucket",
     ]
