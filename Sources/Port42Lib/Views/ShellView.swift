@@ -37,6 +37,8 @@ public struct ShellView: View {
     /// already put in the surface, so the next partial only sends the difference.
     @State private var voiceStreamsAsEdits = false
     @State private var voiceStreamed = ""
+    /// The recognizer's previous guess, to tell which words have settled.
+    @State private var voiceLastGuess = ""
     /// What has been typed into ANOTHER app during this hold, for the same smallest-edit streaming.
     @State private var voiceTyped = ""
     @State private var voiceObservers: [NSObjectProtocol] = []
@@ -468,6 +470,8 @@ public struct ShellView: View {
                 shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
                 voiceResponder = NSApp.keyWindow?.firstResponder
                 voiceStreamed = ""
+                voiceLastGuess = ""
+                VoiceCue.play(.start)
                 voiceStreamsAsEdits = appState.portWindows.panels
                     .first { $0.id == shell.voiceAnchorPortId }?.portType == "terminal"
                 voiceSession?.begin()
@@ -516,6 +520,7 @@ public struct ShellView: View {
     private func endVoice() {
         voiceWatchdog?.invalidate(); voiceWatchdog = nil
         shell.voiceCapturing = false
+        VoiceCue.play(.end)
         voiceSession?.end()
         // A hold that produced nothing must leave no uncommitted text behind. The final text, when it
         // comes, commits over the mark; this is the silence case.
@@ -586,8 +591,11 @@ public struct ShellView: View {
             // Stream it into the surface as uncommitted text, so the words appear where they will land.
             if UserDefaults.standard.object(forKey: Self.streamIntoPortKey) as? Bool ?? true {
                 if voiceStreamsAsEdits {
-                    voiceStreamed = VoiceInserter.stream(partial, previous: voiceStreamed,
-                                                         into: voiceResponder)
+                    // Only settled words, and only ever more of them: no backspacing while you talk, so a
+                    // TUI's input box never shrinks and regrows (the flash in a narrow terminal).
+                    let settled = VoiceInserter.settled(streamed: voiceStreamed, previousGuess: voiceLastGuess, guess: partial)
+                    voiceLastGuess = partial
+                    voiceStreamed = VoiceInserter.stream(settled, previous: voiceStreamed, into: voiceResponder)
                 } else {
                     VoiceInserter.mark(partial, into: voiceResponder)
                 }

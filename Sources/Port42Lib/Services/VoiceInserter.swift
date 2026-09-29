@@ -57,6 +57,28 @@ public enum VoiceInserter {
         return (old.count - shared, String(new[shared...]))
     }
 
+    /// What a terminal should hold while the words are still coming: only what the recognizer has settled
+    /// on, and never less than it already holds (GM, 2026-09-29).
+    ///
+    /// Streaming every guess meant backspacing whenever the recognizer revised a word, and in a narrow
+    /// terminal a backspace across a wrap shrinks Claude Code's input box by a line and the retype grows it
+    /// back; Claude Code repaints its whole screen on each change of height, so the tile flashed every few
+    /// seconds. Settled means whole words both of the last two guesses agree on. The result only ever
+    /// grows, so the input box only grows, a line at a time, as with typing; the unsettled tail waits in the
+    /// voice pill, and the final read lands it on release.
+    static func settled(streamed: String, previousGuess: String, guess: String) -> String {
+        let a = Array(previousGuess), b = Array(guess)
+        var shared = 0
+        while shared < a.count, shared < b.count, a[shared] == b[shared] { shared += 1 }
+        // Back to the end of the last whole word both agree on (a word still being said may change).
+        var cut = shared
+        if shared < b.count || shared < a.count {
+            while cut > 0, !b[cut - 1].isWhitespace { cut -= 1 }
+        }
+        let agreed = String(b[..<cut])
+        return agreed.hasPrefix(streamed) ? agreed : streamed
+    }
+
     /// Stream `next` into a surface that wants real characters, replacing whatever `previous` put there.
     /// Returns what the surface now holds, so the caller can pass it back as `previous`.
     @discardableResult
