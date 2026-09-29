@@ -48,6 +48,8 @@ Each deliberate item, and each autopilot lane's summary, is one record:
 | `decision` | Once decided: what, and when |
 | `where` | Where it is discussed or run: a chat, a spun-out session, a working space |
 | `next` | The next concrete step |
+| `options` | For an item waiting on GM: the choices, each a few words ("Hold until measured"). Each is a button on the dash |
+| `open` | Optional: the id or title of the port where the work lives (the Drafts desk), for an "open" button |
 | `result` | After `shipped`, what came of it (rank, signups, downloads): for growth, shipping is not the end |
 | `updated` | When the record last changed |
 
@@ -81,8 +83,14 @@ Built 2026-09-28: the `operator` port in `port42-app` reads the board every 20 s
    up to "needs you" only if its lead sets `waitingOn: gm`.
 4. **Shipped lately.** The last few items shipped, with their `result` once known.
 
-Clicking an item's owner posts in the operator space's chat with an @mention of that lead and the
-item's id, so "let's talk about this" is one click and the conversation stays where it belongs.
+Each "needs you" item has up to three actions:
+- **An option button** per choice in `options`. Clicking one posts GM's decision in the operator space's
+  chat with an @mention of the owning lead ("Gordon decided on dev-relay-cap: Hold until measured"). The
+  lead acts on it and records it on the item, which then leaves "needs you". Deciding is one click; the
+  lead still keeps the record.
+- **Open**, when the item names a port in `open`: the dash focuses it. A port in another space may be
+  out of the dash's reach; the dash then says where it is.
+- **Discuss**, the fallback: an @mention of the lead with the item's id, to talk it through in chat.
 
 ## Starting data
 
@@ -100,7 +108,6 @@ item's id, so "let's talk about this" is one click and the conversation stays wh
 ## Not in this version
 
 - The dash reading working spaces directly.
-- Decisions made by buttons on the dash. Decisions are made in chat, and recorded by the lead.
 - Areas beyond dev and growth. The record takes any `area`, so one can be added.
 
 ## For GM to confirm
