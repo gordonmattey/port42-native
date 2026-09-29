@@ -24,7 +24,8 @@ Write the HTML to a file, then:
 
 - Include a `<title>` and `<meta name="version" content="1">`, and bump the version on every change.
 - Write only what goes inside `<body>`. The Port42 dark theme is injected for you.
-- It returns the port's `id` and `token`. Answer where you were asked with the title and id.
+- Call `port42.state.set([{label, value}])` as it changes: small or hidden, that is all it shows.
+- It returns the port's `id` and `token`. Answer with the title and id.
 
 ## Asked for a website, an app or a page
 
@@ -46,7 +47,7 @@ Read it, change the least you can, write it back with its token:
     port42 port.patch id=<id> search=@old.txt replace=@new.txt token=<token>
     port42 port.update id=<id> html=@port.html token=<token>
 
-Prefer `port.patch`. Never rewrite a working port to fix one bug. Every write returns the next token.
+Prefer `port.patch`; never rewrite a working port to fix one bug. Each write returns the next token.
 
 A write reloads the port only when it must, and returns `applied`:
 
@@ -102,20 +103,19 @@ this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unus
   relative units.
 - **Never let a canvas's backing store feed its layout.** Lock the display size in CSS
   (`width:100%; height:100%`), then size the backing store from it, or it grows without end.
-- **three.js:** `renderer.setSize(w, h)`, never `setSize(w, h, false)`.
+- **three.js:** `renderer.setSize(w, h)`, not `setSize(w, h, false)`.
 - **WebGL screenshots are black** without `preserveDrawingBuffer: true`.
 - **Scripts run as ES modules.** Inline `onclick="fn()"` cannot see your functions; use
-  `addEventListener`, or `window.fn = fn`.
+  `addEventListener` or `window.fn = fn`.
 - **Remote scripts, styles and images are blocked.** Inline your libraries. For network, use
-  `port42.rest.call` from the page.
+  `port42.rest.call`.
 - **Animation:** start the loop running, then pause it when `port42.on('presentation', p => ...)`
   reports `p.visible` false. Never wait for that event to start: it fires on change. Use
   `port42.presentation()` for the state at startup.
-- **Off screen** (hidden, parked, another space) a port still receives every event at full rate. Its
-  timers run at full rate only when hidden; parked or in another space they slow to about once a
-  second, and animation frames stop.
-- **A failed bridge call rejects.** Wrap startup in try/catch so one failure does not blank the port,
-  and show failures in the UI.
+- **Off screen** (hidden, parked, another space) a port still gets every event. Timers run at full
+  rate only when hidden; parked or elsewhere they slow to about once a second and frames stop.
+- **A failed bridge call rejects.** Wrap startup in try/catch so one failure cannot blank the port;
+  show failures in the UI.
 - **`port.exec`** runs your JS as a function body: a multi-statement line needs an explicit `return`,
   and never return a promise that does not settle.
 

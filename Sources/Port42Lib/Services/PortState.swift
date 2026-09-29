@@ -185,8 +185,26 @@ public struct PortCard: Equatable {
         }
     }
 
+    /// What Port42 knows about the activity around any port: who is working in its chat, who last
+    /// changed it, what you have not read, and who it is shared with.
+    public struct Activity: Equatable {
+        public var working: [ChatPresence] = []
+        public var lastChange: (name: String, at: Date)? = nil
+        public var unread: Int = 0
+        public var sharedWith: Int = 0
+        public init(working: [ChatPresence] = [], lastChange: (name: String, at: Date)? = nil,
+                    unread: Int = 0, sharedWith: Int = 0) {
+            self.working = working; self.lastChange = lastChange; self.unread = unread; self.sharedWith = sharedWith
+        }
+        public static func == (a: Activity, b: Activity) -> Bool {
+            a.working == b.working && a.lastChange?.name == b.lastChange?.name
+                && a.lastChange?.at == b.lastChange?.at && a.unread == b.unread && a.sharedWith == b.sharedWith
+        }
+    }
+
     public static func build(title: String, declared: [StateLine] = [], terminal: TerminalFacts? = nil,
-                             companion: Companion? = nil, browser: BrowserFacts? = nil, errors: Int = 0,
+                             companion: Companion? = nil, browser: BrowserFacts? = nil,
+                             activity: Activity = Activity(), errors: Int = 0,
                              home: String = NSHomeDirectory(), now: Date = Date()) -> PortCard {
         var lines = declared.map { Line(label: $0.label, value: $0.value, known: false) }
         var progress: Double?
@@ -200,6 +218,16 @@ public struct PortCard: Equatable {
                 lines.append(Line(label: "waiting", value: why.isEmpty ? ago(p.since, now) : why, tone: .alert))
             }
             if let doing = p.doing { lines.append(Line(label: "doing", value: doing.detail)) }
+        }
+        // Anyone else at work in the port's chat (a companion building it, an imagine team), the one
+        // already shown for a terminal aside.
+        for p in activity.working where p.name.caseInsensitiveCompare(companion?.presence?.name ?? "") != .orderedSame {
+            switch p.state {
+            case .waiting(let why):
+                lines.append(Line(label: "waiting", value: why.isEmpty ? p.name : "\(p.name): \(why)", tone: .alert))
+            default:
+                lines.append(Line(label: "working", value: p.doing.map { "\(p.name): \($0.detail)" } ?? "\(p.name) · \(ago(p.since, now))"))
+            }
         }
         if companion?.waitingMessages == true {
             lines.append(Line(label: "queued", value: "a message is waiting for it"))
@@ -234,6 +262,15 @@ public struct PortCard: Equatable {
         }
         if errors > 0 {
             lines.append(Line(label: "errors", value: "\(errors)", tone: .alert))
+        }
+        if activity.unread > 0 {
+            lines.append(Line(label: "chat", value: activity.unread == 1 ? "1 unread" : "\(activity.unread) unread", tone: .alert))
+        }
+        if let c = activity.lastChange {
+            lines.append(Line(label: "changed", value: "\(ago(c.at, now)) ago by \(c.name)", tone: .quiet))
+        }
+        if activity.sharedWith > 0 {
+            lines.append(Line(label: "shared", value: activity.sharedWith == 1 ? "with 1 person" : "with \(activity.sharedWith) people", tone: .quiet))
         }
         return PortCard(title: title, lines: Array(lines.prefix(maxLines)), progress: progress, progressFailed: failed)
     }

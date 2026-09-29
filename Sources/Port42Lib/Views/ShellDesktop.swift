@@ -548,7 +548,7 @@ struct ShellTile: View {
             .overlay {
                 if showsCard, let panel = tile.panel {
                     AppKitLayer(content: PortStateCard(appState: appState, states: appState.portStates,
-                                                       presence: appState.presence, panel: panel,
+                                                       presence: appState.presence, chats: appState.chats, panel: panel,
                                                        size: CGSize(width: liveSize.width, height: max(0, liveSize.height - headerH)),
                                                        accent: unitAccent))
                 }

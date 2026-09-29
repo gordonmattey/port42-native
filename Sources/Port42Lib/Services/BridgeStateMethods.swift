@@ -20,11 +20,22 @@ extension AppState {
             companion = PortCard.Companion(presence: presence, waitingMessages: controller.hasWaitingMessages)
         }
         let consoleKey = PortConsole.key(udid: panel.udid, id: panel.id, messageId: panel.messageId)
+        // The activity Port42 sees around the port: its chat, its writes, its sharing.
+        var activity = PortCard.Activity()
+        if let chat = chatKey(for: panel.udid) {
+            activity.working = presence.entries(chat)
+            activity.unread = chats.unread(chat, me: currentUser?.id, db: db)
+        }
+        if controller == nil, let key = portKey(for: panel.udid) {
+            activity.lastChange = portInput.lastChange(of: key)   // a web port's code or content, not keystrokes
+        }
+        activity.sharedWith = sharing[panel.udid]?.people.count ?? 0
         return PortCard.build(title: panel.title,
                               declared: portStates.declared[panel.id] ?? [],
                               terminal: portStates.terminals[panel.id],
                               companion: companion,
                               browser: portStates.browsers[panel.id],
+                              activity: activity,
                               errors: PortConsole.shared.errorCounts[consoleKey] ?? 0)
     }
 

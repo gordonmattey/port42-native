@@ -9,6 +9,7 @@ struct PortStateCard: View {
     @ObservedObject var states: PortStateStore
     @ObservedObject var presence: ChatPresenceStore
     @ObservedObject var console = PortConsole.shared
+    @ObservedObject var chats: PortChatStore
     let panel: PortPanel
     let size: CGSize
     let accent: Color

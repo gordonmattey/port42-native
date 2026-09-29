@@ -141,6 +141,13 @@ public struct PortActivity: Equatable {
     /// and must not change their answer because the question arrived late.
     public func lastWriter(of port: String) -> ActorRef? { entries[port]?.actor }
 
+    /// Who last changed this port and when, for its card ("changed 3m ago by starfield-eng-1"). This
+    /// session only, like the rest of the attribution.
+    public func lastChange(of port: String) -> (name: String, at: Date)? {
+        guard let e = entries[port], let actor = e.actor, let at = e.at else { return nil }
+        return (e.actorName ?? actor.principal, at)
+    }
+
     /// The result of a bump: the new token, and the driver when presence MOVED.
     ///
     /// `driverChanged` is non-nil only on a real change (a different actor, or the same one after

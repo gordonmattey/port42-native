@@ -65,6 +65,25 @@ struct PortCardTests {
         #expect(w.lines.first?.value == "needs approval" && w.lines.first?.tone == .alert)
     }
 
+    @Test("a web port's card says what Port42 sees around it: who works in its chat, errors, unread, who changed it, sharing")
+    func webActivity() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        var eng = ChatPresence(name: "starfield-eng-1", state: .working, since: now.addingTimeInterval(-60))
+        eng.doing = .init(summary: "editing a file", detail: "editing port.html")
+        let activity = PortCard.Activity(working: [eng], lastChange: ("starfield-lead", now.addingTimeInterval(-180)),
+                                         unread: 2, sharedWith: 1)
+        let card = PortCard.build(title: "starfield", activity: activity, errors: 1, now: now)
+        #expect(card.lines.map(\.label) == ["working", "errors", "chat", "changed", "shared"])
+        #expect(card.lines[0].value == "starfield-eng-1: editing port.html")
+        #expect(card.lines[2].value == "2 unread" && card.lines[3].value == "3m ago by starfield-lead")
+        #expect(PortCard.build(title: "s", activity: .init(sharedWith: 3), now: now).lines.first?.value == "with 3 people")
+        // A terminal's own companion is shown once, not again as someone working in its chat.
+        let own = ChatPresence(name: "echo", state: .working, since: now)
+        let t = PortCard.build(title: "echo", companion: .init(presence: own, waitingMessages: false),
+                               activity: .init(working: [own]), now: now)
+        #expect(t.lines.filter { $0.label == "working" }.count == 1)
+    }
+
     @Test("a browser's card: its page, its site and a bar while it loads; a web port's errors; five lines at most")
     func browserAndCaps() {
         let b = BrowserFacts(title: "Port42", url: URL(string: "https://port42.ai/docs"), progress: 0.5)
@@ -132,6 +151,19 @@ struct PortStateMethodTests {
             _ = try await call(w, page, "state.set", ["port": panel.udid, "lines": [["label": "a", "value": "b"]]])
         }
         #expect(w.state.portStates.declared[panel.id]?.first?.value == "x")
+    }
+
+    @Test("a card counts unread chat even while the chat is not loaded (a card hides the chat bar that loads it)")
+    func unreadWithoutLoading() async throws {
+        let w = try makeParityWorld()
+        let panel = port(w, "p6")
+        let companion = Principal.companion(id: w.companion.id, displayName: w.companion.displayName, spaceId: w.space.id)
+        _ = try await call(w, companion, "chat.post", ["port": panel.udid, "text": "first"])
+        _ = try await call(w, companion, "chat.post", ["port": panel.udid, "text": "second"])
+        let key = try #require(w.state.chatKey(for: panel.udid))
+        #expect(w.state.chats.entries[key] == nil, "the chat was loaded, so this does not test the unloaded case")
+        let card = w.state.portCard(panel)
+        #expect(card.lines.first { $0.label == "chat" }?.value == "2 unread", "lines: \(card.lines)")
     }
 
     @Test("closing a port forgets its state")

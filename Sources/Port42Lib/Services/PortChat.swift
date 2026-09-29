@@ -573,6 +573,15 @@ public final class PortChatStore: ObservableObject {
         return (entries[key] ?? []).filter { $0.seq > seen && $0.fromId != me }.count
     }
 
+    /// Unread in a chat that may not be loaded: a card shows it while the chat bar, which loads it, is
+    /// hidden. Reads the store without keeping what it read, so it is safe while a view draws.
+    public func unread(_ key: String, me: String?, db: DatabaseService) -> Int {
+        if entries[key] != nil { return unread(key, me: me) }
+        let seen = lastRead[key] ?? 0
+        let list = (try? db.chatEntries(chat: key, after: seen, limit: Self.keep)) ?? []
+        return list.filter { $0.seq > seen && $0.fromId != me }.count
+    }
+
     public func markRead(_ key: String) {
         guard let last = entries[key]?.last?.seq, last > (lastRead[key] ?? 0) else { return }
         lastRead[key] = last
