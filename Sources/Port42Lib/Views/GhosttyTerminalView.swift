@@ -243,8 +243,8 @@ final class GhosttyInputView: NSView {
 
     // MARK: clipboard
     private func pasteFromClipboard() {
-        guard let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
-        write(str, mode: .paste)
+        guard let text = terminalPasteText(from: .general) else { return }
+        write(text, mode: .paste)
     }
 
     // MARK: file drop — paste dropped file paths into the terminal (Step 5c)
