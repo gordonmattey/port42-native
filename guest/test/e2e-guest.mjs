@@ -2,11 +2,16 @@
 // real host gateway. Prints one JSON line per step; the Go test checks them and plays the host's app.
 import { connect, Refusal } from '../src/client.js';
 import { identity, newSeed } from '../src/peer.js';
+import { loadIdentity } from '../src/keys.js';
 
 const [relay, host, mode] = process.argv.slice(2);
-const me = identity(newSeed());
+// "v2": keys the page cannot read (GST-02), as a browser whose host advertises v2 holds them.
+const memory = () => { const m = new Map(); return { get: async (k) => m.get(k), set: async (k, v) => { m.set(k, v); } }; };
+const me = mode === 'v2'
+  ? await loadIdentity({ storage: null, store: memory(), coupon: { noise: [1, 2] } })
+  : identity(newSeed());
 const say = (o) => process.stdout.write(JSON.stringify(o) + '\n');
-say({ step: 'me', id: me.id });
+say({ step: 'me', id: me.id, version: me.version ?? 1 });
 
 try {
   const s = await connect({ relays: [relay], host, identity: me,

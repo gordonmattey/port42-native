@@ -19,7 +19,13 @@ import (
 // (guest/src), in Node, reaches a host through a real relay, speaks the same Noise IK handshake and
 // chunking as the Go peers, and makes calls the host's app answers: a redeem, a read, a refused write
 // retried with `current`, a streamed event, and a message larger than one Noise frame each way.
-func TestABrowserGuestReachesAHostThroughTheRelay(t *testing.T) {
+func TestABrowserGuestReachesAHostThroughTheRelay(t *testing.T) { browserGuestReachesAHost(t, "") }
+
+// GST-02: the same, for a guest whose keys the page cannot read (handshake v2). The relay takes its
+// WebCrypto-signed hello unchanged, and the host sees it as its Ed25519 peer id.
+func TestABrowserGuestOnSealedKeysReachesAHost(t *testing.T) { browserGuestReachesAHost(t, "v2") }
+
+func browserGuestReachesAHost(t *testing.T, mode string) {
 	node, script := guestRuntime(t)
 	rsrv := httptest.NewServer(relay.NewServer(relay.DefaultLimits).Handler())
 	defer rsrv.Close()
@@ -74,7 +80,10 @@ func TestABrowserGuestReachesAHostThroughTheRelay(t *testing.T) {
 		}
 	}()
 
-	lines := runGuest(t, ctx, node, script, relayURL, a.id, "")
+	lines := runGuest(t, ctx, node, script, relayURL, a.id, mode)
+	if mode == "v2" && lines["me"]["version"] != float64(2) {
+		t.Fatalf("the guest did not run on the new keys: %v", lines["me"])
+	}
 	want := map[string]func(map[string]any) bool{
 		"redeem":  func(m map[string]any) bool { return m["out"].(map[string]any)["port"] == "P" },
 		"getHtml": func(m map[string]any) bool { return m["out"] == "<p>from the host</p>" },

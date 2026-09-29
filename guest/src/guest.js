@@ -3,24 +3,14 @@
 // holds the key: it can only ask this, by message, and this asks the host as the guest.
 
 import { connect as realConnect, Refusal } from './client.js';
-import { identity, newSeed } from './peer.js';
+import { loadIdentity as loadKeys, v1Identity } from './keys.js';
 import { framedPage, named, namesItsPort } from './shim.js';
 import METHODS from './methods.json' with { type: 'json' };
 
-const SEED_KEY = 'port42.guest.seed';
-const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-const unhex = (s) => Uint8Array.from(s.match(/../g).map((h) => parseInt(h, 16)));
-
-/// This browser's guest identity: made on the first Join, kept for port42's origin, so a refresh or a
-/// return visit is the same guest. Clearing the site's data makes a new one.
-export function loadIdentity(storage) {
-  let seedHex = null;
-  try { seedHex = storage?.getItem(SEED_KEY); } catch {}
-  if (seedHex && /^[0-9a-f]{64}$/.test(seedHex)) return identity(unhex(seedHex));
-  const seed = newSeed();
-  try { storage?.setItem(SEED_KEY, hex(seed)); } catch {}
-  return identity(seed);
-}
+/// This browser's guest identity with its older, seed-based keys: made on the first Join, kept for
+/// port42's origin, so a refresh or a return visit is the same guest. Clearing the site's data makes a
+/// new one. A guest whose host accepts it moves to keys the page cannot read (keys.js, GST-02).
+export function loadIdentity(storage) { return v1Identity(storage); }
 
 /// What each refusal says to a person.
 export function explain(code, hostName = 'The sharer') {
@@ -35,6 +25,7 @@ export function explain(code, hostName = 'The sharer') {
     case 'not_granted': return `${hostName} stopped sharing this port, or it does not allow that.`;
     case 'rate_limited': return 'Too many tries. Wait a minute and try again.';
     case 'refused': return `${hostName}'s Mac did not accept the connection.`;
+    case 'host_outdated': return `${hostName} needs to update Port42 and send you a new link.`;
     default: return 'Something went wrong reaching the port.';
   }
 }
@@ -42,9 +33,12 @@ export function explain(code, hostName = 'The sharer') {
 export class Guest {
   /// `ui` receives what to show: onPage(srcdoc), onData(detail), onEvent(kind, payload),
   /// onChat(entries), onState({ online, message }).
-  constructor({ coupon, storage, connect = realConnect, ui, retryMs = 5000 }) {
+  constructor({ coupon, storage, keyStore = null, subtle, connect = realConnect, ui, retryMs = 5000 }) {
     this.coupon = coupon;
-    this.me = loadIdentity(storage);
+    this.storage = storage;
+    this.keyStore = keyStore;
+    this.subtle = subtle;
+    this.me = null;              // loaded on the first open, from what this invite's host accepts
     this.connect = connect;
     this.ui = ui;
     this.retryMs = retryMs;
@@ -63,6 +57,8 @@ export class Guest {
 
   async open() {
     const c = this.coupon;
+    this.me ??= await loadKeys({ storage: this.storage, store: this.keyStore, coupon: c,
+                                 ...(this.subtle ? { subtle: this.subtle } : {}) });
     const s = await this.connect({ relays: c.relays, host: c.host, identity: this.me });
     try {
       const args = { nonce: c.nonce, name: this.name };
@@ -107,7 +103,7 @@ export class Guest {
   /// A call from the port's page, positional as the page makes it. The host's own rights decide.
   async frameCall(method, args) {
     // The user a page greets is whoever is viewing it: this guest, answered here.
-    if (method === 'user.get') return { id: this.me.id, displayName: this.name ?? 'a guest' };
+    if (method === 'user.get') return { id: this.me?.id, displayName: this.name ?? 'a guest' };
     if (!this.session) throw new Refusal('host_offline', explain('host_offline', this.coupon.hostName));
     const names = METHODS[method];
     if (!names) throw new Refusal('not_granted', `${method} is not available to a guest`);

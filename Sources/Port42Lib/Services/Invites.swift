@@ -24,6 +24,12 @@ public struct InviteCoupon: Codable, Equatable {
     public let hostName: String
     public let portTitle: String
     public let code: Bool           // a code must be typed to redeem
+    /// The guest handshakes this host accepts (GST-02, docs/design-gst02-guest-keys.md): 1 is a
+    /// guest holding its seed, 2 a guest whose keys the page cannot read. Every invite made by this
+    /// version says [1, 2]; a coupon without it (a host from before) means v1 only, and a guest on
+    /// the new keys is told to ask for an updated link. `v` stays 1: today's guest page refuses any
+    /// other, and ignores this field.
+    public var noise: [Int]? = [1, 2]
 
     public static let pageURL = "https://tele.port42.ai/"
 

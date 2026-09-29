@@ -3,7 +3,7 @@
 // id, run the Noise IK handshake, then carry the door's envelopes (call, response, stream, error),
 // each split into chunks with a one-byte header (transport/chunk.go). The relay sees only ciphertext.
 
-import { Initiator, MAX_NOISE_MESSAGE } from './noise.js';
+import { Initiator, MAX_NOISE_MESSAGE, PROLOGUE, PROLOGUE_V2, v2Binding } from './noise.js';
 import { parsePeerId } from './peer.js';
 
 const MAX_PLAIN_FRAME = MAX_NOISE_MESSAGE - 16;
@@ -22,6 +22,7 @@ export class Refusal extends Error {
 }
 
 const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const concatBytes = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
 
 export function helloText(relay, nonce, role) {
   return enc.encode(`port42-relay-v1|${relay}|${nonce}|${role}`);
@@ -85,13 +86,20 @@ async function connectVia(relayURL, host, identity, WS, prologue) {
     const ch = await control(q, 'challenge');
     if (ch.relay !== new URL(relayURL).host) throw new Refusal('bad_hello', `the relay calls itself ${ch.relay}`);
     ws.send(JSON.stringify({ t: 'hello', role: 'guest', key: identity.id,
-                             sig: b64(identity.sign(helloText(ch.relay, ch.nonce, 'guest'))) }));
+                             sig: b64(await identity.sign(helloText(ch.relay, ch.nonce, 'guest'))) }));
     await control(q, 'ok');
     ws.send(JSON.stringify({ t: 'open', to: host }));
     await control(q, 'opened');
 
-    const hs = new Initiator(identity.seed, hostKey, { prologue });
-    ws.send(hs.writeFirst(identity.pub));
+    // v2 (GST-02): keys the page cannot read. The Ed25519 key signs that the X25519 key speaks for
+    // it, to this host, in this handshake. v1: the X25519 key is derived from the seed, so the public
+    // Ed25519 key alone names it.
+    const v2 = identity.version === 2;
+    const hs = new Initiator(identity.noise ?? identity.seed, hostKey, { prologue: prologue ?? (v2 ? PROLOGUE_V2 : PROLOGUE) });
+    const payload = v2
+      ? concatBytes(identity.pub, await identity.sign(v2Binding(host, hs.e.pub, identity.noise.pub)))
+      : identity.pub;
+    ws.send(await hs.writeFirst(payload));
     // A host that cannot read our handshake (not the key the invite named) ends the session.
     const m = await q.next().catch(() => { throw new Refusal('refused', 'the host refused the session'); });
     if (!m.bytes) {
@@ -99,7 +107,7 @@ async function connectVia(relayURL, host, identity, WS, prologue) {
       throw new Refusal('refused', 'the host did not answer the handshake');
     }
     let send, recv;
-    try { [send, recv] = hs.readSecond(m.bytes); }
+    try { [send, recv] = await hs.readSecond(m.bytes); }
     catch { throw new Refusal('refused', 'the host did not prove its key'); }
     return new Session(ws, q, send, recv);
   } catch (e) {

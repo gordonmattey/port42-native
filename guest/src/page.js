@@ -5,6 +5,7 @@
 
 import { decodeCoupon, rightsSentence, isMove, expired } from './coupon.js';
 import { Guest, explain } from './guest.js';
+import { indexedDBStore } from './keys.js';
 
 export const DOWNLOAD = 'https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg';
 const JOINED_KEY = 'port42.guest.joined';
@@ -13,7 +14,8 @@ const NAME_KEY = 'port42.guest.name';
 const $ = (doc, id) => doc.getElementById(id);
 
 /// Wire the page. `deps` lets a test give its own window, storage and connect.
-export function start({ win = window, doc = document, storage = safeStorage(win), connect } = {}) {
+export function start({ win = window, doc = document, storage = safeStorage(win), connect,
+                        keyStore = indexedDBStore(win.indexedDB) } = {}) {
   // The invite leaves the address bar, but this tab keeps it, so a refresh reopens the port. Only a
   // refresh (or back and forward): going to the bare address is going home, and forgets it (GM,
   // 2026-09-27: tele.port42.ai typed in opened an old invite).
@@ -115,7 +117,7 @@ export function start({ win = window, doc = document, storage = safeStorage(win)
     const code = $(doc, 'code').value.trim();
     $(doc, 'join-error').textContent = '';
     $(doc, 'join-button').disabled = true;
-    guest = new Guest({ coupon, storage, connect, ui: ui(doc, () => guest, frameState, chatSeen) });
+    guest = new Guest({ coupon, storage, keyStore, connect, ui: ui(doc, () => guest, frameState, chatSeen) });
     try {
       await guest.join({ name, code });
       write(storage, NAME_KEY, name);

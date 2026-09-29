@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { start } from '../src/page.js';
-import { Guest } from '../src/guest.js';
+import { Guest, loadIdentity } from '../src/guest.js';
 import { framedPage } from '../src/shim.js';
 import { Refusal } from '../src/client.js';
 
@@ -233,6 +233,7 @@ test('the page\'s storage calls name its port, which is the host\'s storage for 
 test('a page\'s start-up reads work for a guest: user.get is the guest, space and companions name the port', async () => {
   const calls = [];
   const g = new Guest({ coupon, storage: null, ui: {}, connect: async () => ({}) });
+  g.me = loadIdentity(null);   // loaded on join (open) since GST-02; this test calls in directly
   g.name = 'Ada';
   g.session = { call: (m, a) => { calls.push({ m, a }); return Promise.resolve([]); } };
   const [user] = await Promise.all([g.frameCall('user.get', []), g.frameCall('companions.list', []),

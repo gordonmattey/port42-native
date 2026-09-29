@@ -9,6 +9,9 @@ import { hmac } from '@noble/hashes/hmac';
 
 const PROTOCOL = 'Noise_IK_25519_ChaChaPoly_SHA256';   // exactly 32 bytes, so it is h as is
 export const PROLOGUE = 'port42-noise-v1';
+/// A guest whose keys the page cannot read (GST-02): a separate X25519 key, bound to its Ed25519
+/// identity by a signature over v2Binding.
+export const PROLOGUE_V2 = 'port42-noise-v2';
 export const MAX_NOISE_MESSAGE = 65535;
 const TAG = 16;
 
@@ -28,6 +31,20 @@ export function noiseKeyFromSeed(seed) {
 
 /// A host's X25519 static key, from its Ed25519 public key (the peer id), as MontgomeryPublic.
 export function montgomeryFromEd25519(pub) { return edwardsToMontgomeryPub(pub); }
+
+/// What a v2 guest signs with its Ed25519 key: that its X25519 static key speaks for it, to this host
+/// (its peer id), in this handshake (its ephemeral key). The same bytes as V2Binding in noise.go.
+export function v2Binding(hostId, ephemeralPub, staticPub) {
+  return concat(new TextEncoder().encode('port42-noise-v2 static|' + hostId), ephemeralPub, staticPub);
+}
+
+/// A static key as the handshake uses it: its public key, and a DH with a peer's public key. A v1
+/// guest's is derived from its seed; a v2 guest's is a WebCrypto key the page cannot read, so the DH
+/// is asynchronous.
+export function staticFromSeed(seed) {
+  const s = noiseKeyFromSeed(seed);
+  return { pub: s.pub, dh: async (peer) => x25519.getSharedSecret(s.priv, peer) };
+}
 
 function hkdf(ck, ikm, n) {
   const temp = hmac(sha256, ck, ikm);
@@ -77,13 +94,14 @@ class SymmetricState {
   }
 }
 
-/// The initiator of IK. `seed` is this guest's Ed25519 seed; `hostEd25519` the host's public key.
-/// writeFirst() gives the first message, carrying `payload` (the guest's Ed25519 public key, which
-/// the host checks against the Noise static); readSecond() takes the host's answer and returns the
-/// two cipher states, [send, recv].
+/// The initiator of IK. `stat` is the guest's static key ({ pub, dh }, or a v1 seed); `hostEd25519`
+/// the host's public key. `e.pub` is known from construction, so a v2 guest can sign it into its
+/// payload. writeFirst() gives the first message, carrying `payload` (v1: the guest's Ed25519 public
+/// key, which the host checks against the Noise static; v2: that key and its signature over
+/// v2Binding); readSecond() takes the host's answer and returns the two cipher states, [send, recv].
 export class Initiator {
-  constructor(seed, hostEd25519, { ephemeral, prologue = PROLOGUE } = {}) {
-    this.s = noiseKeyFromSeed(seed);
+  constructor(stat, hostEd25519, { ephemeral, prologue = PROLOGUE } = {}) {
+    this.s = stat instanceof Uint8Array ? staticFromSeed(stat) : stat;
     this.rs = montgomeryFromEd25519(hostEd25519);
     const ePriv = ephemeral ?? x25519.utils.randomPrivateKey();
     this.e = { priv: ePriv, pub: x25519.getPublicKey(ePriv) };
@@ -92,23 +110,23 @@ export class Initiator {
     this.ss.mixHash(this.rs);                       // <- s, known before the handshake
   }
 
-  writeFirst(payload) {
+  async writeFirst(payload) {
     const ss = this.ss;
     ss.mixHash(this.e.pub);                                            // e
     ss.mixKey(x25519.getSharedSecret(this.e.priv, this.rs));          // es
     const encS = ss.encryptAndHash(this.s.pub);                        // s
-    ss.mixKey(x25519.getSharedSecret(this.s.priv, this.rs));          // ss
+    ss.mixKey(await this.s.dh(this.rs));                               // ss
     const encP = ss.encryptAndHash(payload);
     return concat(this.e.pub, encS, encP);
   }
 
-  readSecond(msg) {
+  async readSecond(msg) {
     const ss = this.ss;
     if (msg.length < 32 + TAG) throw new Error('the host sent a short handshake');
     const re = msg.slice(0, 32);
     ss.mixHash(re);                                                    // e
     ss.mixKey(x25519.getSharedSecret(this.e.priv, re));               // ee
-    ss.mixKey(x25519.getSharedSecret(this.s.priv, re));               // se
+    ss.mixKey(await this.s.dh(re));                                    // se
     ss.decryptAndHash(msg.slice(32));                                  // empty payload, authenticated
     return ss.split();
   }
