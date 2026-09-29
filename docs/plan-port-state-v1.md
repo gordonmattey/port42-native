@@ -44,17 +44,12 @@ The `presentation` event every web port already receives gains `tier` and `orien
 
 ### What renders at each tier
 
-**Terminals and browsers**: Port42 draws them, so Port42 draws their card. At `compact` and `full`
-they show their live content as today.
+**Port42 always draws the card** at `card` size, for every kind of port (GM): terminals, browsers
+and web ports alike, from what the port declares and what Port42 knows. A page does not draw its own
+card in v1. At `compact` and `full` every port shows its live content as today.
 
-**Web ports** choose:
-- A page that draws its own card declares so (`shape.renders: ["card"]` in Phase B terms, or
-  `port42.shape.set({renders: ["card"]})`). It gets the tier in the `presentation` event and renders
-  itself.
-- A page that does not gets Port42's card over it at `card` size, filled from its declared state and
-  its console.
-- At `compact` a page lays itself out small if it wants to, like a responsive site. `ports-context.txt`
-  and the ports skill get a section on using `tier` and `orientation`.
+At `compact` a web page may lay itself out small, like a responsive site. `ports-context.txt` and the
+ports skill get a section on using `tier` and `orientation`.
 
 ### What a card says
 
@@ -94,8 +89,7 @@ and ⌘K searches the lines.
 - Terminal: each Ghostty action (title, working directory, command finished, progress, bell) reaches the
   port's state, one test each through the handler, calibrated.
 - Browser: title, URL and load progress reach the state.
-- Rendering: a port at card size renders its card, and above it renders live content; a web port that
-  declares it draws its own card gets no overlay.
+- Rendering: a port at card size renders Port42's card, and above it renders live content.
 - Registry: `port.state.set` and `port.state.get` with schemas, the generated references regenerated,
   refused without write access, the caps held.
 - The hidden list and ⌘K show the first line, and ⌘K matches on it.
@@ -148,3 +142,4 @@ What the layout does with it:
 - A terminal's git branch, and other facts Port42 does not track.
 - Arranging the desktop by shape.
 - Keeping declared state across a restart.
+- A web page drawing its own card.
