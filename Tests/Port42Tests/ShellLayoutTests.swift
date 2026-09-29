@@ -208,10 +208,16 @@ struct ShellLayoutTests {
     @Test("each resize place shows a cursor for its direction")
     @MainActor
     func resizeCursors() {
-        #expect(ResizeCursor.cursor(for: .e) == .resizeLeftRight && ResizeCursor.cursor(for: .w) == .resizeLeftRight)
-        #expect(ResizeCursor.cursor(for: .n) == .resizeUpDown && ResizeCursor.cursor(for: .s) == .resizeUpDown)
+        // Each comparison is made first and #expect gets a Bool: #expect's own evaluation of `a != b`
+        // on these cursors trapped inside Swift Testing now and then, under a full parallel run
+        // (SIGTRAP in _callBinaryOperator, 2026-09-29), taking the whole test process down.
+        let sides = ResizeCursor.cursor(for: .e) == .resizeLeftRight && ResizeCursor.cursor(for: .w) == .resizeLeftRight
+        #expect(sides)
+        let tops = ResizeCursor.cursor(for: .n) == .resizeUpDown && ResizeCursor.cursor(for: .s) == .resizeUpDown
+        #expect(tops)
         for c in [ShellTile.Corner.nw, .ne, .sw, .se] {
-            #expect(ResizeCursor.cursor(for: c) != .arrow, "a corner shows no resize cursor")
+            let isArrow = ResizeCursor.cursor(for: c) == NSCursor.arrow
+            #expect(!isArrow, "a corner shows no resize cursor")
         }
     }
 

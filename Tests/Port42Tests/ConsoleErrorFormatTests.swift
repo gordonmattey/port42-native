@@ -22,7 +22,9 @@ struct ConsoleErrorFormatTests {
         let panel = try #require(pw.panels.first { $0.id == "e" })
         let key = PortConsole.key(udid: panel.udid, id: panel.id, messageId: panel.messageId)
         var text = ""
-        for _ in 0..<60 {
+        // Up to 30 s: a web view's first start can take many seconds while the full suite runs in
+        // parallel (it failed with nothing received at 6 s). It stops as soon as both lines arrive.
+        for _ in 0..<300 {
             text = PortConsole.shared.recent(portId: key, tail: 50).map(\.text).joined(separator: "\n")
             if text.contains("boom-42") && text.contains("caught") { break }
             try await Task.sleep(nanoseconds: 100_000_000)

@@ -30,11 +30,15 @@ struct MainThreadIOTests {
             Thread.sleep(forTimeInterval: 0.2)                      // a disk that is busy
             box.lock.lock(); box.lines.append(line); box.lock.unlock()
         }
+        // The sink is the app's one sink, and tests running alongside log through it too, so this
+        // test's lines carry a mark of their own and only those are compared. Waiting for the write
+        // would take 5 × 0.2 s; half of that leaves room for a loaded machine.
+        let mark = UUID().uuidString.prefix(8)
         let start = Date()
-        for i in 0..<5 { p42log("line %d", i) }
-        #expect(Date().timeIntervalSince(start) < 0.1, "logging waited for the write")
+        for i in 0..<5 { p42log("line %d %@", i, String(mark)) }
+        #expect(Date().timeIntervalSince(start) < 0.5, "logging waited for the write")
         P42Log.drain()
-        #expect(box.lines == (0..<5).map { "line \($0)" })
+        #expect(box.lines.filter { $0.hasSuffix(" \(mark)") } == (0..<5).map { "line \($0) \(mark)" })
     }
 
     @Test("no NSLog is left in the app library: it writes on the caller's thread")
