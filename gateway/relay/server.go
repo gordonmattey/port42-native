@@ -145,10 +145,11 @@ func (s *relaySession) writeGuest(ctx context.Context, typ websocket.MessageType
 	return s.guest.Write(ctx, typ, b)
 }
 
-// Handler serves `/v1` (the relay) and `/health`.
+// Handler serves `/v1` (the relay), `/health` and `/version` (the commit it was built from).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(Commit)) })
 	mux.HandleFunc("/v1", s.serveWS)
 	return mux
 }

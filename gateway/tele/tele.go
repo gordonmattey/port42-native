@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/port42/gateway/relay"
 )
 
 // PageCSP is the page's policy: scripts only from this origin (so nothing injected can run and read
@@ -35,6 +37,7 @@ func Handler(dir string) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(relay.Commit)) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f, ok := files[r.URL.Path]
 		if !ok || (r.Method != http.MethodGet && r.Method != http.MethodHead) {

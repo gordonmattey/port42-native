@@ -157,28 +157,28 @@ closed. A small machine is enough: the relay only forwards bytes.
 Push a tag `relay-v<version>`, for example `relay-v1.0.0`. The `relay` workflow
 (`.github/workflows/relay.yml`) then:
 
-- builds the image for x86 and ARM and pushes it to `ghcr.io/<owner>/port42-relay` as that version and
-  `latest`;
+- builds the relay image for x86 and ARM and pushes it to `ghcr.io/<owner>/port42-relay`, and the
+  invite page's image to `ghcr.io/<owner>/port42-tele`, each as that version and `latest`, with the
+  tag's commit built in (served at `/version`);
 - builds the six binaries with `scripts/relay-dist.sh` and attaches them, with `SHA256SUMS`, to the
   tag's release.
 
 The macOS binaries built there are unsigned; run `scripts/relay-dist.sh <version>` on a Mac with the
-Developer ID and replace them on the release. After the first publish, make the image public in the
-package's settings on GitHub, or `docker run` asks for a login.
+Developer ID and replace them on the release. After the first publish, make each image public in the
+package's settings on GitHub, or `docker run` (and Railway) asks for a login.
 
-**Redeploying port42's own relay1 and tele** (the `port42-relay` project on Railway), after a change to
-their images or code. `railway up` uploads the directory it runs in, and each service expects a
-different one:
+**Deploying port42's own relay1 and tele** (the `port42-relay` project on Railway). Both services run
+the images the workflow built, never a local upload, so what is live is what CI built and tested from
+a tag, and nothing on a maintainer's machine can reach it. Each service's source is the image by
+version (`ghcr.io/gordonmattey/port42-relay:<version>`, `ghcr.io/gordonmattey/port42-tele:<version>`).
 
-- tele, from the repository root (it builds `tele.Dockerfile` and copies `guest/`):
-  `railway up --service tele --ci`
-- the relay, from `gateway/` (it builds `relay.Dockerfile` there, per `gateway/railway.json`):
-  `cd gateway && railway up --service relay --ci`
+1. Push the tag, and wait for the workflow's two image jobs to pass.
+2. In Railway, set tele's image to the new version; when it is running, check it:
+   `scripts/check-live.sh relay-v<version>` (tele's lines must pass).
+3. Then the relay's, and run the check again: every line must pass, including `/version` on both,
+   which is the only way to tell the new build from the old. Then share a port between two instances.
 
-Run from the wrong directory, the build stops at "couldn't locate the dockerfile" and the running
-service is left as it was. Deploy tele first and check that the invite page, `frame.html` and
-`dist/port42-guest.js` serve what `guest/` holds; then the relay, and check `/health` and a share
-between two instances.
+To roll back, set the service's image to the previous version.
 
 A one-click "Deploy on Railway" button needs a template, made once in Railway from this repository with
 the root directory `gateway`; its link then goes at the top of the Railway section above.

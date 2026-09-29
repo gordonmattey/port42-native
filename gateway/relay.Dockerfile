@@ -6,7 +6,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /port42-relay ./cmd/port42-relay
+# COMMIT: the git commit, served at /version so a deploy can check what is live (CI passes it).
+ARG COMMIT=unknown
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/port42/gateway/relay.Commit=${COMMIT}" -o /port42-relay ./cmd/port42-relay
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /port42-relay /port42-relay
