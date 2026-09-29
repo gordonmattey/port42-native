@@ -283,7 +283,7 @@ final class GhosttyInputView: NSView {
     override func keyUp(with event: NSEvent) {
         sendKey(event, action: GHOSTTY_ACTION_RELEASE)
     }
-    private func sendKey(_ event: NSEvent, action: ghostty_input_action_e) {
+    fileprivate func sendKey(_ event: NSEvent, action: ghostty_input_action_e) {
         guard let s = surface else { return }
         var key = ghostty_input_key_s()
         key.action = action
@@ -414,6 +414,41 @@ extension GhosttyInputView: NSTextInputClient {
         onHumanInput?()
         onKeyboardInput?()
         write(text, mode: .keys)
+    }
+
+    /// A text command from the input system or from voice. Voice corrects what it streamed into a
+    /// terminal with `deleteBackward` (and takes back the space the hold began with the same way); with
+    /// no handler here AppKit fell back to its default, which BEEPS and deletes nothing, so every
+    /// correction left the old words in place and a long dictation came out repeated, one beep per
+    /// correction (GM, 2026-09-29). Backspace is pressed as a real key, through Ghostty's key path, so a
+    /// TUI reads it however its keyboard mode wants. Any other command means nothing to a terminal and
+    /// is dropped silently, never beeped.
+    override func doCommand(by selector: Selector) {
+        switch selector {
+        case #selector(NSResponder.deleteBackward(_:)):
+            pressKey(keyCode: Self.backspaceKeyCode, characters: "\u{7f}")
+        case #selector(NSResponder.insertNewline(_:)):
+            pressKey(keyCode: 36, characters: "\r")
+        default:
+            break
+        }
+    }
+
+    static let backspaceKeyCode: UInt16 = 51
+
+    /// Press and release one key in this terminal, as if typed, and count it as the person's input.
+    func pressKey(keyCode: UInt16, characters: String) {
+        onHumanInput?()
+        onKeyboardInput?()
+        for (type, action) in [(NSEvent.EventType.keyDown, GHOSTTY_ACTION_PRESS), (.keyUp, GHOSTTY_ACTION_RELEASE)] {
+            guard let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+                                           timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window?.windowNumber ?? 0, context: nil,
+                                           characters: characters, charactersIgnoringModifiers: characters,
+                                           isARepeat: false, keyCode: keyCode) else { continue }
+            sendKey(e, action: action)
+        }
+        onSurfaceWrite?()
     }
 
     /// IME composition in progress: the underlined text before it is committed.
