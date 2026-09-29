@@ -467,7 +467,11 @@ BRIDGE API REFERENCE:
                              has nothing live to write to yet — wait or respawn) · port_paused
       CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
                              session limit reached — stop or close one, then call again)
-      ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a
+      ASK THE USER           permission_denied (a capability: they grant it) · locked (Port42 is
+                             locked, so nothing was asked: call again once they unlock it) ·
+                             permission_cancelled (nobody answered: the card was withdrawn, so
+                             call again to ask again) · os_denied (macOS refused it: they allow
+                             Port42 in System Settings > Privacy & Security) · access_denied (a
                              path they never picked: they pick a file) · not_granted (you are on
                              another machine and your invite does not cover this; the host sends
                              a new one) · invite_invalid (the invite is used, expired, withdrawn
