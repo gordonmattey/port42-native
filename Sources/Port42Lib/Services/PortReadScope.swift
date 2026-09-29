@@ -15,7 +15,8 @@ import Foundation
 // exists. A caller with no space is not "everywhere": it sees only ports that have no space either.
 //
 // SCOPED BY APP-15: a terminal Port42 spawned is bound to its spawn space, and reads that space
-// (see the `.peer` case below). NOT SCOPED: `.human` (the person owns every space), a client the
+// (see the `.peer` case below). A companion, in the app or in its terminal, also reads the spaces the
+// person made it a member of (`isMember`, GM 2026-09-29). NOT SCOPED: `.human` (the person owns every space), a client the
 // person paired or installed (no space), and `.remote`, already confined by RemoteAccess to the
 // ports it holds a right on, before any body runs.
 
@@ -53,13 +54,29 @@ extension AppState {
             // authorizes as its companion or as itself. A child whose binding is gone (its terminal
             // closed) reads no space rather than everywhere. A client the person paired or
             // installed keeps machine-wide reads, which is a product call and left as it was.
-            if let zone = principal.zone { return spaceId == zone }
+            if let zone = principal.zone { return spaceId == zone || isMember(principal, of: spaceId) }
             return clientRegistry.client(id: principal.id)?.kind == .child ? spaceId == nil : true
-        case .port, .companion:
+        case .port:
             // Equality of optionals on purpose: a caller acting in no space sees only ports in no
             // space, never "everywhere".
             return spaceId == principal.spaceId
+        case .companion:
+            return spaceId == principal.spaceId || isMember(principal, of: spaceId)
         }
+    }
+
+    /// A companion also reads the spaces the person made it a member of (GM, 2026-09-29): a lead in
+    /// one space coordinates a team in another, and the membership is the person's decision. A plain
+    /// terminal or a port's page belongs to no space but its own.
+    /// The spaces a companion is a member of, in the order the person sees them.
+    public func memberSpaces(of companionId: String) -> [Space] {
+        let ids = (try? db.spaceIds(ofAgent: companionId)) ?? []
+        return spaces.filter { ids.contains($0.id) }
+    }
+
+    func isMember(_ principal: Principal, of spaceId: String?) -> Bool {
+        guard let spaceId, let companion = companion(actingAs: principal) else { return false }
+        return (try? db.spaceIds(ofAgent: companion.id).contains(spaceId)) ?? false
     }
 
     /// The space a chat belongs to (APP-09): nil for the desktop's chat (port 0, which is in no

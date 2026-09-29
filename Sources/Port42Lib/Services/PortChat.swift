@@ -458,7 +458,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["whoami"] = BridgeMethod(permission: nil,
-        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
+        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         var o: [String: BridgeValue] = ["name": .string(p.displayName), "kind": .string(p.kind.rawValue)]
         var spaceId = p.spaceId
@@ -487,6 +487,11 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
                              "port": .string(e.port)])
                 })
             }
+        }
+        // Every space this companion is a member of, and so can read (GM, 2026-09-29): a lead finds
+        // the team it coordinates without guessing ids.
+        if let c = appState.companion(actingAs: p) {
+            o["spaces"] = .array(appState.memberSpaces(of: c.id).map { .object(["id": .string($0.id), "name": .string($0.name)]) })
         }
         return .object(o)
     }

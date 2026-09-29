@@ -236,7 +236,7 @@
     "name" : "companions_create"
   },
   {
-    "description" : "Get details about a specific companion by ID",
+    "description" : "Get details about a specific companion by ID, with `spaces`, the spaces it is a member of ([{id, name}]): the spaces whose chats and ports it can read.",
     "input_schema" : {
       "properties" : {
         "id" : {
@@ -1432,7 +1432,7 @@
     "name" : "user_get"
   },
   {
-    "description" : "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
+    "description" : "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
     "input_schema" : {
       "properties" : {
 

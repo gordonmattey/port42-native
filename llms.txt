@@ -221,7 +221,7 @@ Generated from the live method registry: every entry below is served exactly as 
         runs (string): Where its terminal runs (default port).
         space_id (string): The space (default: yours, else the current one).
   companions.get(id)
-      Get details about a specific companion by ID
+      Get details about a specific companion by ID, with `spaces`, the spaces it is a member of ([{id, name}]): the spaces whose chats and ports it can read.
         id (string, required): The companion's ID
   companions.list(space_id, port)
       List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want). From another machine: the companions of the shared port's own space, named by `port`.
@@ -269,7 +269,7 @@ Generated from the live method registry: every entry below is served exactly as 
   presentation()
       The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
   whoami()
-      Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.
+      Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.
 
 ### imagine
 

@@ -1739,6 +1739,13 @@ public final class DatabaseService {
         }
     }
 
+    /// Every space a companion is a member of.
+    public func spaceIds(ofAgent agentId: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT spaceId FROM agentSpaces WHERE agentId = ?", arguments: [agentId]))
+        }
+    }
+
     public func getAgentsForSpace(spaceId: String) throws -> [AgentConfig] {
         try dbQueue.read { db in
             try AgentConfig.fetchAll(

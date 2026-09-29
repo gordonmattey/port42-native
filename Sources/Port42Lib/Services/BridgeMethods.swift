@@ -1340,7 +1340,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["companions.get"] = BridgeMethod(permission: nil, paramNames: ["id"],
-        description: "Get details about a specific companion by ID",
+        description: "Get details about a specific companion by ID, with `spaces`, the spaces it is a member of ([{id, name}]): the spaces whose chats and ports it can read.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1355,6 +1355,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return .object([
             "id": .string(c.id), "name": .string(c.displayName),
             "model": .string(c.model ?? "unknown"), "systemPrompt": .string(c.systemPrompt ?? ""),
+            // The spaces it is a member of, and so reads (GM, 2026-09-29).
+            "spaces": .array(appState.memberSpaces(of: c.id).map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
         ])
     }
 }
