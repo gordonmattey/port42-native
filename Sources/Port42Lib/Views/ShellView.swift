@@ -233,15 +233,15 @@ public struct ShellView: View {
                             // beneath it: SwiftUI drawn over a hosted web or terminal view does not
                             // (GM, 2026-09-25: a full space chat could not be used where it covered one).
                             AppKitLayer(content:
-                                PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                                // Its bottom-right corner drags, like a port's: a grip strip of the
+                                // panel's own, below its input, so the rounded corner no longer cuts
+                                // it off and it no longer sits on the send button (#127).
+                                PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent,
+                                              resize: .init(edge: .corner, size: CGSize(width: w, height: h)) { proposed in
+                                                  shell.spaceChatExpanded = false
+                                                  shell.spaceChatSize = ShellState.spaceChatSize(proposed, room: room)
+                                              })
                                     .frame(width: w, height: h)
-                                    // Its bottom-right corner drags, like a port's: an invisible zone.
-                                    .overlay(alignment: .bottomTrailing) {
-                                        ChatResizeZone(size: CGSize(width: w, height: h), edge: .corner) { proposed in
-                                            shell.spaceChatExpanded = false
-                                            shell.spaceChatSize = ShellState.spaceChatSize(proposed, room: room)
-                                        }
-                                    }
                                     .frame(width: w, height: h)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1))

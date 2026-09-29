@@ -567,15 +567,13 @@ struct ShellTile: View {
                     AppKitLayer(content: VStack(spacing: 0) {
                         if chatPanelH > 0, let key = chatKey {
                             let body = liveSize.height - headerH
-                            PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
+                            // Its bottom edge drags, down to covering the whole port: a grip strip of
+                                // the panel's own, below its input (#127).
+                            PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent,
+                                          resize: .init(edge: .bottom, size: CGSize(width: liveSize.width, height: chatPanelH)) { proposed in
+                                              shell.portChatShare[key] = ShellState.portChatShare(height: proposed.height, body: body)
+                                          })
                                 .frame(width: liveSize.width, height: chatPanelH)
-                                // Its bottom edge drags, down to covering the whole port: an invisible
-                                // zone, like a port's own edges.
-                                .overlay(alignment: .bottom) {
-                                    ChatResizeZone(size: CGSize(width: liveSize.width, height: chatPanelH), edge: .bottom) { proposed in
-                                        shell.portChatShare[key] = ShellState.portChatShare(height: proposed.height, body: body)
-                                    }
-                                }
                         }
                         if consolePanelH > 0, let key = consoleKey {
                             PortConsolePanel(key: key, accent: tileAccent)

@@ -57,6 +57,8 @@ struct PortChatPanel: View {
     @ObservedObject var appState: AppState
     let key: String
     let accent: Color
+    /// How this chat is resized, if it can be: its grip is a footer of the panel's own (#127).
+    var resize: ChatResizeZone.Grip? = nil
 
     @State private var draft = ""
     /// The time of the top message in view, shown while the transcript scrolls.
@@ -156,6 +158,9 @@ struct PortChatPanel: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(Port42Theme.bgInput)
+            // #127: the grip is BELOW the input, as part of the panel: never over the send button,
+            // never cut off by the rounded corner, and the whole strip takes the drag.
+            if let resize { ChatResizeZone(grip: resize) }
         }
         .background(Port42Theme.shellCard)
         .overlay(alignment: .bottom) { Rectangle().fill(accent.opacity(0.35)).frame(height: 1).offset(y: 0.5) }
@@ -316,24 +321,69 @@ struct ChatPresenceStrip: View {
 /// bottom-right corner (width and height), as a port does.
 struct ChatResizeZone: View {
     enum Edge { case bottom, corner }
-    let size: CGSize
-    let edge: Edge
-    let onResize: (CGSize) -> Void
+
+    /// What a chat's grip resizes and how: its edge, the chat's size now, and what to do with a new one.
+    struct Grip {
+        let edge: Edge
+        let size: CGSize
+        let onResize: (CGSize) -> Void
+    }
+
+    /// The strip's height (#127). It spans the chat's full width, so the target is far larger than the
+    /// 24 by 24 WCAG 2.5.8 asks for, and the input above it is 6 points clear.
+    static let height: CGFloat = 16
+    /// How far one VoiceOver adjust moves the chat, since a drag is not available there.
+    static let step: CGFloat = 40
+
+    /// The size one adjust gives: taller (and, from a corner, wider) or smaller.
+    static func adjusted(_ size: CGSize, edge: Edge, grow: Bool) -> CGSize {
+        let d = grow ? step : -step
+        return CGSize(width: edge == .corner ? size.width + d : size.width, height: size.height + d)
+    }
+
+    let grip: Grip
     @State private var start: CGSize?
+    @State private var hovered = false
 
     var body: some View {
-        Color.clear
-            .frame(width: edge == .corner ? 16 : size.width, height: edge == .corner ? 16 : 6)
-            .contentShape(Rectangle())
-            .resizeCursor(ResizeCursor.cursor(for: edge == .corner ? .se : .s))
-            // Global coordinates: the zone moves with the edge it drags.
-            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { v in
-                    let s = start ?? size
-                    start = s
-                    onResize(CGSize(width: edge == .corner ? s.width + v.translation.width : s.width,
-                                    height: s.height + v.translation.height))
+        ZStack(alignment: grip.edge == .corner ? .trailing : .center) {
+            Color.clear
+            // Something to find it by: a pill for an edge, diagonal lines for a corner.
+            if grip.edge == .corner {
+                Path { p in
+                    for i in 0..<3 {
+                        let o = CGFloat(i) * 4
+                        p.move(to: CGPoint(x: 10 - o, y: 12)); p.addLine(to: CGPoint(x: 12, y: 10 - o))
+                    }
                 }
-                .onEnded { _ in start = nil })
+                .stroke(Port42Theme.textSecondary.opacity(hovered ? 0.9 : 0.5), lineWidth: 1)
+                .frame(width: 14, height: 14).padding(.trailing, 4)
+            } else {
+                Capsule().fill(Port42Theme.textSecondary.opacity(hovered ? 0.8 : 0.4)).frame(width: 36, height: 4)
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: Self.height)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .resizeCursor(ResizeCursor.cursor(for: grip.edge == .corner ? .se : .s))
+        // Global coordinates: the strip moves with the edge it drags.
+        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { v in
+                let s = start ?? grip.size
+                start = s
+                grip.onResize(CGSize(width: grip.edge == .corner ? s.width + v.translation.width : s.width,
+                                     height: s.height + v.translation.height))
+            }
+            .onEnded { _ in start = nil })
+        // Without a pointer: VoiceOver adjusts it (swipe up and down), in steps.
+        .accessibilityElement()
+        .accessibilityLabel("Resize chat")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: grip.onResize(Self.adjusted(grip.size, edge: grip.edge, grow: true))
+            case .decrement: grip.onResize(Self.adjusted(grip.size, edge: grip.edge, grow: false))
+            @unknown default: break
+            }
+        }
     }
 }
