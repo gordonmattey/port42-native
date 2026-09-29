@@ -173,7 +173,8 @@ struct PortChatPanel: View {
     private var unmatched: [String] {
         var text = draft
         if ChatRouting.mentionQuery(in: text) != nil, let at = text.lastIndex(of: "@") { text = String(text[..<at]) }
-        return ChatRouting.unmatchedMentions(text, known: mentionable)
+        // Your own name is not offered, but it is a real name here (another person may share it).
+        return ChatRouting.unmatchedMentions(text, known: mentionable + [appState.currentUser?.displayName].compactMap { $0 })
     }
 
     /// Show the scroll pill at `date`, and hide it a moment after scrolling stops.
