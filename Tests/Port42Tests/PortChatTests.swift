@@ -454,4 +454,15 @@ struct PortChatTests {
         #expect(names == ["echo", "Justin"], "offered the person their own name: \(names)")
     }
 
+
+    @Test("a guest person is offered once, by the name the host knows them as, though their posts carry a longer label")
+    func guestOnce() {
+        let t = Date()
+        let post = PortChatEntry(seq: 1, at: t, text: "hi", fromId: "peer-3xpo", fromName: "gordon (gordon 3xpo)", fromKind: "human")
+        let theirCompanion = PortChatEntry(seq: 2, at: t, text: "4", fromId: "peer-3xpo", fromName: "quiet-tern (gordon 3xpo)", fromKind: "companion")
+        let names = ChatRouting.mentionable(companions: ["echo"], people: ["gordon 3xpo"], entries: [post, theirCompanion],
+                                            me: "u-me", myName: "gordon", peopleIds: ["peer-3xpo"])
+        #expect(names == ["echo", "gordon 3xpo", "quiet-tern (gordon 3xpo)"], "listed: \(names)")
+    }
+
 }

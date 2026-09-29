@@ -306,7 +306,7 @@ public enum ChatRouting {
     /// there (people, and another machine's companions), once each, newest first. Never Port42 itself or
     /// the person reading.
     public static func mentionable(companions: [String], people: [String] = [], entries: [PortChatEntry],
-                                   me: String?, myName: String? = nil) -> [String] {
+                                   me: String?, myName: String? = nil, peopleIds: Set<String> = []) -> [String] {
         // Never the person reading, by id or by name: you cannot @ yourself (GM, 2026-09-28).
         var seen = Set<String>(myName.map { [$0.lowercased()] } ?? [])
         var out: [String] = []
@@ -317,7 +317,10 @@ public enum ChatRouting {
         }
         companions.forEach(add)
         people.forEach(add)
-        for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me { add(e.fromName) }
+        // A person already listed in `people` posts under a longer label ("gordon (gordon 3xpo)" for
+        // "gordon 3xpo"); their posts would list them twice. Their companions' posts still count.
+        for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me
+            && !(e.fromKind == "human" && peopleIds.contains(e.fromId)) { add(e.fromName) }
         return out
     }
 
@@ -597,6 +600,11 @@ extension AppState {
     /// else's port, its host; on a port this instance shares, everyone it is shared with. Autocomplete
     /// offered only names that had posted, so a guest could not @ a host who had not spoken (Dev6,
     /// 2026-09-28).
+    /// The peers of the people in `chatPeople`, so their own posts are not listed a second time.
+    func chatPeopleIds(key: String) -> Set<String> {
+        Set((sharing[key]?.people ?? []).map(\.peer))
+    }
+
     func chatPeople(key: String) -> [String] {
         if let tile = portWindows.panels.first(where: { $0.udid == key })?.id, let row = mirroredRemote(tile) {
             return [row.hostName]
