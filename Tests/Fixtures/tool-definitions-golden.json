@@ -1242,7 +1242,7 @@
     "name" : "state_get"
   },
   {
-    "description" : "Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), in the hidden list and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.",
+    "description" : "Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), on its card under Running in the rail and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.",
     "input_schema" : {
       "properties" : {
         "lines" : {

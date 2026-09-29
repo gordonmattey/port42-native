@@ -39,7 +39,7 @@ extension AppState {
                               errors: PortConsole.shared.errorCounts[consoleKey] ?? 0)
     }
 
-    /// The first line of a port's card, for one-line listings (the hidden list, ⌘K).
+    /// The first line of a port's card, for one-line listings (the rail, ⌘K).
     public func portSummary(_ panel: PortPanel) -> String? { portCard(panel).summary }
 
     /// May this caller say what `panel` is doing? The port itself, its author, the person, or a companion
@@ -80,7 +80,7 @@ func registerStateMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["state.set"] = BridgeMethod(permission: nil, paramNames: ["lines", "port"],
-        description: "Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), in the hidden list and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.",
+        description: "Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), on its card under Running in the rail and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.",
         inputSchema: [
             "type": "object",
             "properties": [

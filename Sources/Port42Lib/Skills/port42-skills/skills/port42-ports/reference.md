@@ -249,7 +249,7 @@ What a port's card shows: its title, then its lines, declared first (known: fals
 
 ## state.set
 
-Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), in the hidden list and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.
+Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), on its card under Running in the rail and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.
 
         lines (array, required): Up to 5 lines, first the most important, each {label, value}: e.g. [{"label":"doing","value":"building the join card"},{"label":"progress","value":"3 of 5"}]. Values are cut at 80 characters. An empty list clears it.
         port (string): The port's id; omit from a port's own page.

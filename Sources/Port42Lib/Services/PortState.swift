@@ -121,7 +121,7 @@ public struct StateLine: Equatable {
 }
 
 /// The state of every port Port42 can describe, by panel id (docs/plan-port-state-v1.md). Owned by
-/// AppState; cards, `state.get`, the hidden list and ⌘K read it.
+/// AppState; cards, `state.get`, the rail and ⌘K read it.
 @MainActor
 public final class PortStateStore: ObservableObject {
     @Published public private(set) var terminals: [String: TerminalFacts] = [:]
@@ -156,7 +156,7 @@ public final class PortStateStore: ObservableObject {
 }
 
 /// What a card shows for one port: its title and up to five lines, declared first, then what Port42
-/// knows (docs/plan-port-state-v1.md). Built in one place, so the card, `state.get`, the hidden list and
+/// knows (docs/plan-port-state-v1.md). Built in one place, so the card, `state.get`, the rail and
 /// ⌘K all say the same thing.
 public struct PortCard: Equatable {
     public enum Tone: Equatable { case normal, alert, quiet }
@@ -275,7 +275,7 @@ public struct PortCard: Equatable {
         return PortCard(title: title, lines: Array(lines.prefix(maxLines)), progress: progress, progressFailed: failed)
     }
 
-    /// The first line, for a one-line listing (the hidden list, ⌘K): "label value", or nil.
+    /// The first line, for a one-line listing (the rail, ⌘K): "label value", or nil.
     public var summary: String? {
         lines.first.map { "\($0.label) \($0.value)" }
     }

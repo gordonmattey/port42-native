@@ -160,7 +160,7 @@ public final class AppState: ObservableObject {
     public let chats = PortChatStore()
     /// Who is on each chat's message right now (received, working, waiting), shown under the chat.
     public let presence = ChatPresenceStore()
-    /// What each port has told Port42 about itself, for its card, the hidden list and ⌘K
+    /// What each port has told Port42 about itself, for its card, the rail and ⌘K
     /// (docs/plan-port-state-v1.md).
     public let portStates = PortStateStore()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
