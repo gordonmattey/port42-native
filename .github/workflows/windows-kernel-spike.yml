@@ -8,6 +8,9 @@
 # Scoped to its own branch and manual runs, so it never gates anyone's work.
 name: windows kernel spike
 
+permissions:
+  contents: read   # BLD-09: read-only; no job needs more
+
 on:
   push:
     branches: [research]
@@ -31,11 +34,11 @@ jobs:
     # with, which is a standing maintenance cost rather than a one-time setup step.
     runs-on: windows-2022
     steps:
-      - uses: compnerd/gha-setup-swift@main
+      - uses: compnerd/gha-setup-swift@bbae8ce86bac5a3449f3992b3d88bc4ca25f2057 # main, 2026-09-28
         with:
           swift-version: swift-6.2-release
           swift-build: 6.2-RELEASE
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: swift version
         run: swift --version
       - name: carve the kernel
@@ -72,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
       - name: carve the kernel
         run: ./spikes/windows-kernel/carve.sh
@@ -104,8 +107,8 @@ jobs:
   go-windows:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with: { go-version: '1.25' }
       - name: gateway, cli and shim for windows/amd64
         run: |
