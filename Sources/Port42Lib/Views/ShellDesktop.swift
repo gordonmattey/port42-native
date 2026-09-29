@@ -891,14 +891,6 @@ struct ShellTile: View {
                 if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
-                // Where in the rail it would land, shown as a gap before the drop.
-                if shell.draggingOverPark == .park, let panel = tile.panel {
-                    let count = appState.portWindows.railIds(in: panel.spaceId).filter { $0 != panel.id }.count
-                    let slot = ShellState.railSlot(forY: v.location.y, count: count)
-                    if shell.railDropSlot != slot { shell.railDropSlot = slot }
-                } else if shell.railDropSlot != nil {
-                    shell.railDropSlot = nil
-                }
             }
             .onEnded { v in
                 guard !isFocused else { return }
@@ -921,9 +913,9 @@ struct ShellTile: View {
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
                 case .hide: if let panel = tile.panel { shell.hideTile(panel.id) }
                 case .park:
+                    // The newest parked port goes last in the list.
                     if let panel = tile.panel {
-                        let count = appState.portWindows.railIds(in: panel.spaceId).count
-                        appState.portWindows.park(id: panel.id, at: ShellState.railSlot(forY: v.location.y, count: count))
+                        appState.portWindows.park(id: panel.id, at: appState.portWindows.railIds(in: panel.spaceId).count)
                     }
                 case nil:
                     commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
@@ -1026,26 +1018,14 @@ struct ShellParkRail: View {
         let overClose = shell.draggingOverPark == .close
         let overHide = shell.draggingOverPark == .hide
 
-        // Top to bottom (GM, 2026-09-29): hidden ("N hidden", a menu), park (the chips), close (a trash
-        // icon). Each lights up while a tile is dragged over it.
+        // Top to bottom (GM, 2026-09-29): parked (a count and a list: a parked port is paused), hidden
+        // (a card per port: it is still running, so it is worth watching), close (a trash icon). Each
+        // lights up while a tile is dragged over it.
         VStack(spacing: 0) {
-            hiddenSection(active: overHide)
-                .frame(height: ShellState.hideZoneHeight)
-            section("park", icon: "tray.and.arrow.down", active: overPark, tint: shell.accent) {
-                // Parked ports, with a highlighted gap where a drag would land.
-                let ids = railPanels.map(\.id)
-                let gapAt = shell.railDropSlot.map { ShellState.railGapIndex(ids: ids, dragging: shell.railDraggingId, slot: $0) }
-                VStack(spacing: ShellState.railChipSpacing) {
-                    ForEach(Array(railPanels.enumerated()), id: \.element.id) { i, p in
-                        if gapAt == .some(i) { dropGap }
-                        chip(p).opacity(shell.railDraggingId == p.id ? 0.4 : 1)
-                    }
-                    if shell.railDropSlot != nil, gapAt == .some(nil) { dropGap }
-                }
-                .padding(.top, ShellState.railChipSpacing)
-                .frame(maxHeight: .infinity, alignment: .top)
-            }
-            .frame(maxHeight: .infinity)
+            parkedSection(active: overPark)
+                .frame(height: ShellState.parkZoneHeight)
+            hiddenCards(active: overHide)
+                .frame(maxHeight: .infinity)
             closeZone(active: overClose)
                 .frame(height: ShellState.closeZoneHeight)
         }
@@ -1054,98 +1034,34 @@ struct ShellParkRail: View {
         .overlay(Rectangle().fill(shell.accent.opacity(0.15)).frame(width: 1), alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: shell.railDropSlot)
     }
 
-    /// The slot a drag will land in: an accent gap one chip tall.
-    private var dropGap: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .stroke(shell.accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-            .background(shell.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
-            .frame(height: ShellState.railChipHeight)
-            .padding(.horizontal, 6)
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-    }
-
-    private func chip(_ p: PortPanel) -> some View {
-        Button {
-            appState.portWindows.unpark(id: p.id)
-            shell.bringToFront(p.id)          // restored → frontmost + selected (was keeping its stale pre-park z)
-            // The matched-geometry morph (below) is the only motion, so the tile animates out of
-            // THIS chip's location (Bug 2).
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
-                Text(p.title.prefix(6)).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity).frame(height: ShellState.railChipHeight)
-            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(shell.accent.opacity(0.3), lineWidth: 1))
-        }
-        .buttonStyle(.plain).help("Restore \(p.title) (drag to reorder)")
-        .padding(.horizontal, 6)
-        // Drag a chip up or down the rail to reorder it; a click still restores it.
-        .highPriorityGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named("desktop"))
-            .onChanged { v in
-                if shell.railDraggingId != p.id { shell.railDraggingId = p.id }
-                let count = appState.portWindows.railIds(in: p.spaceId).count
-                let slot = ShellState.railSlot(forY: v.location.y, count: count - 1)
-                if shell.railDropSlot != slot { shell.railDropSlot = slot }
-            }
-            .onEnded { v in
-                shell.railDropSlot = nil
-                shell.railDraggingId = nil
-                let count = appState.portWindows.railIds(in: p.spaceId).count
-                appState.portWindows.moveInRail(id: p.id, to: ShellState.railSlot(forY: v.location.y, count: count - 1))
-            })
-        // Source of the restore morph: the tile animates its position out of this chip's frame.
-        .matchedGeometryEffect(id: "restore-\(p.id)", in: restoreNS, properties: .position, anchor: .center, isSource: true)
-    }
-
-    /// The rail's icons and the hidden count share one color, so the rail reads as one thing.
+    /// The rail's icons and counts share one color, so the rail reads as one thing.
     static let railInk = Port42Theme.textSecondary.opacity(0.6)
-
-    /// The park section: its heading, then the chips. Lit while a tile is dragged over it.
-    private func section<Content: View>(_ name: String, icon: String, active: Bool, tint: Color,
-                                         @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            Image(systemName: icon).font(.system(size: 11, weight: active ? .bold : .regular))
-                .foregroundStyle(active ? tint : Self.railInk)
-                .help(name)
-            .frame(maxWidth: .infinity).frame(height: ShellState.railHeaderHeight)
-            content()
-        }
-        .frame(maxWidth: .infinity)
-        .background(Rectangle().fill(tint.opacity(active ? 0.18 : 0)))
-        .overlay(alignment: .top) { divider(active ? tint.opacity(0.6) : nil) }
-    }
 
     private func divider(_ color: Color?) -> some View {
         Rectangle().fill(color ?? Color.white.opacity(0.08)).frame(height: 1)
     }
 
-    /// HIDDEN PORTS in this space, at the top of the rail: one control, an eye and a count, not a chip each
-    /// (they are hidden for a reason, GM 2026-09-29). Clicking it lists them to show. It is also the
-    /// drop zone that hides a tile. A person can always see something runs with no tile (Phase 3.2).
-    private func hiddenSection(active: Bool) -> some View {
-        let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
-        let color = active ? shell.accent : Self.railInk
+    /// PARKED PORTS in this space, at the top of the rail: the tray and a count, which lists them to
+    /// restore. It is also the drop zone that parks a tile.
+    private func parkedSection(active: Bool) -> some View {
+        let parked = railPanels
         let label = HStack(spacing: 5) {
-            Image(systemName: "eye.slash").font(.system(size: 11, weight: active ? .bold : .regular))
-            Text("\(hidden.count)").font(Port42Theme.mono(10))
+            Image(systemName: "tray.and.arrow.down").font(.system(size: 11, weight: active ? .bold : .regular))
+            Text("\(parked.count)").font(Port42Theme.mono(10))
         }
-        .foregroundStyle(color)
-        // A plain menu keeps the label's own color and size (the borderless style drew it as a system
-        // button: bright white, left-aligned); the frame around it centers it in the rail.
+        .foregroundStyle(active ? shell.accent : Self.railInk)
+        // A plain menu keeps the label's own color and size; the frame centers it in the rail.
         return Group {
-            if hidden.isEmpty {
+            if parked.isEmpty {
                 label
             } else {
                 Menu {
-                    // Each with its state's first line, so a person sees it is alive without showing it.
-                    ForEach(hidden) { p in
-                        Button(appState.portSummary(p).map { "Show \(p.title) · \($0)" } ?? "Show \(p.title)") {
-                            shell.showHidden(p.id)
+                    ForEach(parked) { p in
+                        Button("Restore \(p.title)") {
+                            appState.portWindows.unpark(id: p.id)
+                            shell.bringToFront(p.id)
                         }
                     }
                 } label: { label }
@@ -1155,8 +1071,36 @@ struct ShellParkRail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
-        .help(hidden.isEmpty ? "Drag a port here to hide it: it keeps running with no tile."
-                             : "Ports running here with no tile: click to show one. Drag a port here to hide it.")
+        .help(parked.isEmpty ? "Drag a port here to park it: it pauses until you restore it."
+                             : "Parked ports: click to restore one. Drag a port here to park it.")
+    }
+
+    /// HIDDEN PORTS in this space: a card each, with its state, since a hidden port keeps running and
+    /// its card is all the person sees of it (docs/plan-port-state-v1.md). Click one to show it. The
+    /// area is also the drop zone that hides a tile.
+    private func hiddenCards(active: Bool) -> some View {
+        let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+        return VStack(spacing: 0) {
+            Image(systemName: "eye.slash").font(.system(size: 11, weight: active ? .bold : .regular))
+                .foregroundStyle(active ? shell.accent : Self.railInk)
+                .frame(maxWidth: .infinity).frame(height: ShellState.railHeaderHeight)
+                .help("Hidden: running with no tile")
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 6) {
+                    ForEach(hidden) { p in
+                        RailPortCard(appState: appState, states: appState.portStates, presence: appState.presence,
+                                     chats: appState.chats, panel: p, accent: shell.accent) {
+                            shell.showHidden(p.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 6).padding(.bottom, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
+        .overlay(alignment: .top) { divider(active ? shell.accent.opacity(0.6) : nil) }
     }
 
     /// The close zone at the bottom of the rail: a trash icon, red while a tile is over it.

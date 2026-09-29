@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 @testable import Port42Lib
 
 /// A port renders by its size: at card size (a peek) Port42 draws its state card, from what it declared
@@ -82,6 +83,18 @@ struct PortCardTests {
         let t = PortCard.build(title: "echo", companion: .init(presence: own, waitingMessages: false),
                                activity: .init(working: [own]), now: now)
         #expect(t.lines.filter { $0.label == "working" }.count == 1)
+    }
+
+    @Test("a hidden port's rail card dot: red when something needs you, accent while someone works, else quiet")
+    func railDot() {
+        let accent = Color.orange
+        let now = Date()
+        let failing = PortCard.build(title: "t", errors: 1, now: now)
+        let working = PortCard.build(title: "t", activity: .init(working: [ChatPresence(name: "eng", state: .working, since: now)]), now: now)
+        let quiet = PortCard.build(title: "t", declared: [StateLine(label: "doing", value: "polling")], now: now)
+        #expect(RailPortCard.dot(failing, accent: accent) != accent && RailPortCard.dot(failing, accent: accent) != RailPortCard.dot(quiet, accent: accent))
+        #expect(RailPortCard.dot(working, accent: accent) == accent)
+        #expect(RailPortCard.dot(quiet, accent: accent) != accent)
     }
 
     @Test("a browser's card: its page, its site and a bar while it loads; a web port's errors; five lines at most")

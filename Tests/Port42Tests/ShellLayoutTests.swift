@@ -176,15 +176,15 @@ struct ShellLayoutTests {
         #expect(shell.selectedTileId == "b")
     }
 
-    @Test("parkZone: right strip is hide at the top, close at the bottom, park between; the rest is nil")
+    @Test("parkZone: a 140-wide strip, park at the top, close at the bottom, hide between; the rest is nil")
     func parkZoneDetection() throws {
         let area = CGSize(width: 1440, height: 900)
         let w = ShellState.parkWidth(area.width)
-        #expect(w == max(64, 1440 * 0.05))
+        #expect(w == 140, "wide enough for a hidden port's card")
         #expect(ShellState.parkZone(at: CGPoint(x: 700, y: 400), in: area) == nil)                    // middle
-        #expect(ShellState.parkZone(at: CGPoint(x: 700, y: -4), in: area) == nil)                     // the top bar no longer hides
-        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 10), in: area) == .hide)         // strip, top: hide
-        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 200), in: area) == .park)        // strip, high
+        #expect(ShellState.parkZone(at: CGPoint(x: 700, y: -4), in: area) == nil)                     // the top bar does nothing
+        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 10), in: area) == .park)         // strip, top: park
+        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 200), in: area) == .hide)        // strip, middle: hide
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: area.height - 10), in: area) == .close)  // strip, low
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - w - 5, y: area.height - 10), in: area) == nil) // just left of strip
     }

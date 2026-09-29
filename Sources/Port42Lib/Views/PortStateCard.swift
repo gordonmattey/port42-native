@@ -97,3 +97,63 @@ struct PortStateCard: View {
         .frame(height: 3)
     }
 }
+
+/// A hidden port in the rail: its title and the first lines of its card, with a dot for how it is doing
+/// (GM, 2026-09-29: hidden ports get cards, since they keep running and this is all you see of them).
+/// Click to show the port.
+struct RailPortCard: View {
+    @ObservedObject var appState: AppState
+    @ObservedObject var states: PortStateStore
+    @ObservedObject var presence: ChatPresenceStore
+    @ObservedObject var chats: PortChatStore
+    @ObservedObject var console = PortConsole.shared
+    let panel: PortPanel
+    let accent: Color
+    let onShow: () -> Void
+
+    /// How it is doing, from its card: something needs you (red), someone is working (accent), or quiet.
+    static func dot(_ card: PortCard, accent: Color) -> Color {
+        if card.lines.contains(where: { $0.tone == .alert }) { return Color(red: 1, green: 0.45, blue: 0.4) }
+        if card.lines.contains(where: { $0.label == "working" }) { return accent }
+        return Port42Theme.textSecondary.opacity(0.4)
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { _ in
+            let card = appState.portCard(panel)
+            Button(action: onShow) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Circle().fill(Self.dot(card, accent: accent)).frame(width: 6, height: 6)
+                        Text(card.title).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    ForEach(Array(card.lines.prefix(3).enumerated()), id: \.offset) { _, line in
+                        (Text(line.label + " ").foregroundColor(Port42Theme.textSecondary.opacity(0.7))
+                         + Text(line.value).foregroundColor(line.tone == .alert ? Color(red: 1, green: 0.45, blue: 0.4)
+                                                            : Port42Theme.textPrimary.opacity(0.85)))
+                            .font(Port42Theme.mono(9))
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    if let p = card.progress {
+                        GeometryReader { g in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.1))
+                                Capsule().fill(card.progressFailed ? Color.red.opacity(0.8) : accent)
+                                    .frame(width: max(3, g.size.width * min(1, max(0, p))))
+                            }
+                        }
+                        .frame(height: 2)
+                    }
+                }
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Show \(panel.title)")
+        }
+    }
+}

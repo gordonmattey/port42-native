@@ -1028,9 +1028,8 @@ public final class ShellState: ObservableObject {
     /// its state card, as a peek is, and grows back into its content (GM, 2026-09-29).
     nonisolated public static let minTileSize = CGSize(width: 150, height: 110)
 
-    /// The right-edge rail's three drop zones, top to bottom: hide (the port keeps running with no tile;
-    /// one "N hidden" control lists them, not a chip each), park (minimize to a chip) and close
-    /// (delete the port). Hide moved from the top bar to the rail, so everything a tile is dragged to
+    /// The right-edge rail's three drop zones, top to bottom: park (paused, listed in one control),
+    /// hide (the port keeps running with no tile, shown as a card) and close (delete the port). Hide moved from the top bar to the rail, so everything a tile is dragged to
     /// is on the right (GM, 2026-09-29).
     public enum ParkZone: Equatable { case park, close, hide }
 
@@ -1055,14 +1054,15 @@ public final class ShellState: ObservableObject {
     /// don't pop in front of the one in your hand.
     @Published public var isDraggingTile: Bool = false
 
-    /// The right rail's width (spec §4: `max(64, screenW·0.05)`).
-    nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { max(64, screenW * 0.05) }
+    /// The right rail's width: 140, wide enough for a hidden port's card (GM, 2026-09-29). It was
+    /// `max(64, screenW·0.05)` while it held only parked chips.
+    nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { 140 }
 
     /// Rail geometry, fixed so a point maps to a slot exactly (Phase 2 step 3): the chrome clearance
     /// plus the tray icon put the first chip's top here, and every chip is one pitch below the last.
     nonisolated public static let railChipHeight: CGFloat = 44
     nonisolated public static let railChipSpacing: CGFloat = 10
-    nonisolated public static let railFirstChipTop: CGFloat = hideZoneHeight + railHeaderHeight + railChipSpacing
+    nonisolated public static let railFirstChipTop: CGFloat = parkZoneHeight + railHeaderHeight + railChipSpacing
     /// The park section's heading row, under the hidden section.
     nonisolated public static let railHeaderHeight: CGFloat = 26
 
@@ -1073,18 +1073,19 @@ public final class ShellState: ObservableObject {
         return min(max(0, slot), count)
     }
 
-    /// The rail top to bottom (GM, 2026-09-29): hidden (one row, "N hidden"), park (the rest), and the
-    /// close zone (a trash icon) at the bottom.
-    nonisolated public static let hideZoneHeight: CGFloat = 40
+    /// The rail top to bottom (GM, 2026-09-29, swapped the same day): parked (one row, a count and a
+    /// list, since a parked port is paused), hidden (the rest: a card per hidden port, since it is still
+    /// running and worth watching), and the close zone (a trash icon) at the bottom.
+    nonisolated public static let parkZoneHeight: CGFloat = 40
     nonisolated public static let closeZoneHeight: CGFloat = 64
 
     /// Classify a point (in desktop coordinates) against the right rail: the top band of the strip is
-    /// **hide**, the bottom **close**, the rest **park**, and everything left of the strip is nil.
-    /// Pure → headless-testable.
+    /// **park**, the bottom **close**, the rest **hide** (where the hidden ports' cards are), and
+    /// everything left of the strip is nil. Pure → headless-testable.
     nonisolated public static func parkZone(at p: CGPoint, in area: CGSize) -> ParkZone? {
         guard p.x >= area.width - parkWidth(area.width) else { return nil }
-        if p.y < hideZoneHeight { return .hide }
-        return p.y >= area.height - closeZoneHeight ? .close : .park
+        if p.y < parkZoneHeight { return .park }
+        return p.y >= area.height - closeZoneHeight ? .close : .hide
     }
 
     /// The space's own chat, dropped down from the top bar. A space is a port, so its chat is the
