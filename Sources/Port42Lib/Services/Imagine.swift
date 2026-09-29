@@ -17,7 +17,17 @@ public enum Imagine {
     /// Versions, not rounds: a round is not something Port42 can see. 10 (GM, 2026-09-26) lets a team of
     /// three land about three rounds, since each engineer's patch is a version.
     public static let defaultVersions = 10
-    public static let maxVersions = 20
+    // No upper bound (GM, 2026-09-29: "there is no limit to improvement"). The budget is the person's
+    // to set, as high as they like; it was capped at 20 and a higher --versions was cut to 20 silently.
+    // 0 is NO LIMIT: the team's writes are never refused. 10 stays the default for a new team.
+
+    /// Whether a budget limits anything: 0 (or less) is no limit.
+    public static func limits(_ versions: Int) -> Bool { versions > 0 }
+
+    /// A budget in words, for chat and briefs.
+    public static func describe(_ versions: Int) -> String {
+        limits(versions) ? "\(versions) versions" : "no version limit"
+    }
 
     /// What a person typed, understood.
     public enum Command: Equatable {
@@ -37,8 +47,8 @@ public enum Imagine {
         var versions = defaultVersions
         if rest.hasPrefix("--versions") {
             let parts = rest.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-            guard parts.count >= 2, let n = Int(parts[1]), n >= 1 else { return nil }
-            versions = min(n, maxVersions)
+            guard parts.count >= 2, let n = Int(parts[1]), n >= 0 else { return nil }
+            versions = n
             rest = parts.count == 3 ? String(parts[2]) : ""
             if rest.trimmingCharacters(in: .whitespaces).isEmpty { return .budget(versions: versions) }
         }
@@ -145,7 +155,7 @@ public enum Imagine {
         @\(lead) /imagine from \(person): "\(line)"
         You lead two engineers, \(eng1) and \(eng2) (hand them work with @ and their name). The port is \
         already made: '\(title)', id \(port). Build in it, never a second one; it holds a placeholder \
-        until v1. Realize this in at most \(versions) versions.
+        until v1. Realize this \(Imagine.limits(versions) ? "in at most \(versions) versions" : "with no version limit").
         1. Reply here in the space's chat with the vision, in 3 to 5 lines.
         2. Run the versions in the port's chat (port42 chat.post port=\(port)): have \(eng1) make v1 \
         there, then for each later version give both engineers concrete, non-overlapping next steps, \
@@ -175,7 +185,7 @@ public enum Imagine {
     /// `versionsSoFar` counts the team's versions: on the port made at bootstrap, its placeholder is
     /// not one of them.
     public static func overBudget(team: ImagineTeam, writer: String, versionsSoFar: Int) -> Bool {
-        team.isMember(writer) && versionsSoFar >= team.versions
+        team.isMember(writer) && limits(team.versions) && versionsSoFar >= team.versions
     }
 
     /// Told to the lead when the team's write that reaches the budget lands.
@@ -252,7 +262,7 @@ extension AppState {
             try createCompanion(c, spaceId: space.id)
         }
         let team = ImagineTeam(spaceId: space.id, lead: lead, eng1: eng1, eng2: eng2, title: title,
-                               versions: min(max(versions, 1), Imagine.maxVersions), startedAt: Date(), port: portId)
+                               versions: max(versions, 0), startedAt: Date(), port: portId)
         try db.saveImagineTeam(team)
         let brief = Imagine.brief(line: line, person: person.displayName, lead: lead, eng1: eng1, eng2: eng2,
                                   title: title, port: portId, versions: team.versions)
@@ -280,7 +290,7 @@ extension AppState {
         case .budget(let n):
             guard let spaceId else { throw BridgeError.badArg("/imagine --versions works in the space the team was imagined in") }
             let team = try setImagineBudget(spaceId: spaceId, versions: n)
-            _ = try postToChat(key: spaceId, text: "The imagine budget is now \(team.versions) versions.",
+            _ = try postToChat(key: spaceId, text: "The imagine budget is now \(Imagine.describe(team.versions)).",
                                from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: spaceId))
         }
     }
@@ -299,7 +309,7 @@ extension AppState {
         guard var team = try db.imagineTeam(spaceId: spaceId) else {
             throw BridgeError(code: .notFound, message: "no imagine team in space '\(spaceId)'", details: ["space": spaceId])
         }
-        team.versions = min(max(versions, 1), Imagine.maxVersions)
+        team.versions = max(versions, 0)
         try db.saveImagineTeam(team)
         return team
     }
@@ -337,6 +347,7 @@ extension AppState {
     /// After a write landed: when it was the version that reached the budget, tell the lead.
     func imagineBudgetNotice(method: String, args: BridgeArgs, principal: Principal) {
         guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal),
+              Imagine.limits(team.versions),
               imagineVersionCount(ref, team: team) == team.versions, let key = PortRef.key(ref) else { return }
         _ = try? postToChat(key: key, text: Imagine.budgetSpent(lead: team.lead, versions: team.versions),
                             from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: team.spaceId))
@@ -351,7 +362,7 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
             "type": "object",
             "properties": [
                 "line": ["type": "string", "description": "What to make, in the person's words."],
-                "versions": ["type": "integer", "description": "The version budget (default \(Imagine.defaultVersions), at most \(Imagine.maxVersions))."],
+                "versions": ["type": "integer", "description": "The version budget (default \(Imagine.defaultVersions); no upper limit; 0 is no limit at all)."],
             ],
             "required": ["line"],
         ]) { _, args in
@@ -371,11 +382,11 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
             "type": "object",
             "properties": [
                 "space": ["type": "string", "description": "The space the team was imagined in."],
-                "versions": ["type": "integer", "description": "The new budget, in versions of the port (at most \(Imagine.maxVersions))."],
+                "versions": ["type": "integer", "description": "The new budget, in versions of the port: any number, or 0 (or leave it out) for no limit."],
             ],
-            "required": ["space", "versions"],
+            "required": ["space"],
         ]) { _, args in
-        guard let n = args.int("versions") else { throw BridgeError.missingArg("versions") }
+        let n = args.int("versions") ?? 0   // missing is no limit
         let team = try appState.setImagineBudget(spaceId: try args.requireString("space"), versions: n)
         return .object(["space": .string(team.spaceId), "versions": .int(team.versions)])
     }

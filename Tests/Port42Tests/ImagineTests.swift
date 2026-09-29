@@ -10,7 +10,7 @@ struct ImagineTests {
     func parse() {
         #expect(Imagine.parse("/imagine a shader that reacts to music") == .start(line: "a shader that reacts to music", versions: Imagine.defaultVersions))
         #expect(Imagine.parse("  /imagine --versions 3 a clock  ") == .start(line: "a clock", versions: 3))
-        #expect(Imagine.parse("/imagine --versions 99 x") == .start(line: "x", versions: Imagine.maxVersions))
+        #expect(Imagine.parse("/imagine --versions 99 x") == .start(line: "x", versions: 99), "no cap: 99 stays 99")
         #expect(Imagine.parse("/imagine stop") == nil, "there is no stop, and it must not start a team building \"stop\"")
         #expect(Imagine.parse("/imagine --versions 8") == .budget(versions: 8), "no line: the budget of this space's team")
         #expect(Imagine.parse("/imagine") == nil, "no line, nothing to build")
@@ -167,6 +167,33 @@ struct ImagineTests {
         try await r.write(as: r.team.lead, "v2")
         #expect(try r.versions() == 2)
         #expect(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 2)
+    }
+
+    @Test("no cap: a budget above 20 is kept, from /imagine, imagine.start and imagine.budget")
+    @MainActor
+    func noCap() async throws {
+        #expect(Imagine.parse("/imagine --versions 500") == .budget(versions: 500))
+        let r = try await run(versions: 50)
+        #expect(r.team.versions == 50, "a new team's budget of 50 was cut to \(r.team.versions)")
+        _ = try await r.person("imagine.budget", ["space": r.team.spaceId, "versions": 500])
+        #expect(try r.w.state.db.imagineTeam(spaceId: r.team.spaceId)?.versions == 500)
+        #expect(Imagine.defaultVersions == 10, "a new team still starts at 10")
+    }
+
+    @Test("0, or a budget left out of imagine.budget, is no limit: the team's writes are never refused")
+    @MainActor
+    func zeroIsNoLimit() async throws {
+        #expect(Imagine.parse("/imagine --versions 0") == .budget(versions: 0))
+        let r = try await run(versions: 0)
+        for v in 1...25 { try await r.write(as: v % 2 == 0 ? r.team.eng1 : r.team.lead, "v\(v)") }
+        #expect(try r.versions() == 25, "a no-limit team was refused")
+        let told = try r.w.state.db.chatEntries(chat: r.udid, after: 0, limit: 200).filter { $0.fromName == "port42" }
+        #expect(told.isEmpty, "a no-limit team was told its budget is spent: \(told.map(\.text))")
+
+        let capped = try await run(versions: 2)
+        _ = try await capped.person("imagine.budget", ["space": capped.team.spaceId])   // versions left out
+        #expect(try capped.w.state.db.imagineTeam(spaceId: capped.team.spaceId)?.versions == 0)
+        #expect(Imagine.describe(0) == "no version limit" && Imagine.describe(12) == "12 versions")
     }
 
     @Test("a bootstrap: nothing in /imagine closes a terminal or removes a companion, and there is no stop")
