@@ -1,6 +1,6 @@
 # Design: the operator dash
 
-Draft, 2026-09-28. GM asked for one place to steer Port42 at a high level: dev and growth, with the
+Agreed, 2026-09-28 (GM: go build it). GM asked for one place to steer Port42 at a high level: dev and growth, with the
 routine running itself and the new or major work getting reasoned through. This is the design to
 agree before building. Status: draft; the growth side is to be confirmed with lucky-ibis.
 
@@ -63,9 +63,13 @@ its state changes, when a decision is made (wherever it was discussed), and at t
 session. The squad and the growth space are summarized by their lead, not read raw, so the dash stays
 high level.
 
-Items are kept in the operator space's shared storage (`storage.set` with `shared: true`), one key
-per item (`item:<id>`). The dash port and both leads live in that space and can read them. That
-bucket is readable by anything in the space (APP-20); these are plans, not secrets.
+Items are kept on the machine-wide shared board (`storage.set` with `scope: "global", shared: true`),
+one key per item, `dash:item:<id>`, with an `owner` field holding the lead's @mention. The machine-wide
+board lets growth's working-space companions write their own items too. It is readable by anything on
+this Mac (APP-20); these are plans, not secrets. (The operator space's own bucket was the first choice;
+a companion's terminal cannot write it until APP-15 binds its calls to its space: `release-1.0.2.md`.)
+
+Built 2026-09-28: the `operator` port in `port42-app` reads the board every 20 seconds.
 
 ## What the dash shows
 
