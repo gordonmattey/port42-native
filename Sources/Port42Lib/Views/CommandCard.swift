@@ -46,7 +46,8 @@ struct KeyCap: View {
     var action: (() -> Void)? = nil
     var body: some View {
         if let action {
-            Button(action: action) { cap }.buttonStyle(.plain).help(label == "esc" ? "Close (Esc)" : label)
+            Button(action: action) { cap }.buttonStyle(.plain)
+                .help(label == "esc" ? "Close (Esc)" : label == "↵" ? "Go (Return)" : label)
         } else {
             cap
         }

@@ -110,8 +110,11 @@ struct ImagineBox: View {
                 status
                 Spacer()
                 if !starting {
+                    // Clickable as well as a key (#125): the cap looked like a button, and a box filled
+                    // from a link says "press ↵ to start", so people clicked it and nothing happened.
                     Text("start").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
-                    KeyCap(label: "↵")
+                        .onTapGesture(perform: submit)
+                    KeyCap(label: "↵", action: submit)
                 }
             }
         }
