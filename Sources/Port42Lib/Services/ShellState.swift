@@ -267,7 +267,7 @@ public final class ShellState: ObservableObject {
         public let spaceId: String
         public let spaceName: String
         public let title: String
-        public var seen: Bool = false   // true after you've previewed it → its 10s countdown is armed
+        public var seen: Bool = false   // true after you've previewed it → it goes when you zoom back out
     }
     @Published public var peekingPorts: [PeekPort] = []
 
@@ -305,6 +305,7 @@ public final class ShellState: ObservableObject {
         guard sid != appState.currentSpace?.id else { bringToFront(id); return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), title: title))
+        startPeekCountdown(id, Self.unseenPeekLifetime)
     }
 
     /// A companion is WAITING ON YOU — it asked for a tool permission, or went idle at its prompt.
@@ -326,6 +327,7 @@ public final class ShellState: ObservableObject {
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid),
                                      title: Self.attentionTitle(companion: title, reason: reason)))
+        startPeekCountdown(id, Self.unseenPeekLifetime)
     }
 
     /// What the peek SAYS. The CLI's own message is the useful half — "needs your permission to use
@@ -366,10 +368,13 @@ public final class ShellState: ObservableObject {
     /// desktop tiles, so hovering one otherwise leaves the gesture pointed at an in-space tile).
     @Published public var hoveredPeekId: String?
 
-    /// Seconds left before a *seen* peek evaporates, by peek id (drives the countdown ring).
+    /// Seconds left before a peek evaporates, by peek id, and what it started from (drive the ring).
+    /// A peek you have not opened stays a minute; once you have looked (zoomed in and back out) it
+    /// goes (GM, 2026-09-29: skipping it is the common case).
     @Published public var peekRemaining: [String: Double] = [:]
+    @Published public var peekTotal: [String: Double] = [:]
     private var peekTimer: Timer?
-    private let peekLifetime: Double = 10
+    nonisolated public static let unseenPeekLifetime: Double = 60
 
     /// Click / hover-gesture on a peek → PREVIEW it (zoom in). Non-committal: keeping is a drag.
     public func previewPeek(_ peek: PeekPort) {
@@ -381,13 +386,14 @@ public final class ShellState: ObservableObject {
         withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
     }
 
-    /// Zoom returned to the desktop → every *seen*, still-peeking port starts its countdown
-    /// (evaporate-by-default: a foreign port lives on in its home space). Pure bookkeeping — no
-    /// peek add/remove, no view moves (Phase 1).
+    /// Zoom returned to the desktop → a peek you have looked at and did not keep goes (GM, 2026-09-29:
+    /// it used to count down 10 more seconds). It lives on in its home space.
     public func settleAfterPreview() {
-        for p in peekingPorts where p.seen && peekRemaining[p.id] == nil {
-            startPeekCountdown(p.id)
+        for p in peekingPorts where p.seen {
+            peekRemaining[p.id] = nil
+            peekTotal[p.id] = nil
         }
+        peekingPorts.removeAll { $0.seen }
     }
 
     /// Keep a peek: it becomes a real tile of this desktop (cancels its countdown).
@@ -395,6 +401,7 @@ public final class ShellState: ObservableObject {
     public func keepPeek(_ peek: PeekPort, arrange: Bool = true) {
         peekingPorts.removeAll { $0.id == peek.id }
         peekRemaining[peek.id] = nil
+        peekTotal[peek.id] = nil
         if let sid = appState.currentSpace?.id {                     // adoption is persisted (Phase 3)
             appState.portWindows.adopt(id: peek.id, into: sid)
         }
@@ -402,8 +409,9 @@ public final class ShellState: ObservableObject {
         if arrange { placeUnpositioned(area: lastDesktopArea) }   // an adopted peek arrives unplaced
     }
 
-    private func startPeekCountdown(_ id: String) {
-        peekRemaining[id] = peekLifetime
+    private func startPeekCountdown(_ id: String, _ seconds: Double) {
+        peekRemaining[id] = seconds
+        peekTotal[id] = seconds
         guard peekTimer == nil else { return }
         peekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickPeekCountdowns() }
@@ -416,6 +424,7 @@ public final class ShellState: ObservableObject {
             let next = rem - 0.1
             if next <= 0 {
                 peekRemaining[id] = nil
+                peekTotal[id] = nil
                 peekingPorts.removeAll { $0.id == id }                  // evaporate (still lives in its home space)
             } else {
                 peekRemaining[id] = next
@@ -424,10 +433,11 @@ public final class ShellState: ObservableObject {
         if peekRemaining.isEmpty { peekTimer?.invalidate(); peekTimer = nil }
     }
 
-    /// ✕ a peek → dismiss it from your desktop; it lives on in its home space.
+    /// Dismiss a peek from your desktop; it lives on in its home space (nothing is closed).
     public func dismissPeek(_ peek: PeekPort) {
         peekingPorts.removeAll { $0.id == peek.id }
         peekRemaining[peek.id] = nil
+        peekTotal[peek.id] = nil
     }
 
     // MARK: Per-space accent theme (prototype's SpaceDef.accent)

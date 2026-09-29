@@ -340,7 +340,7 @@ public struct ShellView: View {
                 finishBreakout(fade: 0.3)                 // a quick clear, not the full outro
             }
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
-            if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
+            if z == .space { shell.settleAfterPreview() }   // a peek you looked at and did not keep goes
             // Keyboard follows focus (§B): every keyboard-driven path here (⌘` swap, ⌘↓,
             // double-click header, peek preview) skips the AppKit click that would normally
             // move the first responder — hand the keyboard to the focused unit's surface.
