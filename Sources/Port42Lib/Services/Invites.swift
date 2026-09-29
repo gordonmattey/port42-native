@@ -320,6 +320,9 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
             throw BridgeError.notFound("invite '\(id)'")
         }
         try appState.db.revokeInvite(id: id)
+        // NAU-06: the share pill and panel read the open invites; a withdrawal must show at once,
+        // not wait for something else to refresh them.
+        appState.refreshSharing()
         return .object(["ok": .bool(true)])
     }
 }
