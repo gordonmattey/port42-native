@@ -320,8 +320,14 @@ public enum ChatRouting {
         // A person already listed in `people` posts under a longer label ("gordon (gordon 3xpo)" for
         // "gordon 3xpo"); their posts would list them twice. Their companions' posts still count.
         for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me
-            && !(e.fromKind == "human" && peopleIds.contains(e.fromId)) { add(e.fromName) }
+            && !(e.fromKind == "human" && peopleIds.contains(peerOf(e.fromId))) { add(e.fromName) }
         return out
+    }
+
+    /// The machine a remote author's id names: a remote post is attributed "<peer key>/<actor id>", while
+    /// the sharing list knows the machine by its peer key alone.
+    static func peerOf(_ fromId: String) -> String {
+        fromId.split(separator: "/", maxSplits: 1).first.map(String.init) ?? fromId
     }
 
     /// The names a half-typed mention could mean, by prefix.

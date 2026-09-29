@@ -458,8 +458,10 @@ struct PortChatTests {
     @Test("a guest person is offered once, by the name the host knows them as, though their posts carry a longer label")
     func guestOnce() {
         let t = Date()
-        let post = PortChatEntry(seq: 1, at: t, text: "hi", fromId: "peer-3xpo", fromName: "gordon (gordon 3xpo)", fromKind: "human")
-        let theirCompanion = PortChatEntry(seq: 2, at: t, text: "4", fromId: "peer-3xpo", fromName: "quiet-tern (gordon 3xpo)", fromKind: "companion")
+        // The real shapes (Dev5, 2026-09-28): a remote post's author id is "<peer key>/<actor id>"; the
+        // sharing list has the peer key alone. A test with equal ids passed while Dev5 listed them twice.
+        let post = PortChatEntry(seq: 1, at: t, text: "hi", fromId: "peer-3xpo/BFF7AC3D", fromName: "gordon (gordon 3xpo)", fromKind: "human")
+        let theirCompanion = PortChatEntry(seq: 2, at: t, text: "4", fromId: "peer-3xpo/tern-id", fromName: "quiet-tern (gordon 3xpo)", fromKind: "companion")
         let names = ChatRouting.mentionable(companions: ["echo"], people: ["gordon 3xpo"], entries: [post, theirCompanion],
                                             me: "u-me", myName: "gordon", peopleIds: ["peer-3xpo"])
         #expect(names == ["echo", "gordon 3xpo", "quiet-tern (gordon 3xpo)"], "listed: \(names)")
