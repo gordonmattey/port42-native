@@ -73,6 +73,13 @@ a companion's terminal cannot write it until APP-15 binds its calls to its space
 
 Built 2026-09-28: the `operator` port in `port42-app` reads the board every 20 seconds.
 
+**Shared, the dash shows a snapshot.** A copy on another machine (a shared tile, a browser guest)
+reaches only the port's own storage, never the machine-wide board, by design (`RemoteAccess`). So the
+dash on this Mac writes the board it read to its own key `dash:snapshot` on every refresh, and a copy
+that cannot read the board reads that, marked "as of" its time. It is only as fresh as the dash last
+open on this Mac. The decide and discuss buttons post to the operator space's chat, which a guest of
+the port alone cannot reach.
+
 **Hand-offs across areas are told, not assumed.** When one area finishes something another depends
 on, its lead posts to the other lead in the operator space: a dev release to growth (its Releases entry
 and site sync), a launch date to dev (a build to have out by then). The standing case, a release, is
