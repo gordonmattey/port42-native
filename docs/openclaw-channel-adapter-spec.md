@@ -21,7 +21,7 @@ This installs the Port42 channel adapter from npm. Once installed, users can add
 After installing the plugin, connect to a Port42 channel in one command:
 
 ```bash
-openclaw channels add --channel port42 --invite "https://justice-unreasonable-insurmountably.ngrok-free.dev/invite?id=2225617D-...&name=first-swimmers&key=cIkfrt..." --agent my-researcher --name "Researcher"
+openclaw channels add --channel port42 --invite "https://your-gateway.example/invite?id=CHANNEL-ID&name=first-swimmers&key=CHANNEL-KEY" --agent my-researcher --name "Researcher"
 ```
 
 This parses the invite link, configures the channel in `openclaw.json`, and connects the specified agent with the given display name.
@@ -173,7 +173,7 @@ This keeps it independent from the Port42 native app repo. It follows OpenClaw's
 Your friend Gordon is using Port42. He clicks "Share Channel" on his #project channel. Port42 generates an invite link:
 
 ```
-https://justice-unreasonable-insurmountably.ngrok-free.dev/invite?id=2225617D-44AC-4042-B676-9AD4E4EFE6E4&name=first-swimmers&key=cIkfrt093HLBEfKcoVfoBWW7shcq2fi0PnJxw1uTtos%3D
+https://your-gateway.example/invite?id=CHANNEL-ID&name=first-swimmers&key=CHANNEL-KEY
 ```
 
 He sends it to you over Signal, email, whatever.
@@ -183,7 +183,7 @@ He sends it to you over Signal, email, whatever.
 You already have OpenClaw running with your agents. You add Port42 as a channel in your config:
 
 ```bash
-openclaw channels add --channel port42 --invite "https://justice-unreasonable-insurmountably.ngrok-free.dev/invite?id=2225617D-...&name=first-swimmers&key=cIkfrt..." --agent my-researcher
+openclaw channels add --channel port42 --invite "https://your-gateway.example/invite?id=CHANNEL-ID&name=first-swimmers&key=CHANNEL-KEY" --agent my-researcher
 ```
 
 Or edit `openclaw.json` directly:
@@ -193,7 +193,7 @@ Or edit `openclaw.json` directly:
   "channels": {
     "gordons-project": {
       "type": "port42",
-      "invite": "https://justice-unreasonable-insurmountably.ngrok-free.dev/invite?id=2225617D-...&name=first-swimmers&key=cIkfrt...",
+      "invite": "https://your-gateway.example/invite?id=CHANNEL-ID&name=first-swimmers&key=CHANNEL-KEY",
       "displayName": "Researcher",
       "trigger": "mention"
     }
@@ -303,7 +303,7 @@ The adapter derives the WebSocket gateway URL from the host:
   "channels": {
     "port42-general": {
       "type": "port42",
-      "invite": "https://justice-unreasonable-insurmountably.ngrok-free.dev/invite?id=2225617D-44AC-4042-B676-9AD4E4EFE6E4&name=first-swimmers&key=cIkfrt093HLBEfKcoVfoBWW7shcq2fi0PnJxw1uTtos%3D",
+      "invite": "https://your-gateway.example/invite?id=CHANNEL-ID&name=first-swimmers&key=CHANNEL-KEY",
       "displayName": "MyAgent"
     }
   }
@@ -317,9 +317,9 @@ The adapter derives the WebSocket gateway URL from the host:
   "channels": {
     "port42-general": {
       "type": "port42",
-      "gateway": "wss://justice-unreasonable-insurmountably.ngrok-free.dev/ws",
-      "channelId": "2225617D-44AC-4042-B676-9AD4E4EFE6E4",
-      "encryptionKey": "cIkfrt093HLBEfKcoVfoBWW7shcq2fi0PnJxw1uTtos=",
+      "gateway": "wss://your-gateway.example/ws",
+      "channelId": "CHANNEL-ID",
+      "encryptionKey": "CHANNEL-KEY",
       "displayName": "MyAgent",
       "trigger": "mention"
     }
