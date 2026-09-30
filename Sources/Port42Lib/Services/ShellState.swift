@@ -953,6 +953,28 @@ public final class ShellState: ObservableObject {
         showQuickSwitcher || showImagine || showImportSessions || shareTarget != nil || pendingInvite != nil
     }
 
+    // MARK: - Port transparency (#195)
+
+    /// The least opaque a port may be set: below this its text stops being readable.
+    public static let minPortOpacity = 0.3
+    /// How see-through a port's body goes while its tile is dragged or resized, to place it well.
+    public static let movingOpacity = 0.55
+    /// The levels the port menu offers.
+    public static let portOpacityChoices: [Double] = [1, 0.85, 0.7, 0.5, 0.3]
+
+    /// A saved level, kept within what stays readable.
+    public static func portOpacity(_ level: Double) -> Double {
+        level.isFinite ? min(1, max(minPortOpacity, level)) : 1
+    }
+
+    /// How opaque a port's body is drawn: its own level, and no more than `movingOpacity` while the
+    /// person drags or resizes it. The title bar and chat are not drawn through this, and opacity
+    /// does not change hit-testing, so chrome stays readable and clicks still reach the port.
+    public static func bodyOpacity(level: Double, moving: Bool) -> Double {
+        let settled = portOpacity(level)
+        return moving ? min(settled, movingOpacity) : settled
+    }
+
     // MARK: - Where the person is (#130)
 
     /// The window's title: where the person is, for VoiceOver and for any tool that reads window

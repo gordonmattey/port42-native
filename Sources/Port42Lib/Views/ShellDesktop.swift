@@ -434,6 +434,8 @@ struct ShellTile: View {
     private let peekHeaderH: CGFloat = 24
 
     private var isFocused: Bool { shell.zoom == .focus(tile.id) }
+    /// Being dragged or resized by the person right now (#195).
+    private var isMoving: Bool { moveDelta != .zero || resizeCorner != nil }
     private var isPeeking: Bool { peekFrame != nil && !isFocused }
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
@@ -544,6 +546,10 @@ struct ShellTile: View {
             // SAME view — no placeholder, no second mount, the webview never detaches.
             ShellTileBody(shell: shell, appState: appState, tile: tile)
             .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
+            // #195: the body alone fades, to its own level and further while it is being moved, so
+            // what is behind shows through; the title bar, chat and card above stay solid.
+            .opacity(ShellState.bodyOpacity(level: tile.panel?.opacity ?? 1, moving: isMoving))
+            .animation(.easeOut(duration: 0.15), value: isMoving)
             // At card size (a peek is card-sized) Port42 draws the port's state over its content, not a
             // miniature of it (docs/plan-port-state-v1.md). The content stays mounted underneath, so
             // growing the unit shows it again with no reload.
@@ -778,6 +784,10 @@ struct ShellTile: View {
                             }
                         } : nil,
                         onMove: shareablePort ? { showMore = false; showMove = true } : nil,
+                        opacity: tile.panel?.opacity ?? 1,
+                        onOpacity: { level in
+                            if let id = tile.panel?.id { appState.portWindows.setOpacity(id: id, level) }
+                        },
                         pin: tile.panel?.pin ?? .none,
                         onPin: { pin in
                             if let id = tile.panel?.id { appState.portWindows.setPin(id: id, pin) }
@@ -1601,10 +1611,14 @@ struct PortMorePopover: View {
     /// Move it to another space, or hand it to another machine (4.6b); nil hides the row.
     var onMove: (() -> Void)? = nil
     /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
+    /// This port's body opacity and how to change it (#195).
+    var opacity: Double = 1
+    var onOpacity: ((Double) -> Void)? = nil
     let pin: PortPin
     let onPin: (PortPin) -> Void
     let onSetBackground: () -> Void
     @State private var pinOpen = false
+    @State private var opacityOpen = false
 
     private var pinTitle: String {
         switch pin {
@@ -1645,11 +1659,25 @@ struct PortMorePopover: View {
                 subRow("In every space", on: pin == .everywhere) { onPin(.everywhere) }
                 if pin != .none { subRow("Unpin", on: false) { onPin(.none) } }
             }
+            // #195: how see-through the port is. The menu stays open, so the person can try levels.
+            if let onOpacity {
+                row("Opacity: \(Self.percent(opacity))", icon: opacity < 1 ? "circle.lefthalf.filled" : "circle.fill",
+                    trailing: opacityOpen ? "▾" : "▸") {
+                    withAnimation(.easeOut(duration: 0.15)) { opacityOpen.toggle() }
+                }
+                if opacityOpen {
+                    ForEach(ShellState.portOpacityChoices, id: \.self) { level in
+                        subRow(level == 1 ? "Solid" : Self.percent(level), on: abs(opacity - level) < 0.01) { onOpacity(level) }
+                    }
+                }
+            }
         }
         .padding(.vertical, 4)
         .frame(width: 200)
         .background(Port42Theme.bgPrimary)
     }
+
+    static func percent(_ level: Double) -> String { "\(Int((level * 100).rounded()))%" }
 
     private func row(_ title: String, icon: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {

@@ -70,6 +70,9 @@ public struct PortPanel: Identifiable {
     /// Pinned in every space: the port shows on every desktop, above unpinned tiles, at ONE position
     /// (moving it anywhere moves it everywhere). Implies pinned.
     public var pinnedEverywhere: Bool = false
+    /// How opaque the port's body is, set by the person from its menu (#195) and kept with the port.
+    /// 1 is solid. Only the body fades: its title bar and chat stay solid, so they stay readable.
+    public var opacity: Double = 1
     public var isBackground: Bool = false
     public var portType: String = "web"
     /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip) or "background" (the desktop
@@ -345,6 +348,7 @@ public final class PortWindowManager: ObservableObject {
             panel.railOrder = row.dockOrder
             // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
             panel.pinnedEverywhere = row.pinnedEverywhere
+            panel.opacity = ShellState.portOpacity(row.opacity)   // #195
             if let adoptedStr = row.adoptedSpaceIds,
                let data = adoptedStr.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
@@ -613,6 +617,13 @@ public final class PortWindowManager: ObservableObject {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isAlwaysOnTop = pin != .none
         panels[idx].pinnedEverywhere = pin == .everywhere
+        persistPanel(id)
+    }
+
+    /// Set how opaque a port's body is (#195), within what stays readable, then persist.
+    public func setOpacity(id: String, _ level: Double) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].opacity = ShellState.portOpacity(level)
         persistPanel(id)
     }
 

@@ -993,6 +993,11 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v68-port-opacity") { db in
+            // #195: each port's body opacity, set by the person and kept with the port. 1 is solid.
+            try db.alter(table: "port_panels") { t in t.add(column: "opacity", .double).notNull().defaults(to: 1) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -2222,6 +2227,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var positions: String?
     /// v62 — pinned in every space.
     public var pinnedEverywhere: Bool = false
+    /// v68 — how opaque the port's body is (#195); 1 is solid.
+    public var opacity: Double = 1
     /// v66 — who on another machine replaced this port's code (NAU-02); nil = its creator's code.
     public var codeChangedBy: String?
 
@@ -2239,6 +2246,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.isBackground = panel.isBackground
         self.isAlwaysOnTop = panel.isAlwaysOnTop
         self.pinnedEverywhere = panel.pinnedEverywhere
+        self.opacity = panel.opacity
         self.codeChangedBy = panel.bridge.codeChangedBy
         self.posX = panel.position.map { Double($0.x) }
         self.posY = panel.position.map { Double($0.y) }
