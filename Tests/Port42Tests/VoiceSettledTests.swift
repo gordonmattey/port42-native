@@ -6,10 +6,10 @@ import Testing
 @Suite("Voice streams only settled words into a terminal")
 struct VoiceSettledTests {
 
-    @Test("whole words both guesses agree on are settled; the word still being said waits")
+    @Test("every word but the last of the latest guess is typed at once; the word still being said waits")
     func agreedWords() {
-        let s = VoiceInserter.settled(streamed: "", previousGuess: "one thing on vo", guess: "one thing on voice")
-        #expect(s == "one thing on ")
+        let s = VoiceInserter.settled(streamed: "", previousGuess: "", guess: "one thing on voice")
+        #expect(s == "one thing on ", "no waiting for a second guess to agree")
     }
 
     @Test("new words keep coming after the recognizer revises an early one (it used to stall to release)")

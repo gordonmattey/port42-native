@@ -50,7 +50,9 @@ public final class VoiceSession {
     /// How often the words so far are re-read while the hold is open. The whole buffer is transcribed
     /// each time rather than a sliding window: at the measured throughput a 40 second buffer costs about
     /// 200 ms, which is cheaper than a second model and gives the same text the release will give.
-    public var partialInterval: TimeInterval = 1.0
+    /// Half a second, so dictated words land close behind the voice (GM, 2026-09-29: at a second they
+    /// arrived in chunks). The model runs on the Neural Engine and keeps up.
+    public var partialInterval: TimeInterval = 0.5
     private var partials: Task<Void, Never>?
 
     /// Whether the weights may be fetched. ON by default, because the app does not ship them: holding space

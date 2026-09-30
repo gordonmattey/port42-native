@@ -63,7 +63,7 @@ public enum VoiceInserter {
     /// Streaming every guess meant backspacing whenever the recognizer revised a word, and in a narrow
     /// terminal a backspace across a wrap shrinks Claude Code's input box by a line and the retype grows it
     /// back; Claude Code repaints its whole screen on each change of height, so the tile flashed every few
-    /// seconds. Settled means whole words both of the last two guesses agree on. The result only ever
+    /// seconds. Settled means every whole word but the last of the latest guess. The result only ever
     /// grows, so the input box only grows, a line at a time, as with typing; the unsettled tail waits in the
     /// voice pill, and the final read lands it on release.
     static func settled(streamed: String, previousGuess: String, guess: String) -> String {
@@ -76,12 +76,12 @@ public enum VoiceInserter {
         let cur = guess.split(whereSeparator: \.isWhitespace).map(String.init)
         var add: [String] = []
         var i = typed
-        // A word counts once the next guess agrees on it; the last word of a guess may still be changing.
-        while i < cur.count - 1, i < prev.count, cur[i] == prev[i] {
-            add.append(cur[i]); i += 1
-        }
+        // Every word of the latest guess but its last, which may still be being said. Waiting for a
+        // second guess to agree put the words two reads behind and in chunks (GM, 2026-09-29, "it's
+        // batchy"); a word the recognizer later changes is corrected once, by the final read, on release.
+        while i < cur.count - 1 { add.append(cur[i]); i += 1 }
         // A guess that repeats unchanged is settled whole, last word included.
-        if i == cur.count - 1, i < prev.count, cur == prev { add.append(cur[i]) }
+        if i == cur.count - 1, cur == prev { add.append(cur[i]) }
         guard !add.isEmpty else { return streamed }
         let lead = streamed.isEmpty || streamed.last?.isWhitespace == true ? "" : " "
         let tail = add.count + typed == cur.count && cur == prev ? "" : " "
