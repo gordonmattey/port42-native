@@ -29,7 +29,7 @@ struct GatewayReclaimSafetyTests {
             s.bind(("127.0.0.1", \(port)))
             s.listen(1)
             c, _ = s.accept()
-            time.sleep(60)
+            time.sleep(600)   # outlives a slow run; the test stops it
             """]
         try p.run()
         return p
@@ -49,7 +49,7 @@ struct GatewayReclaimSafetyTests {
                     break
                 except OSError:
                     time.sleep(0.1)
-            time.sleep(60)
+            time.sleep(600)   # outlives a slow run; the test stops it
             """]
         try p.run()
         return p
