@@ -1,6 +1,6 @@
 # Plan: browser use (a companion drives a browser port you can see)
 
-Status: Phase 1 done (16c29b4; Gordon signed in to Google in a Dev6 browser port, by email, 2026-09-29). Phase 2 building. Card #177 (computer use), browser first. Gordon: "we can just
+Status: Phases 1 and 2 done, 2026-09-30 (16c29b4; 73a992b, 9320592, 6e8d1b1 and the Gmail test fixes). Live: Gordon signed in to Google in a browser port, and a companion sorted his Gmail inbox into an Attention port with look and act on the daily driver. Phase 3 (Keychain logins) waits until a task needs a companion to sign in on its own. Card #177 (computer use), browser first. Gordon: "we can just
 build browser use into Port42 natively"; "I want it to act on those pages ... but it needs permission
 somehow ... I want to keep OAuths too ... use Keychain". Tabs (#173, `docs/plan-browser-tabs.md`) wait
 behind this: "we won't need tabs for a start".
@@ -73,8 +73,9 @@ the numbering.
 - A write, with the port's token: if the person has touched the port since the companion looked, the
   act is refused with `stale_write` and the companion looks again (right of way). The events Port42
   delivers for a companion do not count as the person driving.
-- The port must be on the desktop (tiled or focused), since events need a window; a hidden port
-  answers with an error that says to show it.
+- A paused port is refused. A port on screen is acted on where the person sees it; one that is running
+  with no tile, or a tile on another space, is acted on out of sight in a window off every display, and
+  put back after (Gordon, 2026-09-30). Its card says what the companion is doing either way.
 
 **Permission, per companion and per site.** Both methods ask, the first time a companion uses a site,
 with a card: "calm-moth wants to use github.com in your browser (you may be signed in there)". The
