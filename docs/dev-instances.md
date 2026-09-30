@@ -29,6 +29,17 @@ holder.
 Say who you are when you build: `PORT42_DEV_OWNER=<name> ./build.sh --devN --run`. Locks live in
 `~/.port42/dev-locks/`, one file per instance: the holder, why, since when.
 
+**Your own token comes with the lock.** Taking a lock also enrols a client named after you on that
+instance, and the script prints its token path, `~/.port42/port42devN/tokens/<name>`. Call the instance
+with it (`PORT42_TOKEN_FILE=<that path> port42 --port <gateway> ...`), so every call you make while
+testing is attributed to you; never mint a token by hand or borrow another tool's. The instance writes the
+token when it runs (at once if it is already running, from your own build). `--release` revokes the
+client again. The request passes through `~/.port42/port42devN/enrol/`, which only dev instances read.
+
+**A lock is refused while someone else's app holds the instance.** If the instance's gateway port is
+held by an app from another build folder (or by anything else), the script names it and its pid and
+refuses: two apps on one gateway fight each other. Stop it, or ask whoever built it.
+
 ## Testing what you ship
 
 A fix or feature a person has to try is built and checked on its builder's own instance before it is
