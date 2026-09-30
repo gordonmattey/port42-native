@@ -134,14 +134,21 @@ What it does (Gordon: 1 yes, 2 yes, 3 yes, 4 the one-time import):
    Passwords). Each row becomes a Port42 Keychain login; the screen then asks the person to delete the
    exported file, since it holds every password in plain text. Nothing is kept of the file.
 
+5. **Passkeys** (Gordon: in Phase 3, 2026-09-30). **Blocked on Apple** granting the web browser passkey
+   entitlement; the request is drafted in `docs/apple-passkey-entitlement-request.md` for Gordon to submit
+   as Account Holder. Once granted: add it to the release and dev entitlements, embed the Developer ID and
+   Development provisioning profiles that carry it (`build.sh` copies them in before signing), and a
+   passkey sign-in in a browser port then works as in Safari, from the person's iCloud Keychain (the Mac's
+   own passkeys, and a phone's by QR). A companion cannot complete one alone: a passkey needs the person's
+   Touch ID or phone, so a companion that reaches one stops and asks the person, and its card says so.
+
 Also: Settings, Secrets lists Port42's saved logins (site, username), with delete; the Keychain items are
 readable only by Port42.
 
-Not in it: passkeys (they need Apple's browser entitlement, and once granted come from iCloud Keychain
-directly); reading a password manager (1Password and others) beyond the CSV import; syncing logins to
+Not in it: reading a password manager (1Password and others) beyond the CSV import; syncing logins to
 another Mac.
 
-How it is checked: tests for the form watcher (a password form submit offers once; a "never" site is not
+How it is checked (passkeys: live only, after the grant, a Google passkey sign-in on a dev instance): tests for the form watcher (a password form submit offers once; a "never" site is not
 offered), the Keychain store (save, read back, delete, per host and account, in a test keychain), the
 companion fill (a card per site and account; the password is typed into the page by Port42 and never in
 any reply), and the CSV import (Apple's column layout, bad rows skipped and reported). Live on Dev6: save a
