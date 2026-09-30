@@ -115,3 +115,28 @@ struct RailOpenTests {
         #expect(shell.railOpen, "a new problem did not open the rail")
     }
 }
+
+@Suite("Rail and ladder: after a drop, and ⌘↑ from anywhere")
+struct RailDropAndLadderTests {
+
+    @Test("dropped on the rail, it stays open until the pointer leaves; dropped elsewhere, it folds")
+    @MainActor
+    func dropKeepsItOpen() throws {
+        let shell = ShellState(appState: AppState(db: try DatabaseService(inMemory: true)))
+        shell.tileMoving = true
+        shell.endTileMove(overRail: true)
+        #expect(shell.railOpen, "the rail shut under the pointer that just dropped on it")
+        shell.pointerMoved(distanceFromRight: ShellState.parkWidth(1728) + 5, deltaX: -4, screenW: 1728)
+        #expect(!shell.railOpen)
+        shell.tileMoving = true
+        shell.endTileMove(overRail: false)
+        #expect(!shell.railOpen)
+    }
+
+    @Test("⌘↑ is the shell's even when a port holds the keyboard; ⌘↓ is not")
+    func commandUpIsGlobal() {
+        #expect(ShellState.shellGlobalChord(keyCode: 126, characters: nil, command: true, shift: false, option: false, control: false) == .zoomOut)
+        #expect(ShellState.shellGlobalChord(keyCode: 125, characters: nil, command: true, shift: false, option: false, control: false) == nil)
+        #expect(ShellState.shellGlobalChord(keyCode: 126, characters: nil, command: false, shift: false, option: false, control: false) == nil)
+    }
+}

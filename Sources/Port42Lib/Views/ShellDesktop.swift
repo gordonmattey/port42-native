@@ -825,10 +825,13 @@ struct ShellTile: View {
                     withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) }
                 }
             } label: {
-                Image(systemName: isFocused ? "arrow.down.right.and.arrow.up.left" : "viewfinder")
-                    .font(.system(size: isFocused ? 11 : 9)).foregroundStyle(Port42Theme.textSecondary)
+                // The magnifier, on every port as on peeks and Running cards: a pinch is learned, a
+                // magnifier is seen (GM, 2026-09-29).
+                Image(systemName: isFocused ? "arrow.down.right.and.arrow.up.left" : "magnifyingglass")
+                    .font(.system(size: isFocused ? 11 : 9, weight: isFocused ? .regular : .semibold))
+                    .foregroundStyle(Port42Theme.textSecondary)
                     .frame(width: 22, height: 22).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(isFocused ? "Exit focus (Esc)" : "Focus (⌘↓)")
+            }.buttonStyle(.plain).help(isFocused ? "Zoom out (⌘↑, Esc)" : "Zoom in (⌘↓, pinch)")
             }
             // Close.
             if let panel = tile.panel {
@@ -929,7 +932,7 @@ struct ShellTile: View {
                 shell.draggingOverPark = nil
                 shell.railDropSlot = nil
                 shell.isDraggingTile = false
-                shell.tileMoving = false
+                shell.endTileMove(overRail: railZone(at: v.location) != nil)
                 moveDelta = .zero
                 // Drag-to-keep (Phase 1): pulling a peek into the space ADOPTS it as a tile at
                 // the drop spot (no re-grid — the user chose the place); the close zone dismisses.
@@ -1195,6 +1198,10 @@ struct ShellParkRail: View {
                                      chats: appState.chats, panel: p, accent: shell.accent,
                                      onLook: { shell.popRunning(p.id) }) {
                             shell.showHidden(p.id)
+                        }
+                        .onHover { h in
+                            if h { shell.hoveredRunningId = p.id }
+                            else if shell.hoveredRunningId == p.id { shell.hoveredRunningId = nil }
                         }
                     }
                     if let g = gap, g >= hidden.count { runningGap }

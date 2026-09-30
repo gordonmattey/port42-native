@@ -61,3 +61,38 @@ struct PopRunningTests {
         #expect(running(w) == ["a", "b"], "the first stayed out")
     }
 }
+
+@Suite("Running ports: a pinch on a card pops it up")
+@MainActor
+struct PinchRunningTests {
+    @Test("zooming in over a Running card in the open rail pops that port up")
+    func pinchPops() throws {
+        let w = try makeParityWorld()
+        w.state.currentSpace = w.space
+        let pw = w.state.portWindows
+        for id in ["a", "b"] {
+            pw.registerTiledPort(id: id, html: "<title>\(id)</title>", spaceId: w.space.id, createdBy: nil,
+                                 title: id, position: CGPoint(x: 100, y: 100))
+            pw.minimize(id)
+        }
+        let shell = ShellState(appState: w.state)
+        shell.railHovered = true
+        shell.hoveredRunningId = "b"
+        shell.zoomIn()
+        #expect(shell.zoom == .focus("b"))
+        #expect(shell.poppedRunning?.id == "b")
+    }
+
+    @Test("with the rail folded a stale hover does not pop anything")
+    func foldedIgnoresStaleHover() throws {
+        let w = try makeParityWorld()
+        w.state.currentSpace = w.space
+        w.state.portWindows.registerTiledPort(id: "a", html: "<title>a</title>", spaceId: w.space.id, createdBy: nil,
+                                              title: "a", position: CGPoint(x: 100, y: 100))
+        w.state.portWindows.minimize("a")
+        let shell = ShellState(appState: w.state)
+        shell.hoveredRunningId = "a"
+        shell.zoomIn()
+        #expect(shell.poppedRunning == nil)
+    }
+}

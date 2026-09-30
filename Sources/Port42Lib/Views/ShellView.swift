@@ -723,6 +723,8 @@ public struct ShellView: View {
                 case .imagine:          shell.showImagine.toggle()
                 case .galaxy:
                     withAnimation(.spring(response: 0.4)) { shell.toggleGalaxy() }
+                case .zoomOut:
+                    withAnimation(.spring(response: 0.4)) { shell.zoomOut() }
                 }
                 return nil
             }

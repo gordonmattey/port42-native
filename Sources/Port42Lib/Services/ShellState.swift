@@ -745,6 +745,11 @@ public final class ShellState: ObservableObject {
             if let pid = hoveredPeekId, let peek = peekingPorts.first(where: { $0.id == pid }) {
                 previewPeek(peek); return
             }
+            // A hovered Running card in the open rail pops that port up, as its magnifier does (GM).
+            if railOpen, let rid = hoveredRunningId,
+               appState.portWindows.hiddenPanels.contains(where: { $0.id == rid }) {
+                popRunning(rid); return
+            }
             // Focus the highlighted desktop UNIT; else the first unit. Only a desktop unit is
             // focusable (Phase 2 — the focus overlay is gone): a parked/inline port has no
             // mounted view to resize, so it can never be a focus target.
@@ -814,6 +819,7 @@ public final class ShellState: ObservableObject {
         case quickSwitcher      // ⌘K — the switcher must open from anywhere
         case imagine            // ⌘I — the quick imagine box, from anywhere
         case galaxy             // ⌘G — the galaxy, and back to the space (GM, 2026-09-27)
+        case zoomOut            // ⌘↑ — one rung up, even with a port holding the keyboard (GM, 2026-09-29)
     }
 
     /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
@@ -829,6 +835,9 @@ public final class ShellState: ObservableObject {
             return shift ? .cycleBackward : .cycleForward
         }
         guard !shift else { return nil }
+        // ⌘↑ climbs the ladder from anywhere: yielded to a port that held the keyboard, it never got from
+        // the space to the galaxy. ⌘↓ still yields, since zooming in needs a target the pointer chose.
+        if keyCode == 126 { return .zoomOut }
         if ch == "k" { return .quickSwitcher }
         if ch == "i" { return .imagine }
         if ch == "g" { return .galaxy }
@@ -1103,6 +1112,13 @@ public final class ShellState: ObservableObject {
         return distance <= railApproachBand && deltaX >= railApproachSpeed
     }
 
+    /// A tile move ended. Dropped on the rail, the pointer is over it, so the rail stays open until the
+    /// pointer leaves (GM, 2026-09-29); pointer moves are not reported during a drag, so it is set here.
+    public func endTileMove(overRail: Bool) {
+        railHovered = overRail
+        tileMoving = false
+    }
+
     /// The pointer moved over the desktop. Opens the rail the moment it is wanted and folds it the moment
     /// the pointer is off it.
     public func pointerMoved(distanceFromRight distance: CGFloat, deltaX: CGFloat, screenW: CGFloat) {
@@ -1278,6 +1294,8 @@ public final class ShellState: ObservableObject {
     /// A running port popped up from the rail for a look (#191), and the Running slot it came from.
     public struct PoppedRunning: Equatable { public let id: String; public let slot: Int }
     @Published public private(set) var poppedRunning: PoppedRunning?
+    /// The Running card under the pointer, so a pinch or ⌘↓ pops that port up.
+    public var hoveredRunningId: String?
 
     /// Pop a running port up for a look: zoomed to focus and live, but not kept (GM: "zoom into running
     /// ports and pop them up, and then zoom out will pop them back in"). One at a time.
@@ -1286,6 +1304,7 @@ public final class ShellState: ObservableObject {
         guard let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return }
         let slot = appState.portWindows.hiddenPanels(in: panel.spaceId).firstIndex { $0.id == id } ?? 0
         showHidden(id)
+        hoveredRunningId = nil
         poppedRunning = PoppedRunning(id: id, slot: slot)
         withAnimation(.spring(response: 0.4)) { zoom = .focus(id) }
     }
