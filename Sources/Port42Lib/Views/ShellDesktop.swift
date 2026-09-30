@@ -237,11 +237,11 @@ struct ShellDesktopView: View {
                 }
                 // #196: while a resize is making room, how to keep it or only look; after, one action
                 // puts the layout back.
-                if !shell.makeRoomPreview.isEmpty {
+                if shell.resizingTile {
                     VStack { Spacer()
-                        Text("let go to keep this layout · hold ⌥ to only look")
+                        Text(shell.makeRoomPreview.isEmpty ? "hold ⇧ to make room" : "making room · let go of ⇧ to cover instead")
                             .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                            .padding(.bottom, 96)
+                            .padding(.bottom, ShellState.layoutPillBottom)
                     }.zIndex(9_000).allowsHitTesting(false)
                 } else if let undo = shell.layoutUndo, undo.space == sid {
                     VStack { Spacer()
@@ -260,7 +260,7 @@ struct ShellDesktopView: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Port42Theme.bgPrimary.opacity(0.92), in: Capsule())
                         .overlay(Capsule().stroke(shell.accent.opacity(0.4), lineWidth: 1))
-                        .padding(.bottom, 90)
+                        .padding(.bottom, ShellState.layoutPillBottom)
                     }.zIndex(9_000)
                 }
                 if shell.exposeActive {
@@ -1017,21 +1017,26 @@ struct ShellTile: View {
         // corner that the resize is moving, so a local-space translation lags behind the cursor.
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
-                if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true }
+                if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true; shell.resizingTile = true }
                 resizeCorner = corner
                 resizeDelta = v.translation
-                // #196: the neighbors give way as it grows, instead of being covered.
-                shell.previewMakeRoom(resizing: tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
+                // #196: with ⇧ held the neighbors give way as it grows; without, it covers them, as before.
+                if ShellState.resizeMakesRoom(NSEvent.modifierFlags) {
+                    shell.previewMakeRoom(resizing: tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
+                } else {
+                    shell.clearMakeRoomPreview()
+                }
             }
             .onEnded { v in
                 let f = Self.resized(frame, corner: corner, by: v.translation)
-                // Holding ⌥ is a quick look: on release everything goes back, this tile included.
-                let quickLook = NSEvent.modifierFlags.contains(.option)
-                shell.endMakeRoom(resizing: tile.id, from: frame, keep: !quickLook)
-                if !quickLook { commit(origin: f.origin, size: f.size) }
+                let pushed = ShellState.resizeMakesRoom(NSEvent.modifierFlags)
+                if !pushed { shell.clearMakeRoomPreview() }
+                shell.endMakeRoom(resizing: tile.id, from: frame, keep: pushed)
+                commit(origin: f.origin, size: f.size)
                 resizeCorner = nil
                 resizeDelta = .zero
                 shell.isDraggingTile = false
+                shell.resizingTile = false
             }
     }
 

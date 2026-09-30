@@ -102,3 +102,22 @@ struct ResizeMakesRoomTests {
         #expect(frame(w, team) == b)
     }
 }
+
+/// Gordon, 2026-09-30: "I don't always want the others to move". A plain resize covers; ⇧ makes room.
+@Suite("Resize makes room only with ⇧")
+struct ResizeMakesRoomModifierTests {
+    @Test("only ⇧ pushes the neighbors; a plain resize, or ⌥ or ⌘ alone, does not")
+    func shiftOnly() {
+        #expect(ShellState.resizeMakesRoom([.shift]))
+        #expect(ShellState.resizeMakesRoom([.shift, .option]))
+        #expect(!ShellState.resizeMakesRoom([]))
+        #expect(!ShellState.resizeMakesRoom([.option]))
+        #expect(!ShellState.resizeMakesRoom([.command]))
+    }
+
+    @Test("the hint and Put the layout back sit above the dock, not across it")
+    func pillClearsTheDock() {
+        // The dock is a 40-point chip row with its name and padding, 24 points off the bottom: about 100.
+        #expect(ShellState.layoutPillBottom >= ShellPlacement.dockClearance + 20)
+    }
+}

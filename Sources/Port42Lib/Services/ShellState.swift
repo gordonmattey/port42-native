@@ -971,6 +971,23 @@ public final class ShellState: ObservableObject {
 
     /// The neighbors' frames while a tile is being resized: they give way live, before it is let go.
     @Published public var makeRoomPreview: [String: CGRect] = [:]
+    /// A tile is being resized by the person (for the "hold ⇧ to make room" hint).
+    @Published public var resizingTile = false
+
+    /// Whether a resize pushes the neighbors aside: only while ⇧ is held (Gordon, 2026-09-30: "I don't
+    /// always want the others to move"). A plain resize covers what it covers. Pure.
+    nonisolated public static func resizeMakesRoom(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        modifiers.contains(.shift)
+    }
+
+    /// Where the layout hint and "Put the layout back" sit above the desktop's bottom edge: clear of the
+    /// dock, which is taller than the tile clearance (the pill sat across it on Dev7, 2026-09-30).
+    nonisolated public static let layoutPillBottom: CGFloat = ShellPlacement.dockClearance + 28
+
+    /// A resize without ⇧, or ⇧ let go mid-drag: nothing is pushed.
+    public func clearMakeRoomPreview() {
+        if !makeRoomPreview.isEmpty { makeRoomPreview = [:] }
+    }
 
     /// The layout before the last resize that made room, so one action puts it back.
     public struct LayoutUndo: Equatable {
