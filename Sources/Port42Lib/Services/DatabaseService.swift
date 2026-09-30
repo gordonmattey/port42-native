@@ -993,6 +993,15 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v68-port-storage-by-scope") { db in
+            // A chat's entries (and a port's keys) are read by scope and creator, newest first. The only
+            // index began with the key, so each read walked every chat's entries back from the newest,
+            // off disk on a busy machine: a rail card counting unread did that every five seconds on the
+            // main thread, and the app stopped answering (found on the daily driver, 2026-09-29).
+            try db.create(index: "port_storage_scope", on: "port_storage",
+                          columns: ["spaceId", "creatorId", "portKey"], ifNotExists: true)
+        }
+
         try migrator.migrate(dbQueue)
     }
 

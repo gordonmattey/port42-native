@@ -565,6 +565,7 @@ public final class PortChatStore: ObservableObject {
 
     /// A post landed. Appended only to a loaded chat; an unloaded one reads it from the store later.
     public func received(_ key: String, _ entry: PortChatEntry) {
+        unreadCounts[key]?.at = .distantPast               // a new post: the next card asks again
         guard var list = entries[key] else { return }
         guard !list.contains(where: { $0.seq == entry.seq }) else { return }
         list.append(entry)
@@ -579,12 +580,37 @@ public final class PortChatStore: ObservableObject {
     }
 
     /// Unread in a chat that may not be loaded: a card shows it while the chat bar, which loads it, is
-    /// hidden. Reads the store without keeping what it read, so it is safe while a view draws.
-    public func unread(_ key: String, me: String?, db: DatabaseService) -> Int {
+    /// hidden. A view asks this while it draws, so it never reads the database here: it answers the last
+    /// count and refreshes it in the background when it is stale. Reading on the main thread froze the
+    /// app on a busy disk, one card at a time, every five seconds (daily driver, 2026-09-29).
+    public func unread(_ key: String, me: String?, db: DatabaseService, now: Date = Date()) -> Int {
         if entries[key] != nil { return unread(key, me: me) }
         let seen = lastRead[key] ?? 0
-        let list = (try? db.chatEntries(chat: key, after: seen, limit: Self.keep)) ?? []
-        return list.filter { $0.seq > seen && $0.fromId != me }.count
+        let cached = unreadCounts[key]
+        if cached == nil || cached?.seen != seen || now.timeIntervalSince(cached?.at ?? .distantPast) > Self.unreadRefresh {
+            refreshUnread(key, me: me, seen: seen, db: db)
+        }
+        return cached?.count ?? 0
+    }
+
+    /// How old a background unread count may get before a card asks for a fresh one.
+    public static let unreadRefresh: TimeInterval = 15
+    private var unreadCounts: [String: (count: Int, seen: Int, at: Date)] = [:]
+    private var unreadReading: Set<String> = []
+    /// The refresh in flight, per chat. Kept so a test can await it instead of sleeping.
+    private(set) var unreadTasks: [String: Task<Void, Never>] = [:]
+
+    private func refreshUnread(_ key: String, me: String?, seen: Int, db: DatabaseService) {
+        guard !unreadReading.contains(key) else { return }
+        unreadReading.insert(key)
+        unreadTasks[key] = Task.detached(priority: .utility) { [weak self] in
+            let list = (try? db.chatEntries(chat: key, after: seen, limit: PortChatStore.keep)) ?? []
+            let n = list.filter { $0.seq > seen && $0.fromId != me }.count
+            await MainActor.run {
+                self?.unreadCounts[key] = (n, seen, Date())
+                self?.unreadReading.remove(key)
+            }
+        }
     }
 
     public func markRead(_ key: String) {

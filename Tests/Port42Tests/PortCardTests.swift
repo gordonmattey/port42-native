@@ -1,4 +1,5 @@
 import Testing
+import GRDB
 import Foundation
 import SwiftUI
 @testable import Port42Lib
@@ -224,8 +225,43 @@ struct PortStateMethodTests {
         _ = try await call(w, companion, "chat.post", ["port": panel.udid, "text": "second"])
         let key = try #require(w.state.chatKey(for: panel.udid))
         #expect(w.state.chats.entries[key] == nil, "the chat was loaded, so this does not test the unloaded case")
+        // The count is read in the background (a card draws on the main thread): the first draw starts it,
+        // and the next shows it.
+        _ = w.state.portCard(panel)
+        await w.state.chats.unreadTasks[key]?.value
         let card = w.state.portCard(panel)
         #expect(card.lines.first { $0.label == "chat" }?.value == "2 unread", "lines: \(card.lines)")
+    }
+
+    @Test("a card never reads the database while it draws, and a new post refreshes its count")
+    func unreadOffTheMainThread() async throws {
+        let w = try makeParityWorld()
+        let panel = port(w, "p7")
+        let companion = Principal.companion(id: w.companion.id, displayName: w.companion.displayName, spaceId: w.space.id)
+        _ = try await call(w, companion, "chat.post", ["port": panel.udid, "text": "one"])
+        let key = try #require(w.state.chatKey(for: panel.udid))
+        let chats = w.state.chats
+        #expect(chats.unread(key, me: nil, db: w.state.db) == 0, "the count was read while drawing")
+        #expect(chats.unreadTasks[key] != nil, "no background read was started")
+        await chats.unreadTasks[key]?.value
+        #expect(chats.unread(key, me: nil, db: w.state.db) == 1)
+
+        _ = try await call(w, companion, "chat.post", ["port": panel.udid, "text": "two"])
+        _ = chats.unread(key, me: nil, db: w.state.db)                  // the post made the count stale
+        await chats.unreadTasks[key]?.value
+        #expect(chats.unread(key, me: nil, db: w.state.db) == 2, "a new post did not refresh the count")
+    }
+
+    @Test("a chat's entries are found by their own index, not by walking every chat's")
+    func chatReadUsesItsIndex() throws {
+        let db = try DatabaseService(inMemory: true)
+        let plan = try db.dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                EXPLAIN QUERY PLAN SELECT portKey, value FROM port_storage
+                WHERE spaceId = 'x' AND creatorId = 'y' AND portKey > '0' ORDER BY portKey DESC LIMIT 200
+                """).map { ($0["detail"] as String?) ?? "" }.joined(separator: " ")
+        }
+        #expect(plan.contains("port_storage_scope"), "plan: \(plan)")
     }
 
     @Test("closing a port forgets its state")
