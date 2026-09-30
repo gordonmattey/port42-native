@@ -1237,6 +1237,8 @@ struct ShellTileBody: View {
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
             ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
                              probeId: panel.id,
+                             popup: appState.portWindows.browserPopups[panel.id],
+                             onClosePopup: { [weak appState] in appState?.portWindows.closeBrowserPopup(port: panel.id) },
                              // I2 · C3 leaves this in place deliberately, alongside the new KVO
                              // observer that also sees this navigation. They count different
                              // things: this fires on INTENT, before `load()`, and KVO fires on
@@ -1266,13 +1268,20 @@ struct ShellBrowserTile: View {
     /// passing the dispatcher — so the port's token has to move or a companion's write composed
     /// against the old page would still look current.
     var onNavigate: () -> Void = {}
+    /// A popup the page opened (an OAuth sign-in), drawn over the page until it closes itself or the
+    /// person closes it (docs/plan-browser-use.md, Phase 1).
+    var popup: WKWebView? = nil
+    var onClosePopup: () -> Void = {}
     @State private var urlText: String
 
     init(webView: WKWebView, accent: Color, initialURL: String, probeId: String? = nil,
+         popup: WKWebView? = nil, onClosePopup: @escaping () -> Void = {},
          onNavigate: @escaping () -> Void = {}) {
         self.webView = webView
         self.accent = accent
         self.probeId = probeId
+        self.popup = popup
+        self.onClosePopup = onClosePopup
         self.onNavigate = onNavigate
         _urlText = State(initialValue: initialURL)
     }
@@ -1294,6 +1303,41 @@ struct ShellBrowserTile: View {
             .background(Port42Theme.shellCard)
             .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
             ShellPortHost(view: webView, probeId: probeId)   // page rect = unit content − bar
+                .overlay { if let popup { popupLayer(popup) } }
+        }
+    }
+
+    /// The popup over the page: the page dimmed behind it, the popup's site and a close button on top.
+    /// Hosted in its own AppKit layer so it takes clicks over the page's web view.
+    private func popupLayer(_ popup: WKWebView) -> some View {
+        GeometryReader { g in
+            let w = min(g.size.width - 32, 520), h = min(g.size.height - 32, 680)
+            AppKitLayer(content: ZStack {
+                Color.black.opacity(0.45)
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                        // The site the popup is on right now (a sign-in hops between hosts), rechecked each second.
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text(popup.url?.host ?? "loading")
+                                .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button(action: onClosePopup) {
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                                .frame(width: 20, height: 20).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("Close this window")
+                    }
+                    .padding(.horizontal, 10).frame(height: 28)
+                    .background(Port42Theme.shellCard)
+                    ShellPortHost(view: popup).id(ObjectIdentifier(popup))
+                }
+                .frame(width: max(160, w), height: max(160, h))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(accent.opacity(0.35), lineWidth: 1))
+                .shadow(color: .black.opacity(0.6), radius: 20, y: 6)
+            })
         }
     }
 

@@ -239,6 +239,21 @@ public final class PortWindowManager: ObservableObject {
     private var browserURLObservers: [String: PortBrowserURLObserver] = [:]
     /// A browser port's page title, address and loading, for its card (docs/plan-port-state-v1.md).
     private var browserFactsObservers: [String: PortBrowserFactsObserver] = [:]
+    /// A browser port's window-level delegate: popups, window.close, a page's alert/confirm/prompt, file
+    /// inputs (docs/plan-browser-use.md, Phase 1). Retained here; WebKit holds its UI delegate weakly.
+    private var browserUIs: [String: PortBrowserUI] = [:]
+    /// A popup follows links freely, as the browser port does.
+    private let popupNavigation = PortBrowserNavigation()
+    /// The popup a browser port's page opened (an OAuth sign-in, a payment), drawn over the port. One at
+    /// a time: a second replaces the first, as a page opening its sign-in again expects.
+    @Published public private(set) var browserPopups: [String: WKWebView] = [:]
+
+    /// Close a browser port's popup, from its close button.
+    public func closeBrowserPopup(port id: String) {
+        guard let popup = browserPopups.removeValue(forKey: id) else { return }
+        popup.stopLoading()
+        popup.removeFromSuperview()
+    }
 
     /// HIDDEN ports (nautilus Phase 3.2): running, persisted, with their chat and subscriptions, and
     /// on no desktop and in no rail. Stored as `isBackground` (the old "docked"). A person finds them
@@ -1143,6 +1158,8 @@ public final class PortWindowManager: ObservableObject {
         config.userContentController.add(inputHandler, contentWorld: world, name: "portInput")
         inputHandlers[panel.id] = inputHandler
 
+        // A browser port names Safari in its user agent, or Google's sign-in refuses it as an embedded view.
+        if foreignSite { config.applicationNameForUserAgent = BrowserUserAgent.applicationName }
         let webView = FileDropWebView(frame: .zero, configuration: config)
         let isBrowser = panel.portType == "browser"
         // A browser follows links & shows the site's own background; a normal port is locked to its
@@ -1168,6 +1185,20 @@ public final class PortWindowManager: ObservableObject {
                 guard let url = webView?.url else { return }
                 appState?.browserNavigated(port: panel.udid, to: url)
             }
+            // Popups (OAuth), window.close, and a page asking the person something.
+            let ui = PortBrowserUI()
+            ui.onPopup = { [weak self] popup in
+                guard let self else { return }
+                if let old = self.browserPopups[panelId], old !== popup { old.stopLoading(); old.removeFromSuperview() }
+                popup.navigationDelegate = self.popupNavigation
+                self.browserPopups[panelId] = popup
+            }
+            ui.onPopupClosed = { [weak self] closed in
+                guard let self, self.browserPopups[panelId] === closed else { return }
+                self.closeBrowserPopup(port: panelId)
+            }
+            webView.uiDelegate = ui
+            browserUIs[panel.id] = ui
         }
 
         // Give bridge a reference to the webview for callbacks
@@ -1209,6 +1240,8 @@ public final class PortWindowManager: ObservableObject {
         webViews.removeValue(forKey: id)
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
+        closeBrowserPopup(port: id)
+        browserUIs.removeValue(forKey: id)
         browserURLObservers.removeValue(forKey: id)
         browserFactsObservers.removeValue(forKey: id)
         heightHandlers.removeValue(forKey: id)
