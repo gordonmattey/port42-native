@@ -215,7 +215,8 @@ struct ShellDesktopView: View {
                               tile: ShellTileModel(id: item.id,
                                                    title: item.peek?.title ?? item.panel?.title ?? "port",
                                                    panel: item.panel),
-                              frame: ShellPlacement.resolvedTileFrame(
+                              // #196: a neighbor giving way to a resize is drawn where it goes.
+                              frame: shell.makeRoomPreview[item.id] ?? ShellPlacement.resolvedTileFrame(
                                   position: item.panel?.position(on: sid),
                                   size: item.panel?.size ?? ShellPlacement.peekSize,
                                   fallbackIndex: fallbackIdx),
@@ -234,6 +235,34 @@ struct ShellDesktopView: View {
                             ? AnyTransition.move(edge: .leading).combined(with: .opacity)
                             : AnyTransition.opacity)
                 }
+                // #196: while a resize is making room, how to keep it or only look; after, one action
+                // puts the layout back.
+                if !shell.makeRoomPreview.isEmpty {
+                    VStack { Spacer()
+                        Text("let go to keep this layout · hold ⌥ to only look")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                            .padding(.bottom, 96)
+                    }.zIndex(9_000).allowsHitTesting(false)
+                } else if let undo = shell.layoutUndo, undo.space == sid {
+                    VStack { Spacer()
+                        HStack(spacing: 8) {
+                            Button { withAnimation(.spring(response: 0.4)) { shell.putLayoutBack() } } label: {
+                                Label("Put the layout back", systemImage: "arrow.uturn.backward")
+                                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                            }
+                            .buttonStyle(.plain)
+                            Button { shell.layoutUndo = nil } label: {
+                                Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                                    .frame(width: 20, height: 20).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain).accessibilityLabel("Keep this layout")
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Port42Theme.bgPrimary.opacity(0.92), in: Capsule())
+                        .overlay(Capsule().stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                        .padding(.bottom, 90)
+                    }.zIndex(9_000)
+                }
                 if shell.exposeActive {
                     VStack { Spacer()
                         Text("EXPOSÉ · click a tile · Tab / Esc to exit")
@@ -250,6 +279,7 @@ struct ShellDesktopView: View {
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
             // Here we only spring unit insertion/removal (tiles + peeks) and the exposé transition.
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
+            .animation(.easeOut(duration: 0.12), value: shell.makeRoomPreview)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
             .onAppear {
@@ -976,10 +1006,15 @@ struct ShellTile: View {
                 if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true }
                 resizeCorner = corner
                 resizeDelta = v.translation
+                // #196: the neighbors give way as it grows, instead of being covered.
+                shell.previewMakeRoom(resizing: tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
             }
             .onEnded { v in
                 let f = Self.resized(frame, corner: corner, by: v.translation)
-                commit(origin: f.origin, size: f.size)
+                // Holding ⌥ is a quick look: on release everything goes back, this tile included.
+                let quickLook = NSEvent.modifierFlags.contains(.option)
+                shell.endMakeRoom(resizing: tile.id, from: frame, keep: !quickLook)
+                if !quickLook { commit(origin: f.origin, size: f.size) }
                 resizeCorner = nil
                 resizeDelta = .zero
                 shell.isDraggingTile = false
