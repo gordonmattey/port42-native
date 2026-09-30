@@ -34,9 +34,10 @@ We want passkey sign-in to work exactly as it does in Safari, for any site the p
 stores private keys or passkey material. Sites are shown with their real address in the address bar
 and in any sign-in pop-up, so the person always sees which relying party they are signing in to.
 
-**Web browser status.** The browser ports are a full browser surface inside the app. (If the form
-asks whether the app can be set as the default web browser: it cannot today. Say so plainly rather
-than claim it; Apple may ask for that.)
+**Web browser status.** Port42 can be set as the default web browser (System Settings, Desktop & Dock,
+Default web browser, or Port42's own Settings). A link opened from any other app then opens in a Port42
+browser port. (Built 2026-09-30, `docs/plan-default-browser.md`. Submit this request only once a public
+release has it, since Apple may download the current release to check.)
 
 ## After it is granted
 
