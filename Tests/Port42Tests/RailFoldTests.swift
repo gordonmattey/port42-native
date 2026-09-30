@@ -80,26 +80,24 @@ struct RailOpenTests {
         #expect(!ShellState.railWantsOpen(isOpen: false, distance: 60, deltaX: -8, screenW: w), "moving away opened it")
     }
 
-    @Test("open, it stays open over itself and folds once the pointer is clear")
-    func staysOpenOverItself() {
+    @Test("open, it stays open over itself and folds the moment the pointer is off it")
+    func foldsWhenOff() {
         let open = ShellState.parkWidth(w)
         #expect(ShellState.railWantsOpen(isOpen: true, distance: open - 10, deltaX: -5, screenW: w))
-        #expect(ShellState.railWantsOpen(isOpen: true, distance: open + 10, deltaX: -5, screenW: w))
-        #expect(!ShellState.railWantsOpen(isOpen: true, distance: open + 80, deltaX: -5, screenW: w))
+        #expect(ShellState.railWantsOpen(isOpen: true, distance: open, deltaX: -5, screenW: w))
+        #expect(!ShellState.railWantsOpen(isOpen: true, distance: open + 1, deltaX: -5, screenW: w))
     }
 
-    @Test("the pointer opens it at once and folds it after a beat")
+    @Test("the pointer opens it at once and folds it at once")
     @MainActor
-    func pointerDrivesIt() async throws {
+    func pointerDrivesIt() throws {
         let shell = ShellState(appState: AppState(db: try DatabaseService(inMemory: true)))
         shell.pointerMoved(distanceFromRight: 3, deltaX: 0, screenW: w)
         #expect(shell.railOpen, "the edge did not open it at once")
-        shell.pointerMoved(distanceFromRight: 600, deltaX: -10, screenW: w)
-        #expect(shell.railOpen, "it snapped shut with no pause")
-        // Await the fold itself rather than a fixed time: a loaded machine runs the main actor late.
-        let fold = try #require(shell.railFoldTask, "leaving the rail scheduled no fold")
-        await fold.value
-        #expect(!shell.railOpen, "it never folded")
+        shell.pointerMoved(distanceFromRight: 100, deltaX: -10, screenW: w)
+        #expect(shell.railOpen, "it folded while the pointer was still over it")
+        shell.pointerMoved(distanceFromRight: ShellState.parkWidth(w) + 2, deltaX: -10, screenW: w)
+        #expect(!shell.railOpen, "it stayed open with the pointer off it")
     }
 
     @Test("only a new problem opens it, and old news at launch does not")

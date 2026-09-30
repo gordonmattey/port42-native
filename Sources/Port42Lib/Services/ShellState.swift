@@ -1088,40 +1088,24 @@ public final class ShellState: ObservableObject {
     /// A slow approach does not open it, so a tile's right edge beside the rail can still be resized.
     nonisolated public static let railApproachBand: CGFloat = 160
     nonisolated public static let railApproachSpeed: CGFloat = 6
-    /// Once open, the pointer may wander this far left of the rail before it folds.
-    nonisolated public static let railLeaveMargin: CGFloat = 24
-    /// How long the rail waits before folding, so a pointer that slips off for a moment does not snap it shut.
-    nonisolated public static let railFoldDelay: TimeInterval = 0.4
     /// How long a new problem holds the rail open.
     nonisolated public static let railAlertTime: TimeInterval = 4
 
     /// Whether the pointer wants the rail open. `distance` is from the desktop's right edge, `deltaX` the
     /// pointer's last move (positive is rightward). Open at once on the edge or on a quick sweep toward it;
-    /// once open, stay open until the pointer is clear of it. Pure.
+    /// once open, stay open only while the pointer is over it (GM: shut as soon as you are off it). Pure.
     nonisolated public static func railWantsOpen(isOpen: Bool, distance: CGFloat, deltaX: CGFloat,
                                                  screenW: CGFloat) -> Bool {
-        if isOpen { return distance <= parkWidth(screenW) + railLeaveMargin }
+        if isOpen { return distance <= parkWidth(screenW) }
         if distance <= railFoldedWidth { return true }
         return distance <= railApproachBand && deltaX >= railApproachSpeed
     }
 
-    /// The pending fold, if any. Internal so a test can await it instead of sleeping.
-    var railFoldTask: Task<Void, Never>?
-
-    /// The pointer moved over the desktop. Opens the rail at once; folds it after `railFoldDelay`.
+    /// The pointer moved over the desktop. Opens the rail the moment it is wanted and folds it the moment
+    /// the pointer is off it.
     public func pointerMoved(distanceFromRight distance: CGFloat, deltaX: CGFloat, screenW: CGFloat) {
         let want = Self.railWantsOpen(isOpen: railHovered, distance: distance, deltaX: deltaX, screenW: screenW)
-        if want {
-            railFoldTask?.cancel(); railFoldTask = nil
-            if !railHovered { railHovered = true }
-        } else if railHovered, railFoldTask == nil {
-            railFoldTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(Self.railFoldDelay))
-                guard let self, !Task.isCancelled else { return }
-                self.railFoldTask = nil
-                self.railHovered = false
-            }
-        }
+        if want != railHovered { railHovered = want }
     }
 
     /// The running ports that already had the rail's attention, so each problem opens it once.
