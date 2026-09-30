@@ -21,10 +21,12 @@ on as they are.
 - **Deliberate.** New things and major changes: features, a launch moment. These need reasoning, a
   plan and GM's decision before anyone builds, and they are discussed in chat, not run from a playbook.
 
-**Features never go to the issues board.** The squad's board and playbooks are built for issues and
-cannot handle new features (GM). A feature is discussed and decided at the operator level, then built
-by the dev lead or by a session or team spun up for it; the squad takes the bugs it produces later, as
-issues.
+**Everything runs through the issues board; features are the dev lead's.** (GM, 2026-09-29; before
+this, features stayed off the board.) The squad's playbooks are built for issues, so the squad keeps
+issues. Features go on the board as cards assigned to the dev lead, with auto-dispatch off: one is
+picked up when GM chooses it, planned, built after GM's go, and moved to resolved with its commits. A
+bug the dev lead fixes outside the squad is filed there as resolved too, in a batch at each release.
+The dash still shows what needs GM; the board is the full record.
 
 Discussion happens where it already happens: dev in the dev lead's chat, growth in lucky-ibis's. There
 is no chat per item. When GM wants to drive several things in tandem, an item can be spun out to its own
