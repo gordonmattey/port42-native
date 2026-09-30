@@ -71,3 +71,17 @@ struct BrowserUITests {
         #expect(w.state.portWindows.browserPopups[id] === second)
     }
 }
+
+@Suite("Browser port: the address bar follows the page")
+struct BrowserAddressBarTests {
+    @Test("the bar shows where the page went, and leaves alone what the person is typing")
+    func followsThePage() {
+        let page = URL(string: "https://mail.google.com/mail/u/0/#inbox")
+        #expect(ShellBrowserTile.addressShown(page: page, typed: "https://accounts.google.com/", editing: false)
+                == "https://mail.google.com/mail/u/0/#inbox", "the bar kept the old address after the page moved")
+        #expect(ShellBrowserTile.addressShown(page: page, typed: "news.yc", editing: true) == "news.yc",
+                "a navigation overwrote the address being typed")
+        #expect(ShellBrowserTile.addressShown(page: URL(string: "about:blank"), typed: "example.com", editing: false) == "example.com")
+        #expect(ShellBrowserTile.addressShown(page: nil, typed: "example.com", editing: false) == "example.com")
+    }
+}

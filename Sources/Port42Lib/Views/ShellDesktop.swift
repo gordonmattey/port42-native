@@ -1273,6 +1273,16 @@ struct ShellBrowserTile: View {
     var popup: WKWebView? = nil
     var onClosePopup: () -> Void = {}
     @State private var urlText: String
+    /// The address field has the keyboard: the page's own navigations do not overwrite what is being typed.
+    @FocusState private var editingURL: Bool
+
+    /// What the address bar shows: the page's address as it moves (links, redirects, a site's own
+    /// routing), except while the person is typing in it (Gordon, 2026-09-30: going to another site or
+    /// page left the old address in the bar). Pure.
+    static func addressShown(page: URL?, typed: String, editing: Bool) -> String {
+        guard !editing, let page, page.absoluteString != "about:blank" else { return typed }
+        return page.absoluteString
+    }
 
     init(webView: WKWebView, accent: Color, initialURL: String, probeId: String? = nil,
          popup: WKWebView? = nil, onClosePopup: @escaping () -> Void = {},
@@ -1293,6 +1303,10 @@ struct ShellBrowserTile: View {
                 navButton("chevron.right") { webView.goForward() }
                 navButton("arrow.clockwise") { webView.reload() }
                 TextField("search or type a URL", text: $urlText)
+                    .focused($editingURL)
+                    .onReceive(webView.publisher(for: \.url)) { url in
+                        urlText = Self.addressShown(page: url, typed: urlText, editing: editingURL)
+                    }
                     .textFieldStyle(.plain).font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .onSubmit(navigate)
