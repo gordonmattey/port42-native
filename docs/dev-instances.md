@@ -12,6 +12,7 @@ Each has an owner. Build and test only on yours; the daily driver (Port42, 4242)
 | Dev8 | 4250 | Squad specialists | Their own fixes, checked as a person would use them |
 | Dev4 | 4246 | watch-dev | Watch |
 | Dev9 | 4251 | Architect | Spikes |
+| Dev11 | 4253 | Gordon | Release smoke tests: a fresh instance, set up by hand |
 | Dev2 | 4244 | Spare | Ask first, e.g. growth trying a feature before it ships |
 
 `./build.sh --devN --run` builds and launches one.

@@ -73,6 +73,7 @@ DEV6=false
 DEV7=false
 DEV8=false
 DEV9=false
+DEV11=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -87,6 +88,7 @@ for arg in "$@"; do
         --dev7)    DEV7=true ;;
         --dev8)    DEV8=true ;;
         --dev9)    DEV9=true ;;
+        --dev11)   DEV11=true ;;
     esac
 done
 
@@ -118,6 +120,10 @@ elif $DEV8; then
 elif $DEV9; then
     APP_DIR_NAME="Port42Dev9"; EXEC="Port42Dev9"; BUNDLE_ID="com.port42.dev9"
     DISPLAY_NAME="Port42 Dev9"; GW_PORT="4251"; DATA_DIR="Port42Dev9"; INVITE_NAME="com.port42.dev9.invite"; DEV_ISO=true
+elif $DEV11; then
+    # Dev11 (2026-09-30): release smoke tests, a fresh instance Gordon sets up (docs/dev-instances.md).
+    APP_DIR_NAME="Port42Dev11"; EXEC="Port42Dev11"; BUNDLE_ID="com.port42.dev11"
+    DISPLAY_NAME="Port42 Dev11"; GW_PORT="4253"; DATA_DIR="Port42Dev11"; INVITE_NAME="com.port42.dev11.invite"; DEV_ISO=true
 elif $DEV4; then
     # Fourth isolated dev instance. Added 2026-07-30 as the standing test target, so Dev/Dev2/Dev3
     # can keep running whatever they are running (companion loops, long sessions) while changes are
