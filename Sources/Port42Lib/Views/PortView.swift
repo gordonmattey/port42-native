@@ -19,6 +19,21 @@ class FileDropWebView: WKWebView {
     /// this per presentation — the same live webview re-parents between the two.
     var forwardsScrollToParent = false
 
+    /// Until when a click Port42 delivers for a companion (port.act) may not take the person's keyboard.
+    /// WebKit makes the view first responder a beat after a click, after anything could hand it back, so
+    /// the view declines it instead; the page's own focus is set by script (docs/plan-browser-use.md).
+    var declinesKeyboardUntil: Date?
+
+    private var decliningKeyboard: Bool { declinesKeyboardUntil.map { Date() < $0 } ?? false }
+
+    // Declined at both steps: `acceptsFirstResponder` is asked before the person's current responder is
+    // made to resign, so their field keeps the keyboard; `becomeFirstResponder` covers a direct request.
+    override var acceptsFirstResponder: Bool { decliningKeyboard ? false : super.acceptsFirstResponder }
+
+    override func becomeFirstResponder() -> Bool {
+        decliningKeyboard ? false : super.becomeFirstResponder()
+    }
+
     /// A click on a port in a window that is not in front reaches the page. The click hits this view,
     /// not `PortWebViewContainer`, and WebKit accepts a first click only where a drag or scroll could
     /// start, so a button in the other Port42 window spent its first click bringing the window forward.

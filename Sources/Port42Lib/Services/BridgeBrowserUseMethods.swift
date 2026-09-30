@@ -130,10 +130,18 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             }
             return CGPoint(x: xy[0].doubleValue, y: xy[1].doubleValue)
         }
+        /// Give element n the page's focus, from Port42's world. Handing the person's keyboard back after
+        /// a click takes the web view out of first responder, and WebKit then blurs the page; focus set
+        /// by script holds without it (measured), so a field clicked or typed into stays focused.
+        func focus(_ n: Int) async {
+            let js = "const el = (globalThis.__port42marks || [])[n - 1]; if (el && el.isConnected && el.focus) el.focus({preventScroll: true});"
+            _ = try? await wv.callAsyncJavaScript(js, arguments: ["n": n], in: nil, contentWorld: BrowserLook.world)
+        }
         func toView(_ css: CGPoint) -> CGPoint {
             BrowserAct.viewPoint(cssX: css.x, cssY: css.y, magnification: wv.magnification)
         }
 
+        try await BrowserAct.keepingKeyboard(wv) {
         switch action {
         case "click":
             let css: CGPoint
@@ -141,9 +149,10 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             else if let x = args.double("x"), let y = args.double("y") { css = CGPoint(x: x, y: y) }
             else { throw BridgeError(code: .missingArg, message: "click needs n (an element) or x and y") }
             await BrowserAct.click(wv, at: toView(css))
+            if let n = args.int("n") { await focus(n) }
         case "type":
             let text = try args.requireString("text")
-            if let n = args.int("n") { await BrowserAct.click(wv, at: toView(try await center(n))) }
+            if let n = args.int("n") { _ = try await center(n); await focus(n) }
             let js = "const a = document.activeElement;"
                    + " if (!a || !(a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return false;"
                    + " return document.execCommand('insertText', false, text);"
@@ -180,6 +189,7 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
         case "forward": wv.goForward()
         default:
             throw BridgeError(code: .badArg, message: "unknown action '\(action)'")
+        }
         }
         try? await Task.sleep(nanoseconds: 300_000_000)            // let the page answer before reporting
         var out: [String: BridgeValue] = [

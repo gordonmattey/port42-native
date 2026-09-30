@@ -88,6 +88,12 @@ struct BrowserUseTests {
     func act() async throws {
         let (w, udid, wv, window) = try await world()
         defer { window.close() }
+        // The person's keyboard is somewhere else (a terminal, the chat), as it is in the app: acting must
+        // not need it, and must leave it where it was.
+        let elsewhere = NSTextField(frame: NSRect(x: 0, y: 380, width: 40, height: 20))
+        window.contentView?.addSubview(elsewhere)
+        window.makeFirstResponder(elsewhere)
+        let personsResponder = window.firstResponder
         var look = try await call(w, "port.look", ["id": udid])
         let go = try #require(element(look, labelled: "Search"))
         var act = try await call(w, "port.act", ["id": udid, "action": "click", "n": go, "token": look["token"]!.stringValue!])
@@ -105,6 +111,7 @@ struct BrowserUseTests {
         _ = try await call(w, "port.act", ["id": udid, "action": "key", "key": "enter", "token": act["token"]!.stringValue!])
         let afterKey = try await pageLog(wv)
         #expect(afterKey.contains("key:Enter:true"), "Enter did not reach the field: \(afterKey)")
+        #expect(window.firstResponder === personsResponder, "acting took the person's keyboard")
     }
 
     @Test("a port that is not on the desktop cannot be acted on, and says to show it")

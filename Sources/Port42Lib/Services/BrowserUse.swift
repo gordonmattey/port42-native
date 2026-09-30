@@ -122,7 +122,9 @@ enum BrowserLook {
             path.stroke()
             let tag = NSAttributedString(string: " \(e.n) ", attributes: [.font: font, .foregroundColor: NSColor.white])
             let ts = tag.size()
-            let tagRect = NSRect(x: max(0, r.minX), y: min(Double(h) - ts.height, r.maxY - ts.height), width: ts.width, height: ts.height)
+            // Just above the box, so the number does not cover the label; inside it at the top edge.
+            let above = r.maxY + ts.height <= Double(h)
+            let tagRect = NSRect(x: max(0, r.minX), y: above ? r.maxY : r.maxY - ts.height, width: ts.width, height: ts.height)
             color.setFill()
             NSBezierPath(rect: tagRect).fill()
             tag.draw(at: tagRect.origin)
@@ -190,9 +192,34 @@ enum BrowserAct {
         CGPoint(x: cssX * magnification, y: cssY * magnification)
     }
 
+    /// Where the person's keyboard is in this web view's window: a text field's is its shared field
+    /// editor, which is gone once the field resigns, so it is the field.
+    static func personsResponder(in window: NSWindow) -> NSResponder? {
+        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+           let field = editor.delegate as? NSResponder { return field }
+        return window.firstResponder
+    }
+
+    /// Run one act without taking the person's keyboard: the web view declines first responder for the
+    /// act and a beat after (WebKit asks for it after a click and after a script focus), and if the
+    /// keyboard moved anyway it is handed back.
+    static func keepingKeyboard<T>(_ wv: WKWebView, _ body: () async throws -> T) async rethrows -> T {
+        guard let window = wv.window else { return try await body() }
+        let saved = personsResponder(in: window)
+        (wv as? FileDropWebView)?.declinesKeyboardUntil = Date().addingTimeInterval(60)
+        defer {
+            (wv as? FileDropWebView)?.declinesKeyboardUntil = Date().addingTimeInterval(1.0)
+            if let saved, saved !== wv, window.firstResponder === wv || window.firstResponder === window {
+                window.makeFirstResponder(saved)
+            }
+        }
+        let result = try await body()
+        try? await Task.sleep(nanoseconds: eventGap * 2)       // WebKit's late request lands inside the act
+        return result
+    }
+
     static func click(_ wv: WKWebView, at p: CGPoint) async {
         guard let window = wv.window else { return }
-        let before = window.firstResponder
         let wp = wv.convert(p, to: nil)
         func mouse(_ t: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(with: t, location: wp, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -203,8 +230,6 @@ enum BrowserAct {
         if let down = mouse(.leftMouseDown) { wv.mouseDown(with: down) }
         if let up = mouse(.leftMouseUp) { wv.mouseUp(with: up) }
         try? await Task.sleep(nanoseconds: eventGap)
-        // The click made the web view first responder; the person's keyboard goes back where it was.
-        if let before, before !== window.firstResponder { window.makeFirstResponder(before) }
     }
 
     static func press(_ wv: WKWebView, code: UInt16, chars: String, modifiers: NSEvent.ModifierFlags) async {
