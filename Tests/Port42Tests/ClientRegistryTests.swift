@@ -280,6 +280,26 @@ struct ClientRegistryTests {
         }
     }
 
+    // MARK: - The root secret is read once (#218)
+
+    @Test("#218 · the root secret is read once per launch, not on every call")
+    @MainActor
+    func rootSecretReadOnce() throws {
+        // Every API call verifies its token with the root secret, on the main actor. It was read from
+        // the Keychain each time, and one read that blocked 79 s stopped Dev6's API with it.
+        let db = try DatabaseService(inMemory: true)
+        var reads = 0
+        let reg = ClientRegistry(db: db, instance: "Port42Test-\(UUID().uuidString)",
+                                 secretSource: { _ in reads += 1; return "the-secret" })
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        let token = try #require(reg.register(id: "tool", name: "Tool", kind: .manual))
+        for _ in 0..<50 {
+            #expect(ClientRegistry.verify(token: token, secret: reg.rootSecret(), generation: 0) == "tool")
+        }
+        #expect(reads == 1, "the secret was read \(reads) times for one mint and 50 verifications")
+    }
+
     // MARK: - Hygiene (E)
 
     @Test("E1 · a token file naming no client is reaped; a live client's is not")
