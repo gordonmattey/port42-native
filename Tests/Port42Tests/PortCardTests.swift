@@ -147,6 +147,16 @@ struct PortStateMethodTests {
         #expect(w.state.portStates.declared[panel.id] == nil, "an empty list clears it")
     }
 
+    @Test("a companion-made port's own page sets its state: it runs as the companion, and portId names it")
+    func companionMadePage() async throws {
+        let w = try makeParityWorld()
+        let panel = port(w, "cm")
+        // How a companion-made port's page calls: as its creator, carrying the port in portId (P-260).
+        let page = Principal.port(id: "some-companion", displayName: "some-companion", spaceId: w.space.id, portId: panel.udid)
+        _ = try await call(w, page, "state.set", ["lines": [["label": "needs you", "value": "2"]]])
+        #expect(w.state.portStates.declared[panel.id]?.first?.value == "2")
+    }
+
     @Test("a companion in the port's space may set its state; a companion from another space may not")
     func whoMaySet() async throws {
         let w = try makeParityWorld()

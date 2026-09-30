@@ -47,6 +47,7 @@ extension AppState {
     func maySetState(of panel: PortPanel, by p: Principal) -> Bool {
         if p.kind == .human { return true }
         if p.id == panel.udid || p.id == panel.messageId { return true }
+        if let own = p.portId, own == panel.udid || own == panel.id || own == panel.messageId { return true }
         if p.id == panel.bridge.portPrincipal.id { return true }
         if let space = panel.spaceId, companionInSpace(p) == space { return true }
         return false
@@ -73,7 +74,11 @@ func registerStateMethods(into r: inout BridgeRegistry, appState: AppState) {
             }
             return panel
         }
-        guard let panel = appState.portWindows.panels.first(where: { $0.udid == p.id || $0.messageId == p.id }) else {
+        // A port's own page. Its principal's id is the port's only when the port authorizes as itself;
+        // a port a companion made runs as that companion (P-260), and `portId` names the port (found on
+        // the operator dash, 2026-09-29: its state.set was refused as naming no port).
+        let own = p.portId ?? p.id
+        guard let panel = appState.portWindows.panels.first(where: { $0.udid == own || $0.id == own || $0.messageId == own }) else {
             throw BridgeError.badArg("name the port: port=<id>")
         }
         return panel
