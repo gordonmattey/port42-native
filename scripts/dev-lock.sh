@@ -17,7 +17,7 @@ if [ $# -eq 0 ]; then
     exit 0
 fi
 inst=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-case "$inst" in dev|dev[2-9]) ;; *) echo "not a dev instance: $1 (dev, dev2 to dev9)"; exit 2 ;; esac
+case "$inst" in dev|dev[2-9]|dev11) ;; *) echo "not a dev instance: $1 (dev, dev2 to dev9, dev11)"; exit 2 ;; esac
 if [ "${2:-}" = "--release" ]; then
     rm -f "$DIR/$inst" && echo "$inst released"
     exit 0
