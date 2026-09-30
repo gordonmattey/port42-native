@@ -97,8 +97,14 @@ How it is checked:
    again, a no refuses, the person is not asked. Tests with the card answered by the test.
 4. Right of way: a person's input between look and act makes the act stale; a companion's own events
    do not. Tests.
-5. Live on Dev6: a companion is asked to do a small task on a real site (search something and open a
-   result) and does it with the loop while it is watched. Screenshots.
+5. Live on Dev6, the test app (Gordon, 2026-09-30: "helping me sort my email, a port that is a
+   transformation of what I need to pay attention to"). Gmail in a browser port, signed in. A companion
+   reads the inbox's first page with look, opens only the threads it needs to classify, and builds an
+   Attention port: needs a reply, needs you to do something, worth knowing, noise, each with a line on
+   why; a click on one takes the Gmail port to that thread. Archive, label and "draft a reply" are
+   buttons on the Attention port, and the companion acts in Gmail only when one is pressed. It asks
+   once for mail.google.com. What it reads goes to the model it runs on, so the first version keeps to
+   the inbox's first page. Screenshots.
 
 ## Phase 3: Keychain logins (planned in full before it starts)
 
