@@ -146,13 +146,19 @@ struct VoiceInserterTests {
         #expect(client.inserted.isEmpty)
     }
 
-    /// Synthesized input exists in exactly two files, and both are the path into OTHER apps: the tap that
-    /// sees the key and the typer that sends the words. Inside Port42 nothing is synthesized, because a
-    /// synthetic event would land in whatever is frontmost rather than the focused port, and would let a
-    /// hidden port type into another app.
-    @Test("only the two files that dictate into other apps synthesize input")
+    /// Synthesized input POSTED to the system exists in exactly two files, and both are the path into OTHER
+    /// apps: the tap that sees the key and the typer that sends the words. A posted event lands in whatever
+    /// is frontmost rather than the focused port, and would let a hidden port type into another app.
+    ///
+    /// Browser use (#177) builds a scroll event, since macOS has no other way to make one, but never posts
+    /// it: it is handed straight to the port's own web view. So it may create one and may not post one.
+    @Test("only the two files that dictate into other apps post input; browser use only builds it for its own view")
     func syntheticInputIsConfined() throws {
-        let allowed: Set<String> = ["VoiceTyper.swift", "VoiceGlobalTrigger.swift"]
+        let allowed: Set<String> = ["VoiceTyper.swift", "VoiceGlobalTrigger.swift", "BrowserUse.swift"]
+        let browserUse = try String(contentsOf: Self.sources.appendingPathComponent("Services/BrowserUse.swift"), encoding: .utf8)
+            .components(separatedBy: "\n").map { $0.components(separatedBy: "//").first ?? "" }.joined(separator: "\n")
+        #expect(!browserUse.contains(".post(") && !browserUse.contains("postToPid") && !browserUse.contains("tapCreate"),
+                "browser use posts input to the system; it may only hand events to the port's own web view")
         var offenders: [String] = []
         var found: Set<String> = []
         for case let url as URL in FileManager.default.enumerator(at: Self.sources, includingPropertiesForKeys: nil)!
@@ -168,7 +174,7 @@ struct VoiceInserterTests {
                 }
             }
         }
-        #expect(offenders.isEmpty, "input is synthesized outside the two files that dictate into other apps: \(offenders)")
+        #expect(offenders.isEmpty, "input is synthesized outside the two files that dictate into other apps and browser use: \(offenders)")
         #expect(found == allowed, "expected both files to synthesize input, found \(found)")
     }
 
