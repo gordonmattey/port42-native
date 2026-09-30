@@ -1059,9 +1059,31 @@ public final class ShellState: ObservableObject {
     /// don't pop in front of the one in your hand.
     @Published public var isDraggingTile: Bool = false
 
-    /// The right rail's width: 140, wide enough for a hidden port's card (GM, 2026-09-29). It was
-    /// `max(64, screenW·0.05)` while it held only parked chips.
+    /// The right rail's width when open: 140, wide enough for a hidden port's card (GM, 2026-09-29). It
+    /// was `max(64, screenW·0.05)` while it held only parked chips.
     nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { 140 }
+
+    /// The rail folded: a thin edge, so the desktop runs up to it and a tile beside it can still be
+    /// grabbed and resized (#192: a tile under the open rail was lost behind it). Tiles are placed up to
+    /// this edge; the rail opens over them on hover and while a tile is dragged.
+    nonisolated public static let railFoldedWidth: CGFloat = 12
+
+    /// The rail's width as drawn.
+    nonisolated public static func railWidth(open: Bool, screenW: CGFloat) -> CGFloat {
+        open ? parkWidth(screenW) : railFoldedWidth
+    }
+
+    /// The pointer is resting on the rail (set by the rail's hover, cleared shortly after it leaves).
+    @Published public var railHovered = false
+    /// A tile or peek is being moved, so its drop zones must be there to drop on.
+    @Published public var tileMoving = false
+    /// Whether the rail is open: on hover, and for the whole of a move so every zone can take the drop.
+    public var railOpen: Bool { railHovered || tileMoving }
+
+    /// Whether the folded edge shows a red dot: some running port's card says something needs you.
+    nonisolated public static func railNeedsAttention(_ cards: [PortCard]) -> Bool {
+        cards.contains { $0.needsAttention }
+    }
 
     /// Rail geometry, fixed so a point maps to a slot exactly (Phase 2 step 3): the chrome clearance
     /// plus the tray icon put the first chip's top here, and every chip is one pitch below the last.

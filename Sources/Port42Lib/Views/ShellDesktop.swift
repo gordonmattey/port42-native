@@ -314,7 +314,7 @@ struct ShellDesktopView: View {
         let cols = max(1, Int(ceil(sqrt(Double(n)))))
         let rows = max(1, Int(ceil(Double(n) / Double(cols))))
         let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40, gap: CGFloat = 30
-        let workW = max(240, area.width - side - ShellState.parkWidth(area.width) - 20)
+        let workW = max(240, area.width - side - ShellState.railFoldedWidth - 20)
         let workH = max(200, area.height - top - bottom)
         let colW = workW / Double(cols), rowH = workH / Double(rows)
         return CGRect(x: side + Double(idx % cols) * colW + gap / 2,
@@ -898,7 +898,10 @@ struct ShellTile: View {
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
                 guard !isFocused else { return }                        // a focused unit doesn't drag
-                if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
+                if moveDelta == .zero {                                  // grabbing a tile raises it
+                    shell.bringToFront(tile.id); shell.isDraggingTile = true
+                    shell.tileMoving = true                             // and opens the rail to drop on
+                }
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
                 // Over Running, show where it would land among the cards.
@@ -915,6 +918,7 @@ struct ShellTile: View {
                 shell.draggingOverPark = nil
                 shell.railDropSlot = nil
                 shell.isDraggingTile = false
+                shell.tileMoving = false
                 moveDelta = .zero
                 // Drag-to-keep (Phase 1): pulling a peek into the space ADOPTS it as a tile at
                 // the drop spot (no re-grid — the user chose the place); the close zone dismisses.
@@ -1037,27 +1041,68 @@ struct ShellParkRail: View {
         }
     }
 
-    var body: some View {
-        let w = ShellState.parkWidth(area.width)
-        let overPark = shell.draggingOverPark == .park
-        let overClose = shell.draggingOverPark == .close
-        let overHide = shell.draggingOverPark == .hide
+    /// Opening waits a beat, so reaching for the edge of a tile beside the rail does not throw it open;
+    /// folding waits a little longer, so a pointer that slips off for a moment does not snap it shut.
+    static let openDelay: TimeInterval = 0.2
+    static let foldDelay: TimeInterval = 0.4
+    @State private var hoverTask: Task<Void, Never>?
 
-        // Top to bottom (GM, 2026-09-29): parked (a count and a list: a parked port is paused), hidden
-        // (a card per port: it is still running, so it is worth watching), close (a trash icon). Each
-        // lights up while a tile is dragged over it.
-        VStack(spacing: 0) {
-            parkedSection(active: overPark)
-            hiddenCards(active: overHide)
-                .frame(maxHeight: .infinity)
-            closeZone(active: overClose)
-                .frame(height: ShellState.closeZoneHeight)
+    var body: some View {
+        let open = shell.railOpen
+        // Folded (#192), the rail is a thin edge and the desktop is the tiles'; it opens over them on
+        // hover and while a tile is dragged, so its drop zones are there when they are needed.
+        Group {
+            if open { openRail } else { foldedEdge }
         }
-        .frame(width: w)
-        .background(Rectangle().fill(Color.black.opacity(0.35)))
+        .frame(width: ShellState.railWidth(open: open, screenW: area.width))
+        .background(Rectangle().fill(Color.black.opacity(open ? 0.35 : 0.25)))
         .overlay(Rectangle().fill(shell.accent.opacity(0.15)).frame(width: 1), alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { inside in hover(inside) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
+        .animation(.easeOut(duration: 0.15), value: open)
+    }
+
+    private func hover(_ inside: Bool) {
+        hoverTask?.cancel()
+        guard inside != shell.railHovered else { return }
+        let delay = inside ? Self.openDelay : Self.foldDelay
+        hoverTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            shell.railHovered = inside
+        }
+    }
+
+    /// Top to bottom (GM, 2026-09-29): parked (a count and a list: a parked port is paused), hidden
+    /// (a card per port: it is still running, so it is worth watching), close (a trash icon). Each
+    /// lights up while a tile is dragged over it.
+    private var openRail: some View {
+        VStack(spacing: 0) {
+            parkedSection(active: shell.draggingOverPark == .park)
+            hiddenCards(active: shell.draggingOverPark == .hide)
+                .frame(maxHeight: .infinity)
+            closeZone(active: shell.draggingOverPark == .close)
+                .frame(height: ShellState.closeZoneHeight)
+        }
+    }
+
+    /// The folded rail: an edge, with a red dot when a running port needs you, so folding never hides a
+    /// problem. Rechecked on the cards' own cadence.
+    private var foldedEdge: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { _ in
+            let cards = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id).map { appState.portCard($0) }
+            VStack {
+                if ShellState.railNeedsAttention(cards) {
+                    Circle().fill(RailPortCard.alert).frame(width: 6, height: 6)
+                        .padding(.top, ShellState.parkZoneHeight + ShellState.railHeaderHeight)
+                        .help("A running port needs you")
+                }
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     /// The rail's icons and counts share one color, so the rail reads as one thing.

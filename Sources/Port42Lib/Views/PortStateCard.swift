@@ -122,9 +122,12 @@ struct RailPortCard: View {
     let accent: Color
     let onShow: () -> Void
 
+    /// The red of a card that needs you, on the card's dot and on the folded rail's edge.
+    static let alert = Color(red: 1, green: 0.45, blue: 0.4)
+
     /// How it is doing, from its card: something needs you (red), someone is working (accent), or quiet.
     static func dot(_ card: PortCard, accent: Color) -> Color {
-        if card.lines.contains(where: { $0.tone == .alert }) { return Color(red: 1, green: 0.45, blue: 0.4) }
+        if card.needsAttention { return alert }
         if card.lines.contains(where: { $0.label == "working" }) { return accent }
         return Port42Theme.textSecondary.opacity(0.4)
     }

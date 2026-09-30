@@ -170,6 +170,8 @@ public struct PortCard: Equatable {
 
     public var title: String
     public var lines: [Line]
+    /// Something on the card needs the person: an error, a failure, a question waiting.
+    public var needsAttention: Bool { lines.contains { $0.tone == .alert } }
     /// A bar, 0...1, when the port reports progress or is loading.
     public var progress: Double?
     public var progressFailed = false

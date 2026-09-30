@@ -70,7 +70,7 @@ public enum ShellPlacement {
     /// This is the single definition. `arrange` used to inset 70 from the top and 40 at the sides
     /// while the drag clamp allowed y ≥ 0, so the two disagreed by 70pt of usable desktop.
     nonisolated public static func workArea(in area: CGSize) -> CGRect {
-        let right = ShellState.parkWidth(area.width) + tileGap    // the park rail is a live drop target
+        let right = ShellState.railFoldedWidth + tileGap         // up to the folded rail, which opens over tiles
         let w = max(ShellState.minTileSize.width, area.width - tileGap - right)
         let h = max(ShellState.minTileSize.height, area.height - tileGap - dockClearance)
         return CGRect(x: tileGap, y: tileGap, width: w, height: h)

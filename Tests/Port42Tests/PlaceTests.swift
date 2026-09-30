@@ -24,7 +24,7 @@ struct PlaceTests {
         let w = ShellPlacement.workArea(in: area)
         #expect(w.minX == 8)
         #expect(w.minY == 8)                                        // was 70: the desktop already starts under the Chrome
-        #expect(w.maxX == area.width - ShellState.parkWidth(area.width) - 8)   // the park rail is a live target
+        #expect(w.maxX == area.width - ShellState.railFoldedWidth - 8)   // up to the folded rail (#192)
         #expect(w.maxY == area.height - ShellPlacement.dockClearance)          // the dock is a real overlay
     }
 
