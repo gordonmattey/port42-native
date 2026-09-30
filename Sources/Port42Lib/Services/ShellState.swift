@@ -267,7 +267,7 @@ public final class ShellState: ObservableObject {
         public let spaceId: String
         public let spaceName: String
         public let title: String
-        public var seen: Bool = false   // true after you've previewed it → it goes when you zoom back out
+        public var seen: Bool = false   // true after you've previewed it
     }
     @Published public var peekingPorts: [PeekPort] = []
 
@@ -369,8 +369,8 @@ public final class ShellState: ObservableObject {
     @Published public var hoveredPeekId: String?
 
     /// Seconds left before a peek evaporates, by peek id, and what it started from (drive the ring).
-    /// A peek you have not opened stays a minute; once you have looked (zoomed in and back out) it
-    /// goes (GM, 2026-09-29: skipping it is the common case).
+    /// A peek stays a minute. Looking at it (zoomed in) pauses the countdown, and zooming back out
+    /// returns it to the strip with the time it had left (GM, 2026-09-29).
     @Published public var peekRemaining: [String: Double] = [:]
     @Published public var peekTotal: [String: Double] = [:]
     private var peekTimer: Timer?
@@ -382,19 +382,13 @@ public final class ShellState: ObservableObject {
         // zoom; placement() resizes it railSlot → focusRect IN PLACE. No removal, no stash,
         // no reparent — the stash dance (`pendingPreviewPeek`) is gone with the rail VStack.
         if let i = peekingPorts.firstIndex(where: { $0.id == peek.id }) { peekingPorts[i].seen = true }
-        peekRemaining[peek.id] = nil                     // countdown pauses during the preview
+        // The countdown pauses while you look (the tick skips a focused peek) and carries on after.
         withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
     }
 
-    /// Zoom returned to the desktop → a peek you have looked at and did not keep goes (GM, 2026-09-29:
-    /// it used to count down 10 more seconds). It lives on in its home space.
-    public func settleAfterPreview() {
-        for p in peekingPorts where p.seen {
-            peekRemaining[p.id] = nil
-            peekTotal[p.id] = nil
-        }
-        peekingPorts.removeAll { $0.seen }
-    }
+    /// Zoom returned to the desktop → a peek you looked at goes back to the strip and its countdown runs
+    /// on from where it paused (GM, 2026-09-29). Nothing to do here: the tick resumes it by itself.
+    public func settleAfterPreview() {}
 
     /// Keep a peek: it becomes a real tile of this desktop (cancels its countdown).
     /// `arrange: false` = the caller placed it by hand (drag-to-keep) — don't re-grid.
@@ -421,6 +415,7 @@ public final class ShellState: ObservableObject {
     private func tickPeekCountdowns() {
         for (id, rem) in peekRemaining {
             if id == hoveredPeekId { continue }                         // hover pauses the countdown
+            if zoom == .focus(id) { continue }                          // so does looking at it
             let next = rem - 0.1
             if next <= 0 {
                 peekRemaining[id] = nil
@@ -1096,6 +1091,11 @@ public final class ShellState: ObservableObject {
         guard p.x >= area.width - parkWidth(area.width) else { return nil }
         if p.y < parkZoneHeight { return .park }
         return p.y >= area.height - closeZoneHeight ? .close : .hide
+    }
+
+    /// Whether the rail's Paused section is unfolded (GM, 2026-09-29). Remembered across launches.
+    @Published public var pausedOpen: Bool = UserDefaults.standard.bool(forKey: "railPausedOpen") {
+        didSet { UserDefaults.standard.set(pausedOpen, forKey: "railPausedOpen") }
     }
 
     /// The space's own chat, dropped down from the top bar. A space is a port, so its chat is the

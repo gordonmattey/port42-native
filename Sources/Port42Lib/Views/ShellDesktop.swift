@@ -1035,7 +1035,6 @@ struct ShellParkRail: View {
         // lights up while a tile is dragged over it.
         VStack(spacing: 0) {
             parkedSection(active: overPark)
-                .frame(height: ShellState.parkZoneHeight)
             hiddenCards(active: overHide)
                 .frame(maxHeight: .infinity)
             closeZone(active: overClose)
@@ -1059,32 +1058,49 @@ struct ShellParkRail: View {
     /// restore. It is also the drop zone that parks a tile.
     private func parkedSection(active: Bool) -> some View {
         let parked = railPanels
-        // Words, not icons (GM, 2026-09-29): a parked port is paused (slowed; a terminal keeps running),
-        // a hidden one is running.
-        let label = Text("Paused (\(parked.count))")
-            .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
-            .foregroundStyle(active ? shell.accent : Self.railInk)
-        // A plain menu keeps the label's own color and size; the frame centers it in the rail.
-        return Group {
-            if parked.isEmpty {
-                label
-            } else {
-                Menu {
-                    ForEach(parked) { p in
-                        Button("Show \(p.title)") {
-                            appState.portWindows.unpark(id: p.id)
-                            shell.bringToFront(p.id)
+        let open = shell.pausedOpen && !parked.isEmpty
+        // Words, not icons (GM, 2026-09-29): a parked port is paused (slowed; a terminal keeps running).
+        // Paused folds, with an arrow, so it reads as a different thing from Running, which is always
+        // open: the ones to watch are the running ones.
+        return VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { shell.pausedOpen.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    if !parked.isEmpty {
+                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 8, weight: .semibold))
+                    }
+                    Text("Paused (\(parked.count))")
+                        .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
+                }
+                .foregroundStyle(active ? shell.accent : Self.railInk)
+                .frame(maxWidth: .infinity).frame(height: ShellState.parkZoneHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(parked.isEmpty)
+            .help(parked.isEmpty ? "Drag a port here to pause it: off the desktop and slowed (a terminal keeps running)."
+                                 : (open ? "Fold the paused ports" : "Show the paused ports"))
+            if open {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 6) {
+                        ForEach(parked) { p in
+                            RailPortCard(appState: appState, states: appState.portStates, presence: appState.presence,
+                                         chats: appState.chats, panel: p, accent: shell.accent) {
+                                appState.portWindows.unpark(id: p.id)
+                                shell.bringToFront(p.id)
+                            }
+                            .opacity(0.55)     // paused: dimmer than the running ones
                         }
                     }
-                } label: { label }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .padding(.horizontal, 6).padding(.bottom, 6)
+                }
+                .frame(maxHeight: 260)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity)
         .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
-        .help(parked.isEmpty ? "Drag a port here to pause it: off the desktop and slowed (a terminal keeps running)."
-                             : "Paused ports: click to show one. Drag a port here to pause it.")
     }
 
     /// HIDDEN PORTS in this space: a card each, with its state, since a hidden port keeps running and

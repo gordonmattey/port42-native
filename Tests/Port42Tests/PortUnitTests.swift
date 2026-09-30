@@ -189,7 +189,7 @@ struct PortUnitPeekTests {
         #expect(shell.isDesktopUnit("pk"))                   // focus stays in-desktop (no overlay)
     }
 
-    @Test("an unopened peek counts down a minute; once looked at, it goes when you zoom back out (GM, 2026-09-29)")
+    @Test("a peek counts down a minute; looking pauses it; zooming out returns it with the time left (GM, 2026-09-29)")
     @MainActor
     func settleArmsCountdown() throws {
         let (shell, state) = try makeState()
@@ -203,10 +203,12 @@ struct PortUnitPeekTests {
         shell.handlePortCreated(id: "s2", spaceId: other.id, title: "s2")
 
         #expect(shell.peekTotal["s1"] == ShellState.unseenPeekLifetime, "a new peek stays a minute")
-        shell.previewPeek(shell.peekingPorts[0])             // s1 seen
-        #expect(shell.peekRemaining["s1"] == nil, "the countdown pauses while you preview it")
+        let before = shell.peekRemaining["s1"]
+        shell.previewPeek(shell.peekingPorts[0])             // s1 seen, zoomed in
+        #expect(shell.peekRemaining["s1"] == before, "looking keeps its time, paused")
         shell.settleAfterPreview()
-        #expect(!shell.peekingPorts.contains { $0.id == "s1" }, "looked at and not kept: it goes")
+        #expect(shell.peekingPorts.contains { $0.id == "s1" }, "zooming out puts it back in the strip")
+        #expect(shell.peekRemaining["s1"] == before, "with the time it had left")
         #expect(shell.peekTotal["s2"] == ShellState.unseenPeekLifetime, "never opened: still its minute")
         shell.dismissPeek(shell.peekingPorts.first { $0.id == "s2" }!)
         #expect(shell.peekRemaining["s2"] == nil && !shell.peekingPorts.contains { $0.id == "s2" })
