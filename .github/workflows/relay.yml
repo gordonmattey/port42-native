@@ -112,3 +112,43 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --latest=false --title "Port42 relay ${GITHUB_REF_NAME#relay-}" \
                  --notes "The relay anyone can run. See docs/run-a-relay.md."
           gh release upload "$GITHUB_REF_NAME" dist/relay/*.tar.gz dist/relay/*.zip dist/relay/SHA256SUMS --clobber
+
+  # Deploy port42's own relay1 and tele from the images just built, then prove it (GM, 2026-09-29: "so I
+  # don't have to think about it again"). Each Railway service's source is its image at :latest, so a
+  # redeploy from source pulls what the jobs above pushed. Tele first, then the relay, each waited on
+  # until it reports this commit at /version; scripts/check-live.sh then checks both. A failure fails
+  # the run, and GitHub says so. Skipped until the RAILWAY_TOKEN secret exists.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [image, tele-image]
+    if: startsWith(github.ref, 'refs/tags/relay-v')
+    permissions:
+      contents: read
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Railway CLI
+        if: env.RAILWAY_TOKEN != ''
+        run: npm install -g @railway/cli@4.57.1
+      - name: Deploy tele, then the relay, each until it serves this commit
+        if: env.RAILWAY_TOKEN != ''
+        run: |
+          wait_for() { # name, url
+            for i in $(seq 1 60); do
+              v=$(curl -s -m 10 "$2/version" || true)
+              [ "$v" = "$GITHUB_SHA" ] && { echo "$1 serves $v"; return 0; }
+              sleep 10
+            done
+            echo "$1 never served $GITHUB_SHA (last: ${v:-nothing})"; return 1
+          }
+          railway redeploy --service tele --from-source --yes
+          wait_for tele https://tele.port42.ai
+          railway redeploy --service relay --from-source --yes
+          wait_for relay https://relay1.port42.ai
+      - name: Check both live
+        if: env.RAILWAY_TOKEN != ''
+        run: scripts/check-live.sh "$GITHUB_SHA"
+      - name: No token yet
+        if: env.RAILWAY_TOKEN == ''
+        run: echo "RAILWAY_TOKEN is not set, so nothing was deployed. Add it under the repo's Settings, Secrets and variables, Actions."

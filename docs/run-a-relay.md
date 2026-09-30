@@ -167,18 +167,19 @@ The macOS binaries built there are unsigned; run `scripts/relay-dist.sh <version
 Developer ID and replace them on the release. After the first publish, make each image public in the
 package's settings on GitHub, or `docker run` (and Railway) asks for a login.
 
-**Deploying port42's own relay1 and tele** (the `port42-relay` project on Railway). Both services run
-the images the workflow built, never a local upload, so what is live is what CI built and tested from
-a tag, and nothing on a maintainer's machine can reach it. Each service's source is the image by
-version (`ghcr.io/gordonmattey/port42-relay:<version>`, `ghcr.io/gordonmattey/port42-tele:<version>`).
+**Deploying port42's own relay1 and tele** (the `port42-relay` project on Railway) is automatic. Both
+services run the images the workflow built, never a local upload: each service's source is its image
+at `:latest` (`ghcr.io/gordonmattey/port42-relay:latest`, `ghcr.io/gordonmattey/port42-tele:latest`).
+Pushing a `relay-v<version>` tag builds and pushes both images, then the workflow's `deploy` job
+redeploys tele and waits until it serves the tag's commit at `/version`, does the same for the relay,
+and runs `scripts/check-live.sh`. A failure fails the run, and GitHub emails it.
 
-1. Push the tag, and wait for the workflow's two image jobs to pass.
-2. In Railway, set tele's image to the new version; when it is running, check it:
-   `scripts/check-live.sh relay-v<version>` (tele's lines must pass).
-3. Then the relay's, and run the check again: every line must pass, including `/version` on both,
-   which is the only way to tell the new build from the old. Then share a port between two instances.
+Set up once: the `port42-tele` package made public, both Railway services switched to their image at
+`:latest`, and a Railway project token saved as the repo's `RAILWAY_TOKEN` Actions secret. Without the
+token the deploy job skips and says so.
 
-To roll back, set the service's image to the previous version.
+To roll back, point the service at an earlier version's image tag in Railway, or push a tag from an
+earlier commit.
 
 A one-click "Deploy on Railway" button needs a template, made once in Railway from this repository with
 the root directory `gateway`; its link then goes at the top of the Railway section above.
