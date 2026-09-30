@@ -165,25 +165,56 @@ struct ShareGuestPanel: View {
     }
 }
 
-/// Where "Move to…" can take a port: another space here, or another machine (a hand-over invite).
-struct PortMovePopover: View {
-    enum Target { case space(String), machine }
-    @ObservedObject var appState: AppState
+/// Which spaces a port lives in, from its "…" menu (GM, 2026-09-30). Each other space offers "move"
+/// (its home goes there) and "also show" (a live tile there too, the home unchanged), or "stop" where
+/// it is already shown. Move is offered only where `canMove`: moving a companion's terminal would leave
+/// the companion's own space membership behind.
+struct PortSpacesPopover: View {
+    enum Action: Equatable { case move(String), show(String), stopShowing(String), removeHere, machine }
     let accent: Color
-    let home: String?
-    var onPick: (Target) -> Void
+    let spaces: [Space]
+    let shownIn: Set<String>
+    let canMove: Bool
+    let removeHere: Bool
+    var onPick: (Action) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(appState.spaces.filter { $0.id != home }) { space in
-                pick(space.name, icon: "square.stack") { onPick(.space(space.id)) }
+            if removeHere {
+                pick("remove from this space", icon: "rectangle.badge.minus") { onPick(.removeHere) }
+                Divider().opacity(0.4)
             }
-            Divider().opacity(0.4)
-            pick("another machine…", icon: "arrow.up.forward.app") { onPick(.machine) }
+            ForEach(spaces) { space in
+                HStack(spacing: 8) {
+                    Image(systemName: "square.stack").font(.system(size: 10)).foregroundStyle(accent).frame(width: 16)
+                    Text(space.name).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                    Spacer(minLength: 6)
+                    if canMove { chip("move") { onPick(.move(space.id)) } }
+                    if shownIn.contains(space.id) {
+                        chip("stop showing") { onPick(.stopShowing(space.id)) }
+                    } else {
+                        chip("also show") { onPick(.show(space.id)) }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+            }
+            if canMove {
+                Divider().opacity(0.4)
+                pick("another machine…", icon: "arrow.up.forward.app") { onPick(.machine) }
+            }
         }
         .padding(.vertical, 4)
-        .frame(width: 220)
+        .frame(width: 300)
         .background(Port42Theme.bgPrimary)
+    }
+
+    private func chip(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(Port42Theme.mono(10)).foregroundStyle(accent)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(accent.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func pick(_ title: String, icon: String, action: @escaping () -> Void) -> some View {

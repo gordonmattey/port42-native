@@ -479,6 +479,23 @@ struct PortUnitAdoptionTests {
         #expect(state.portWindows.panels.first { $0.id == "g1" }?.adoptedSpaceIds == ["s2"])
     }
 
+    @Test("Showing a port in another space puts it on both desktops; removing it there leaves its home alone")
+    @MainActor
+    func showInThenRemove() throws {
+        let (_, state, _) = try makeState()
+        let a = Space.create(name: "a"), b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        _ = state.portWindows.registerTiledPort(id: "si", html: "<title>si</title>", spaceId: a.id,
+                                                createdBy: nil, title: "si", position: nil)
+        state.portWindows.adopt(id: "si", into: b.id)            // the menu's pick
+        #expect(state.portWindows.panels(in: a.id).map(\.id).contains("si"))
+        #expect(state.portWindows.panels(in: b.id).map(\.id).contains("si"))
+        state.portWindows.unadopt(id: "si", from: b.id)          // "Remove from this space", from b
+        #expect(!state.portWindows.panels(in: b.id).map(\.id).contains("si"))
+        let p = try #require(state.portWindows.panels.first { $0.id == "si" })
+        #expect(p.spaceId == a.id)                               // still home in a, still running
+    }
+
     @Test("panels(in:) = native plus adopted; close drops the port everywhere")
     @MainActor
     func panelsInQuery() throws {
