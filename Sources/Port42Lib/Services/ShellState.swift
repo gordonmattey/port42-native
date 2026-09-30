@@ -1073,12 +1073,80 @@ public final class ShellState: ObservableObject {
         open ? parkWidth(screenW) : railFoldedWidth
     }
 
-    /// The pointer is resting on the rail (set by the rail's hover, cleared shortly after it leaves).
+    /// The pointer has the rail open: on the edge, or swept toward it (see `railWantsOpen`).
     @Published public var railHovered = false
     /// A tile or peek is being moved, so its drop zones must be there to drop on.
     @Published public var tileMoving = false
-    /// Whether the rail is open: on hover, and for the whole of a move so every zone can take the drop.
-    public var railOpen: Bool { railHovered || tileMoving }
+    /// A running port has just started needing the person: the rail shows it for a moment.
+    @Published public var railAlerting = false
+    /// Whether the rail is open: for the pointer, for the whole of a move so every zone can take the
+    /// drop, and for a moment when a running port newly needs you.
+    public var railOpen: Bool { railHovered || tileMoving || railAlerting }
+
+    /// How far out a quick sweep toward the edge opens the rail ahead of the pointer (GM: "if I'm moving
+    /// to that edge it should pre-emptively open"), and how quick: points per mouse event, rightward.
+    /// A slow approach does not open it, so a tile's right edge beside the rail can still be resized.
+    nonisolated public static let railApproachBand: CGFloat = 160
+    nonisolated public static let railApproachSpeed: CGFloat = 6
+    /// Once open, the pointer may wander this far left of the rail before it folds.
+    nonisolated public static let railLeaveMargin: CGFloat = 24
+    /// How long the rail waits before folding, so a pointer that slips off for a moment does not snap it shut.
+    nonisolated public static let railFoldDelay: TimeInterval = 0.4
+    /// How long a new problem holds the rail open.
+    nonisolated public static let railAlertTime: TimeInterval = 4
+
+    /// Whether the pointer wants the rail open. `distance` is from the desktop's right edge, `deltaX` the
+    /// pointer's last move (positive is rightward). Open at once on the edge or on a quick sweep toward it;
+    /// once open, stay open until the pointer is clear of it. Pure.
+    nonisolated public static func railWantsOpen(isOpen: Bool, distance: CGFloat, deltaX: CGFloat,
+                                                 screenW: CGFloat) -> Bool {
+        if isOpen { return distance <= parkWidth(screenW) + railLeaveMargin }
+        if distance <= railFoldedWidth { return true }
+        return distance <= railApproachBand && deltaX >= railApproachSpeed
+    }
+
+    /// The pending fold, if any. Internal so a test can await it instead of sleeping.
+    var railFoldTask: Task<Void, Never>?
+
+    /// The pointer moved over the desktop. Opens the rail at once; folds it after `railFoldDelay`.
+    public func pointerMoved(distanceFromRight distance: CGFloat, deltaX: CGFloat, screenW: CGFloat) {
+        let want = Self.railWantsOpen(isOpen: railHovered, distance: distance, deltaX: deltaX, screenW: screenW)
+        if want {
+            railFoldTask?.cancel(); railFoldTask = nil
+            if !railHovered { railHovered = true }
+        } else if railHovered, railFoldTask == nil {
+            railFoldTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(Self.railFoldDelay))
+                guard let self, !Task.isCancelled else { return }
+                self.railFoldTask = nil
+                self.railHovered = false
+            }
+        }
+    }
+
+    /// The running ports that already had the rail's attention, so each problem opens it once.
+    private var railAlerted: Set<String>?
+    private var railAlertTask: Task<Void, Never>?
+
+    /// The ports whose problem is new since the last look. Pure.
+    nonisolated public static func newAlerts(previous: Set<String>, current: Set<String>) -> Set<String> {
+        current.subtracting(previous)
+    }
+
+    /// The running ports that need the person right now. The first report only records them (a launch
+    /// does not throw the rail open for old news); after that, a new one opens the rail for a moment.
+    public func noteRunningAlerts(_ ids: Set<String>) {
+        guard let previous = railAlerted else { railAlerted = ids; return }
+        railAlerted = ids
+        guard !Self.newAlerts(previous: previous, current: ids).isEmpty else { return }
+        railAlerting = true
+        railAlertTask?.cancel()
+        railAlertTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.railAlertTime))
+            guard let self, !Task.isCancelled else { return }
+            self.railAlerting = false
+        }
+    }
 
     /// Whether the folded edge shows a red dot: some running port's card says something needs you.
     nonisolated public static func railNeedsAttention(_ cards: [PortCard]) -> Bool {

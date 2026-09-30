@@ -1041,12 +1041,6 @@ struct ShellParkRail: View {
         }
     }
 
-    /// Opening waits a beat, so reaching for the edge of a tile beside the rail does not throw it open;
-    /// folding waits a little longer, so a pointer that slips off for a moment does not snap it shut.
-    static let openDelay: TimeInterval = 0.2
-    static let foldDelay: TimeInterval = 0.4
-    @State private var hoverTask: Task<Void, Never>?
-
     var body: some View {
         let open = shell.railOpen
         // Folded (#192), the rail is a thin edge and the desktop is the tiles'; it opens over them on
@@ -1058,20 +1052,20 @@ struct ShellParkRail: View {
         .background(Rectangle().fill(Color.black.opacity(open ? 0.35 : 0.25)))
         .overlay(Rectangle().fill(shell.accent.opacity(0.15)).frame(width: 1), alignment: .leading)
         .contentShape(Rectangle())
-        .onHover { inside in hover(inside) }
+        .background(alertWatcher)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
         .animation(.easeOut(duration: 0.15), value: open)
     }
 
-    private func hover(_ inside: Bool) {
-        hoverTask?.cancel()
-        guard inside != shell.railHovered else { return }
-        let delay = inside ? Self.openDelay : Self.foldDelay
-        hoverTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            shell.railHovered = inside
+    /// The running ports that need you, rechecked every two seconds: a new one opens the rail for a moment.
+    private var alertWatcher: some View {
+        TimelineView(.periodic(from: .now, by: 2)) { _ in
+            let ids = Set(appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+                .filter { appState.portCard($0).needsAttention }.map(\.id))
+            Color.clear
+                .onAppear { shell.noteRunningAlerts(ids) }
+                .onChange(of: ids) { _, now in shell.noteRunningAlerts(now) }
         }
     }
 

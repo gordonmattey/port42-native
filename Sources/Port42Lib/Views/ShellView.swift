@@ -683,6 +683,11 @@ public struct ShellView: View {
             if let cv = e.window?.contentView, cv.bounds.width > 0, cv.bounds.height > 0 {
                 let lp = e.locationInWindow
                 shell.mouse = CGPoint(x: lp.x / cv.bounds.width, y: 1 - lp.y / cv.bounds.height)
+                // The rail opens the moment the pointer reaches the edge or sweeps toward it (#192).
+                if !(e.window is NSPanel) {
+                    shell.pointerMoved(distanceFromRight: cv.bounds.width - lp.x, deltaX: e.deltaX,
+                                       screenW: cv.bounds.width)
+                }
             }
             return e
         }

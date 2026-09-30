@@ -55,3 +55,65 @@ struct RailFoldTests {
         #expect(ShellState.railNeedsAttention([quiet, failing]))
     }
 }
+
+/// GM, trying it: "it needs to open instantly", "if I'm moving to that edge it should pre-emptively
+/// open", and it should open on notifications.
+@Suite("Rail: opens at once, ahead of a sweep, and for a new problem")
+struct RailOpenTests {
+
+    let w: CGFloat = 1728
+
+    @Test("on the edge it opens at once, with no move needed")
+    func edgeOpensAtOnce() {
+        #expect(ShellState.railWantsOpen(isOpen: false, distance: 4, deltaX: 0, screenW: w))
+    }
+
+    @Test("a quick sweep toward the edge opens it before the pointer arrives")
+    func sweepOpensEarly() {
+        #expect(ShellState.railWantsOpen(isOpen: false, distance: 120, deltaX: 12, screenW: w))
+        #expect(!ShellState.railWantsOpen(isOpen: false, distance: 400, deltaX: 30, screenW: w), "opened from across the screen")
+    }
+
+    @Test("a slow approach does not, so a tile's edge beside the rail can still be resized")
+    func slowApproachLeavesItFolded() {
+        #expect(!ShellState.railWantsOpen(isOpen: false, distance: 22, deltaX: 1, screenW: w))
+        #expect(!ShellState.railWantsOpen(isOpen: false, distance: 60, deltaX: -8, screenW: w), "moving away opened it")
+    }
+
+    @Test("open, it stays open over itself and folds once the pointer is clear")
+    func staysOpenOverItself() {
+        let open = ShellState.parkWidth(w)
+        #expect(ShellState.railWantsOpen(isOpen: true, distance: open - 10, deltaX: -5, screenW: w))
+        #expect(ShellState.railWantsOpen(isOpen: true, distance: open + 10, deltaX: -5, screenW: w))
+        #expect(!ShellState.railWantsOpen(isOpen: true, distance: open + 80, deltaX: -5, screenW: w))
+    }
+
+    @Test("the pointer opens it at once and folds it after a beat")
+    @MainActor
+    func pointerDrivesIt() async throws {
+        let shell = ShellState(appState: AppState(db: try DatabaseService(inMemory: true)))
+        shell.pointerMoved(distanceFromRight: 3, deltaX: 0, screenW: w)
+        #expect(shell.railOpen, "the edge did not open it at once")
+        shell.pointerMoved(distanceFromRight: 600, deltaX: -10, screenW: w)
+        #expect(shell.railOpen, "it snapped shut with no pause")
+        // Await the fold itself rather than a fixed time: a loaded machine runs the main actor late.
+        let fold = try #require(shell.railFoldTask, "leaving the rail scheduled no fold")
+        await fold.value
+        #expect(!shell.railOpen, "it never folded")
+    }
+
+    @Test("only a new problem opens it, and old news at launch does not")
+    @MainActor
+    func newProblemsOnly() throws {
+        #expect(ShellState.newAlerts(previous: ["a"], current: ["a", "b"]) == ["b"])
+        #expect(ShellState.newAlerts(previous: ["a", "b"], current: ["a"]).isEmpty)
+
+        let shell = ShellState(appState: AppState(db: try DatabaseService(inMemory: true)))
+        shell.noteRunningAlerts(["old"])
+        #expect(!shell.railOpen, "a problem already there at launch threw the rail open")
+        shell.noteRunningAlerts(["old"])
+        #expect(!shell.railOpen)
+        shell.noteRunningAlerts(["old", "new"])
+        #expect(shell.railOpen, "a new problem did not open the rail")
+    }
+}
