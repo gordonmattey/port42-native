@@ -1,6 +1,6 @@
 # Plan: zoom into a running port (#191)
 
-Status: built on Dev6, 2026-09-29, for Gordon to try. Board card #191 (Gordon: "zoom into running ports and
+Status: DONE, 2026-09-29 (Gordon tried it on Dev6). Commits f72e652, e7f4389, ed47d80; ships in the next release. Board card #191 (Gordon: "zoom into running ports and
 pop them up, and then zoom out will pop them back in").
 
 ## The problem
