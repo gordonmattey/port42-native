@@ -237,3 +237,12 @@ struct PortStateMethodTests {
         #expect(w.state.portStates.declared[panel.id] == nil)
     }
 }
+
+@Suite("Waiting means an ask, not idle")
+struct WaitingIsAnAskTests {
+    @Test("a permission prompt is waiting on you; Claude Code's idle nudge after a turn is not")
+    func askVersusIdle() {
+        #expect(ChatPresence.isRealAsk("Claude needs your permission to use Bash"))
+        #expect(!ChatPresence.isRealAsk("Claude is waiting for your input"))
+    }
+}

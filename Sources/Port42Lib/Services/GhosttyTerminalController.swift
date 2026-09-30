@@ -304,7 +304,8 @@ final class GhosttyTerminalController {
             // interpreting WHAT was said.
             onNeedsAttention(text)
         case .needsAttention(let message):
-            onPresence?(.waiting(message))
+            // Only a real ask is waiting on the person; the idle nudge after a turn is not.
+            if ChatPresence.isRealAsk(message) { onPresence?(.waiting(message)) }
             log("event=needsAttention message=\(message.prefix(80).debugDescription)")
             onNeedsAttention(message)
         case .toolStarting(let tool, let input):

@@ -14,6 +14,14 @@ public struct ChatPresence: Equatable {
         case working
         case waiting(String)
     }
+
+    /// Whether a CLI's attention message is a real ask (a tool needs permission, a question) rather than
+    /// the idle nudge Claude Code sends a while after a finished turn ("Claude is waiting for your
+    /// input"). Both arrive as the same hook; only the ask means the companion is waiting on the person
+    /// (GM, 2026-09-29: a finished, idle companion read as needing him).
+    public static func isRealAsk(_ message: String) -> Bool {
+        !message.lowercased().contains("waiting for your input")
+    }
     public let name: String
     public var state: State
     public var since: Date
