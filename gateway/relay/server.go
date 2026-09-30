@@ -188,7 +188,12 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 	}()
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
+	// The "port42" subprotocol is echoed to a client that offers it (#220), and a client that offers
+	// none is still accepted: every app and guest page before it offers none.
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+		Subprotocols:   []string{Subprotocol},
+	})
 	if err != nil {
 		return
 	}

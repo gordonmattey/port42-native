@@ -73,15 +73,29 @@ export async function connect({ relays, host, identity, WebSocketImpl = globalTh
   throw last;
 }
 
+/// The WebSocket subprotocol a relay connection speaks, registered for Port42 with IANA (#220).
+export const SUBPROTOCOL = 'port42';
+
+/// Open a socket to a relay, offering the "port42" subprotocol. A browser fails the handshake when it
+/// offers a subprotocol the server does not echo, so a relay that predates it (or someone's own) is
+/// tried again offering none. Resolves to [socket, frames] once open.
+export async function openRelaySocket(WS, relayURL) {
+  const attempt = (protocols) => {
+    const ws = protocols ? new WS(relayURL, protocols) : new WS(relayURL);
+    ws.binaryType = 'arraybuffer';
+    const q = frames(ws);
+    return new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => resolve([ws, q]), { once: true });
+      ws.addEventListener('error', () => reject(new Refusal('host_offline', 'the relay could not be reached')), { once: true });
+    });
+  };
+  try { return await attempt([SUBPROTOCOL]); }
+  catch { return attempt(null); }
+}
+
 async function connectVia(relayURL, host, identity, WS, prologue) {
   const hostKey = parsePeerId(host);
-  const ws = new WS(relayURL);
-  ws.binaryType = 'arraybuffer';
-  const q = frames(ws);
-  await new Promise((resolve, reject) => {
-    ws.addEventListener('open', resolve, { once: true });
-    ws.addEventListener('error', () => reject(new Refusal('host_offline', 'the relay could not be reached')), { once: true });
-  });
+  const [ws, q] = await openRelaySocket(WS, relayURL);
   try {
     const ch = await control(q, 'challenge');
     if (ch.relay !== new URL(relayURL).host) throw new Refusal('bad_hello', `the relay calls itself ${ch.relay}`);

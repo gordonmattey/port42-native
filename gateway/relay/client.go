@@ -98,6 +98,12 @@ func SecureRelayURL(u *url.URL) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// Subprotocol is the WebSocket subprotocol a relay connection speaks (Sec-WebSocket-Protocol), the
+// name registered for Port42 with IANA (#220). A client offers it; a relay echoes it when offered.
+// Offering it is safe against a relay that predates it: this library accepts a handshake that names no
+// subprotocol (a browser does not, which is why the guest page falls back).
+const Subprotocol = "port42"
+
 // connect dials a relay and proves this key: it signs the relay's challenge, bound to the relay it
 // meant to reach, so a signature cannot be replayed at another relay.
 func connect(ctx context.Context, relayURL string, key ed25519.PrivateKey, role string) (*websocket.Conn, error) {
@@ -108,7 +114,7 @@ func connect(ctx context.Context, relayURL string, key ed25519.PrivateKey, role 
 	if !SecureRelayURL(u) {
 		return nil, fmt.Errorf("refusing relay %q: a relay is reached over wss:// (REL-03)", relayURL)
 	}
-	conn, _, err := websocket.Dial(ctx, relayURL, nil)
+	conn, _, err := websocket.Dial(ctx, relayURL, &websocket.DialOptions{Subprotocols: []string{Subprotocol}})
 	if err != nil {
 		return nil, err
 	}

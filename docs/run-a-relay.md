@@ -115,7 +115,9 @@ caddy reverse-proxy --from relay.example.com --to localhost:8080
 ```
 
 Open ports 80 and 443 in the firewall; 80 is only for issuing the certificate. Any reverse proxy that
-passes WebSockets works as well (nginx, Cloudflare Tunnel).
+passes WebSockets works as well (nginx, Cloudflare Tunnel). It must pass the `Sec-WebSocket-Protocol`
+header through: Port42 and the guest page offer the `port42` subprotocol, and the relay echoes it.
+Relays before it do not echo it, and Port42 and the guest page still connect to them.
 
 ## Add it to Port42
 
