@@ -461,6 +461,8 @@ public final class AppState: ObservableObject {
     private var observationDebounceTask: Task<Void, Never>?
     private var doorCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
+    /// Until when a port's input is Port42 acting for a companion (port.act), by port udid.
+    var agentInputUntil: [String: Date] = [:]
 
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]

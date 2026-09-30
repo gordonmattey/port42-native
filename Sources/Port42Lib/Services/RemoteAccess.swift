@@ -76,6 +76,9 @@ public enum RemoteAccess {
         // port's own principal, so it would borrow the port's grants. Arranging, archiving, deleting
         // and reopening are the host's layout, not the port's content.
         "port.exec": .never,
+        // Browser use drives a page the person may be signed in to; never from another machine.
+        "port.look": .never,
+        "port.act": .never,
         "port.manage": .never,
         "port.move": .never,
         "port.position": .never,

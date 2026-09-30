@@ -18,6 +18,9 @@ struct BridgeTargetScopeTests {
         "port.push": "terminal target (APP-03); write scope (APP-11)",
         "port.subscribe": "terminal target (APP-04); read scope OPEN: APP-10",
         "port.exec": "code authority (APP-05)",
+        // Browser use: read scope, and a card per companion and site before it sees or acts (#177).
+        "port.look": "read scope; site grant per companion (#177)",
+        "port.act": "read scope and write token; site grant per companion (#177)",
         "port.update": "code authority (APP-07)", "port.patch": "code authority (APP-07)",
         "port.restore": "code authority (APP-07)",
         "port.create": "gated on its type: terminal and browser ask for the capability",

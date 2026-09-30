@@ -22,6 +22,7 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerDeviceMethods(into: &r, appState: appState)
     registerLiveDeviceMethods(into: &r, appState: appState)
     registerPortLiveMethods(into: &r, appState: appState)
+    registerBrowserUseMethods(into: &r, appState: appState) // port.look / port.act (BridgeBrowserUseMethods.swift)
     registerChatMethods(into: &r, appState: appState)       // chat.* (PortChat.swift)
     registerInviteMethods(into: &r, appState: appState)     // invite.* (Invites.swift)
     registerAcceptMethods(into: &r, appState: appState)     // invite.accept (Invites.swift)

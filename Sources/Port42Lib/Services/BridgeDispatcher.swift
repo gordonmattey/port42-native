@@ -462,6 +462,8 @@ extension AppState {
     /// one dict read. Only the branch that actually records pays for a resolve — this runs per
     /// keystroke, and `resolvePortRef` is the one part of the path that is not free (Spike A, A1).
     func humanInteracted(with portId: String) {
+        // Port42's own input for a companion (port.act) arrives through the same tap, as trusted events.
+        if isAgentInput(on: portId) { return }
         let human = humanPrincipal
         #if DEBUG
         if human == nil {
