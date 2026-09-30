@@ -1723,6 +1723,8 @@ struct ShellSecretsField: View {
     @State private var newName = ""
     @State private var newValue = ""
     @State private var newType: Port42AuthStore.SecretType = .bearerToken
+    /// The header or query parameter a Header or Query secret goes in (#225).
+    @State private var newField = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1748,7 +1750,7 @@ struct ShellSecretsField: View {
                     Image(systemName: on ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 12)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
                     Text(s.name).font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textPrimary)
-                    Text(s.type.rawValue).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                    Text(s.placementLabel).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Color.white.opacity(0.06), in: Capsule())
                 }
@@ -1772,15 +1774,20 @@ struct ShellSecretsField: View {
                 Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
                 Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
                 Text("Header").tag(Port42AuthStore.SecretType.header)
+                Text("Query").tag(Port42AuthStore.SecretType.query)
             }.labelsHidden().pickerStyle(.menu).tint(accent)
+            if SignOutSheet.needsField(newType) {
+                box(newType == .header ? "header name, e.g. xi-api-key" : "parameter name, e.g. key", $newField)
+            }
             secureBox("credential value", $newValue)
             HStack {
-                Button("cancel") { adding = false; newName = ""; newValue = "" }
+                Button("cancel") { adding = false; newName = ""; newValue = ""; newField = "" }
                     .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
                 Button("add") { save() }
                     .buttonStyle(.plain).font(Port42Theme.monoBold(10)).foregroundStyle(accent)
-                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || newValue.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || newValue.trimmingCharacters(in: .whitespaces).isEmpty
+                              || (SignOutSheet.needsField(newType) && newField.trimmingCharacters(in: .whitespaces).isEmpty))
             }
         }
         .padding(8).background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
@@ -1789,11 +1796,13 @@ struct ShellSecretsField: View {
     private func save() {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let value = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !value.isEmpty else { return }
-        Port42AuthStore.shared.saveSecret(name: name, type: newType, value: value)
+        let field = newField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !value.isEmpty, !SignOutSheet.needsField(newType) || !field.isEmpty else { return }
+        Port42AuthStore.shared.saveSecret(name: name, type: newType, value: value,
+                                          field: SignOutSheet.needsField(newType) ? field : nil)
         secrets = Port42AuthStore.shared.listSecrets()
         selected.insert(name)      // auto-grant the just-created secret
-        newName = ""; newValue = ""; adding = false
+        newName = ""; newValue = ""; newField = ""; adding = false
     }
 
     private func box(_ ph: String, _ t: Binding<String>) -> some View {

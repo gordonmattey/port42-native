@@ -33,7 +33,8 @@ public final class Port42AuthStore {
         case bearerToken   // Authorization: Bearer <value>
         case apiKey        // x-api-key: <value>  (Anthropic, etc.)
         case basicAuth     // Authorization: Basic <base64(value)>  — value is "user:pass"
-        case header        // Custom header — stored as "Header-Name: value"
+        case header        // <field>: <value>, a header the API names (xi-api-key, api-key, ...)
+        case query         // ?<field>=<value>, a query parameter the API names (key, api_key, ...)
     }
 
     /// A named secret stored in Keychain.
@@ -41,17 +42,76 @@ public final class Port42AuthStore {
         public var id: String { name }
         public let name: String
         public let type: SecretType
+        /// The header or query parameter a `.header` or `.query` secret goes in (#225). nil for the
+        /// other types, and for a header secret saved before #225, whose value carries its name.
+        public let field: String?
 
-        public init(name: String, type: SecretType) {
+        public init(name: String, type: SecretType, field: String? = nil) {
             self.name = name
             self.type = type
+            self.field = field
+        }
+
+        /// Where it goes, as the person reads it: "Bearer", "header xi-api-key", "query key".
+        public var placementLabel: String {
+            switch type {
+            case .bearerToken: return "Bearer"
+            case .apiKey: return "header x-api-key"
+            case .basicAuth: return "Basic"
+            case .header: return field.map { "header \($0)" } ?? "header"
+            case .query: return field.map { "query \($0)" } ?? "query"
+            }
+        }
+    }
+
+    /// Where a secret's value goes on a request.
+    public enum SecretPlacement: Equatable {
+        case header(name: String, value: String)
+        case query(name: String, value: String)
+
+        /// Where it goes, without the value: for an error that says what was sent.
+        public var described: String {
+            switch self {
+            case .header(let name, let value):
+                return name.lowercased() == "authorization"
+                    ? "the Authorization header (\(value.split(separator: " ").first.map(String.init) ?? "raw value"))"
+                    : "the \(name) header"
+            case .query(let name, _): return "the \(name) query parameter"
+            }
+        }
+    }
+
+    /// Where a secret of `type` goes, given its header or parameter name and its value (#225).
+    ///
+    /// Any API can want its key somewhere of its own: ElevenLabs in `xi-api-key`, Azure in `api-key`,
+    /// Google in a `key` query parameter. A header or query secret therefore names its place. A header
+    /// secret saved before #225 kept its name in the value ("xi-api-key: sk_..."); a value without one
+    /// went out as `Authorization: <value>`, which is how a bare ElevenLabs key failed.
+    public static func placement(type: SecretType, field: String?, value: String) -> SecretPlacement? {
+        let named = field?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        switch type {
+        case .bearerToken: return .header(name: "Authorization", value: "Bearer \(value)")
+        case .apiKey: return .header(name: "x-api-key", value: value)
+        case .basicAuth: return .header(name: "Authorization", value: "Basic \(Data(value.utf8).base64EncodedString())")
+        case .query:
+            guard let named else { return nil }
+            return .query(name: named, value: value)
+        case .header:
+            if let named { return .header(name: named, value: value) }
+            if let colon = value.firstIndex(of: ":") {
+                let name = value[..<colon].trimmingCharacters(in: .whitespaces)
+                let rest = value[value.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { return .header(name: name, value: rest) }
+            }
+            return .header(name: "Authorization", value: value)
         }
     }
 
     private static let secretPrefix = "secret-"
 
-    /// Save a named secret to Keychain.
-    public func saveSecret(name: String, type: SecretType, value: String) {
+    /// Save a named secret to Keychain. `field` is the header or query parameter a `.header` or
+    /// `.query` secret goes in.
+    public func saveSecret(name: String, type: SecretType, value: String, field: String? = nil) {
         // Store the credential value
         let account = Self.secretPrefix + name
         let data = value.data(using: .utf8)!
@@ -74,6 +134,11 @@ public final class Port42AuthStore {
 
         // Store metadata (type) in UserDefaults — not sensitive
         UserDefaults.standard.set(type.rawValue, forKey: "port42Secret-\(name)-type")
+        if let field = field?.trimmingCharacters(in: .whitespacesAndNewlines), !field.isEmpty {
+            UserDefaults.standard.set(field, forKey: "port42Secret-\(name)-field")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "port42Secret-\(name)-field")
+        }
 
         // Track the set of secret names
         var names = secretNames()
@@ -93,13 +158,14 @@ public final class Port42AuthStore {
     public func loadSecret(name: String) -> Secret? {
         guard let rawType = UserDefaults.standard.string(forKey: "port42Secret-\(name)-type"),
               let type = SecretType(rawValue: rawType) else { return nil }
-        return Secret(name: name, type: type)
+        return Secret(name: name, type: type, field: UserDefaults.standard.string(forKey: "port42Secret-\(name)-field"))
     }
 
     /// Delete a named secret from Keychain and metadata.
     public func deleteSecret(name: String) {
         deleteKeychainValue(account: Self.secretPrefix + name)
         UserDefaults.standard.removeObject(forKey: "port42Secret-\(name)-type")
+        UserDefaults.standard.removeObject(forKey: "port42Secret-\(name)-field")
         var names = secretNames()
         names.removeAll { $0 == name }
         UserDefaults.standard.set(names, forKey: "port42SecretNames")
@@ -116,28 +182,37 @@ public final class Port42AuthStore {
         return UserDefaults.standard.stringArray(forKey: "port42SecretNames") ?? []
     }
 
-    /// Resolve a named secret into an HTTP Authorization header value.
-    /// Returns (headerName, headerValue) or nil if the secret doesn't exist.
-    public func resolveSecretHeader(name: String) -> (String, String)? {
-        guard let secret = loadSecret(name: name),
-              let value = loadSecretValue(name: name) else { return nil }
-        switch secret.type {
-        case .bearerToken:
-            return ("Authorization", "Bearer \(value)")
-        case .apiKey:
-            return ("x-api-key", value)
-        case .basicAuth:
-            let encoded = Data(value.utf8).base64EncodedString()
-            return ("Authorization", "Basic \(encoded)")
-        case .header:
-            // Format: "Header-Name: value"
-            if let colonIdx = value.firstIndex(of: ":") {
-                let headerName = String(value[value.startIndex..<colonIdx]).trimmingCharacters(in: .whitespaces)
-                let headerValue = String(value[value.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
-                return (headerName, headerValue)
-            }
-            return ("Authorization", value)
+    /// Put a secret on a request: set its header, or add its query parameter (replacing one of the same
+    /// name the caller put in the URL).
+    public static func apply(_ placement: SecretPlacement, to request: inout URLRequest) {
+        switch placement {
+        case .header(let name, let value):
+            request.setValue(value, forHTTPHeaderField: name)
+        case .query(let name, let value):
+            guard let url = request.url, var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+            var items = (comps.queryItems ?? []).filter { $0.name != name }
+            items.append(URLQueryItem(name: name, value: value))
+            comps.queryItems = items
+            if let placed = comps.url { request.url = placed }
         }
+    }
+
+    /// What to tell the caller when the API refused the request a secret went on (401 or 403): where
+    /// the key was sent, and where to change it. A new user whose key went out in the wrong header saw
+    /// only the API's own "unauthorized", with nothing saying what Port42 had sent (#225). Never the value.
+    public static func refusedHint(status: Int, secret: String, placed: SecretPlacement) -> String? {
+        guard status == 401 || status == 403 else { return nil }
+        return "The API refused secret '\(secret)', which Port42 sent in \(placed.described). If this API "
+             + "expects its key somewhere else (a header of its own such as xi-api-key or api-key, or a query "
+             + "parameter), add the secret again in Settings → Secrets with that header or parameter. "
+             + "If the place is right, the key itself may be wrong or expired."
+    }
+
+    /// Where a named secret goes on a request, with its value; nil if there is no such secret, or a
+    /// query secret with no parameter name.
+    public func resolveSecret(name: String) -> SecretPlacement? {
+        guard let secret = loadSecret(name: name), let value = loadSecretValue(name: name) else { return nil }
+        return Self.placement(type: secret.type, field: secret.field, value: value)
     }
 
     // MARK: - Gateway root secret (slice-02 half two, D2)
@@ -280,4 +355,8 @@ public enum KeptSecret {
         case .unreadable(let status): return .unreadable(status)
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

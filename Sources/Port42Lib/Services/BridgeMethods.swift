@@ -918,16 +918,24 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         if request.httpBody != nil, request.value(forHTTPHeaderField: "Content-Type") == nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        // The secret goes where it says (#225): a header the API names, or a query parameter.
+        var placed: Port42AuthStore.SecretPlacement?
         if let secretName {
-            guard let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) else {
-                throw BridgeError.notFound("secret '\(secretName)'")
+            guard let placement = Port42AuthStore.shared.resolveSecret(name: secretName) else {
+                throw BridgeError.notFound("secret '\(secretName)' (or it is a query secret with no parameter name: "
+                                           + "add it again in Settings → Secrets)")
             }
-            request.setValue(headerValue, forHTTPHeaderField: headerName)
+            Port42AuthStore.apply(placement, to: &request)
+            placed = placement
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let httpResponse = response as? HTTPURLResponse
         var result: [String: Any] = ["status": httpResponse?.statusCode ?? 0]
+        if let secretName, let placed,
+           let hint = Port42AuthStore.refusedHint(status: httpResponse?.statusCode ?? 0, secret: secretName, placed: placed) {
+            result["hint"] = hint
+        }
         if let headers = httpResponse?.allHeaderFields as? [String: String] {
             var filtered: [String: String] = [:]
             for key in ["content-type", "x-request-id", "x-ratelimit-remaining", "retry-after", "location"] {

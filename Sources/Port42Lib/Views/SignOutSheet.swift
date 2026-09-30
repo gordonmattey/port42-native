@@ -9,6 +9,8 @@ public struct SignOutSheet: View {
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
+    /// The header or query parameter a Header or Query secret goes in (#225).
+    @State private var newSecretField = ""
     @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
     @AppStorage(ShellMode.takeoverKey) private var fullscreenTakeover = false
     @AppStorage(VoiceGlobalTrigger.enabledKey) private var voiceInOtherApps = false
@@ -709,12 +711,16 @@ public struct SignOutSheet: View {
 
     // MARK: - Secrets
 
+    /// A Header or Query secret names the header or parameter it goes in (#225).
+    static func needsField(_ t: Port42AuthStore.SecretType) -> Bool { t == .header || t == .query }
+
     private func secretTypeLabel(_ t: Port42AuthStore.SecretType) -> String {
         switch t {
         case .bearerToken: return "Bearer"
         case .apiKey: return "API Key"
         case .basicAuth: return "Basic"
         case .header: return "Header"
+        case .query: return "Query"
         }
     }
 
@@ -732,7 +738,7 @@ public struct SignOutSheet: View {
                         Text(secret.name)
                             .font(Port42Theme.monoBold(12))
                             .foregroundStyle(Port42Theme.textPrimary)
-                        Text(secret.type.rawValue)
+                        Text(secret.placementLabel)
                             .font(Port42Theme.mono(10))
                             .foregroundStyle(Port42Theme.textSecondary)
                             .padding(.horizontal, 6)
@@ -768,6 +774,7 @@ public struct SignOutSheet: View {
                             Button("API Key") { newSecretType = .apiKey }
                             Button("Basic") { newSecretType = .basicAuth }
                             Button("Header") { newSecretType = .header }
+                            Button("Query") { newSecretType = .query }
                         } label: {
                             HStack(spacing: 5) {
                                 Text(secretTypeLabel(newSecretType)).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
@@ -781,6 +788,17 @@ public struct SignOutSheet: View {
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                     }
 
+                    if newSecretType == .header || newSecretType == .query {
+                        // #225: an API names where its key goes; a Header or Query secret needs that name.
+                        TextField(newSecretType == .header ? "header name, e.g. xi-api-key" : "parameter name, e.g. key",
+                                  text: $newSecretField)
+                            .font(Port42Theme.mono(11))
+                            .textFieldStyle(.plain)
+                            .padding(4)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
+                    }
+
                     HStack(spacing: 8) {
                         SecureField("credential value", text: $newSecretValue)
                             .font(Port42Theme.mono(11))
@@ -792,14 +810,19 @@ public struct SignOutSheet: View {
                         Button(action: {
                             let name = newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                             let value = newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !name.isEmpty, !value.isEmpty else { return }
-                            Port42AuthStore.shared.saveSecret(name: name, type: newSecretType, value: value)
+                            let field = newSecretField.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !name.isEmpty, !value.isEmpty, !Self.needsField(newSecretType) || !field.isEmpty else { return }
+                            Port42AuthStore.shared.saveSecret(name: name, type: newSecretType, value: value,
+                                                              field: Self.needsField(newSecretType) ? field : nil)
                             secrets = Port42AuthStore.shared.listSecrets()
                             newSecretName = ""
                             newSecretValue = ""
+                            newSecretField = ""
                         }) {
                             let ready = !newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                                        !newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        !newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                        (!Self.needsField(newSecretType) ||
+                                         !newSecretField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             Text("add").font(Port42Theme.monoBold(11))                 // §7 accent-filled commit
                                 .foregroundStyle(ready ? .black : Port42Theme.textSecondary)
                                 .padding(.horizontal, 12).padding(.vertical, 6)
