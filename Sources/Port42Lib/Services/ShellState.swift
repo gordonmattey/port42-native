@@ -964,6 +964,120 @@ public final class ShellState: ObservableObject {
         showQuickSwitcher || showImagine || showImportSessions || shareTarget != nil || pendingInvite != nil
     }
 
+    // MARK: - Resize makes room (#196)
+
+    /// The smallest a neighbor gives way to. Below this it moves aside instead of shrinking further.
+    public static let makeRoomMin = CGSize(width: 160, height: 120)
+
+    /// The neighbors' frames while a tile is being resized: they give way live, before it is let go.
+    @Published public var makeRoomPreview: [String: CGRect] = [:]
+
+    /// The layout before the last resize that made room, so one action puts it back.
+    public struct LayoutUndo: Equatable {
+        public let space: String?
+        public let frames: [String: CGRect]
+    }
+    @Published public var layoutUndo: LayoutUndo?
+
+    /// Where each neighbor goes when a tile grows from `old` to `new`, for the ones it would now cover.
+    ///
+    /// Each gives way on the side that faces the tile, keeping the gap it had and its place in the
+    /// order: a neighbor to the right gives up its left edge, one below its top edge, and so on. A
+    /// neighbor that would get smaller than `minSize` keeps that size and moves aside. A neighbor that
+    /// already overlapped the tile is the person's own layout, and is left alone. Pure, so the rule is
+    /// testable without a view.
+    public static func makeRoom(from old: CGRect, to new: CGRect, others: [String: CGRect],
+                                minSize: CGSize = makeRoomMin) -> [String: CGRect] {
+        var out: [String: CGRect] = [:]
+        let eps: CGFloat = 1
+        for (id, n) in others where n.intersects(new) && !n.insetBy(dx: eps, dy: eps).intersects(old) {
+            var f = n
+            if n.minX >= old.maxX - eps {                      // to the right
+                let left = new.maxX + max(0, n.minX - old.maxX)
+                f = CGRect(x: left, y: n.minY, width: max(minSize.width, n.maxX - left), height: n.height)
+            } else if n.maxX <= old.minX + eps {               // to the left
+                let right = new.minX - max(0, old.minX - n.maxX)
+                let w = max(minSize.width, right - n.minX)
+                f = CGRect(x: right - w, y: n.minY, width: w, height: n.height)
+            } else if n.minY >= old.maxY - eps {               // below
+                let top = new.maxY + max(0, n.minY - old.maxY)
+                f = CGRect(x: n.minX, y: top, width: n.width, height: max(minSize.height, n.maxY - top))
+            } else if n.maxY <= old.minY + eps {               // above
+                let bottom = new.minY - max(0, old.minY - n.maxY)
+                let h = max(minSize.height, bottom - n.minY)
+                f = CGRect(x: n.minX, y: bottom - h, width: n.width, height: h)
+            }
+            if f != n { out[id] = f }
+        }
+        return out
+    }
+
+    /// The frames of the tiles on the desktop now, as the desktop draws them.
+    public func desktopFrames() -> [String: CGRect] {
+        let sid = appState.currentSpace?.id
+        var out: [String: CGRect] = [:]
+        for (i, p) in desktopTilePanels.enumerated() {
+            out[p.id] = ShellPlacement.resolvedTileFrame(position: p.position(on: sid), size: p.size, fallbackIndex: i)
+        }
+        return out
+    }
+
+    /// While a tile is resized: its neighbors give way, live.
+    public func previewMakeRoom(resizing id: String, from old: CGRect, to new: CGRect) {
+        var others = desktopFrames()
+        others[id] = nil
+        let preview = Self.makeRoom(from: old, to: new, others: others)
+        if preview != makeRoomPreview { makeRoomPreview = preview }
+    }
+
+    /// When the resize is let go. `keep` false is a quick look: nothing moves for good. Kept, the
+    /// neighbors take their new frames and the layout before it is remembered, for `putLayoutBack`.
+    /// The resized tile commits its own frame, as any resize does.
+    public func endMakeRoom(resizing id: String, from old: CGRect, keep: Bool) {
+        let changes = makeRoomPreview
+        makeRoomPreview = [:]
+        guard keep, !changes.isEmpty else { return }
+        let sid = appState.currentSpace?.id
+        let before = desktopFrames()
+        var originals: [String: CGRect] = [id: old]
+        for nid in changes.keys { originals[nid] = before[nid] }
+        for (nid, f) in changes {
+            appState.portWindows.updateTileFrame(id: nid, position: f.origin, size: f.size, on: sid)
+        }
+        layoutUndo = LayoutUndo(space: sid, frames: originals)
+    }
+
+    /// Put the layout back as it was before the last resize that made room: one action.
+    public func putLayoutBack() {
+        guard let undo = layoutUndo else { return }
+        for (id, f) in undo.frames {
+            appState.portWindows.updateTileFrame(id: id, position: f.origin, size: f.size, on: undo.space)
+        }
+        layoutUndo = nil
+    }
+
+    // MARK: - Port transparency (#195)
+
+    /// The least opaque a port may be set: below this its text stops being readable.
+    public static let minPortOpacity = 0.3
+    /// How see-through a port's body goes while its tile is dragged or resized, to place it well.
+    public static let movingOpacity = 0.55
+    /// The levels the port menu offers.
+    public static let portOpacityChoices: [Double] = [1, 0.85, 0.7, 0.5, 0.3]
+
+    /// A saved level, kept within what stays readable.
+    public static func portOpacity(_ level: Double) -> Double {
+        level.isFinite ? min(1, max(minPortOpacity, level)) : 1
+    }
+
+    /// How opaque a port's body is drawn: its own level, and no more than `movingOpacity` while the
+    /// person drags or resizes it. The title bar and chat are not drawn through this, and opacity
+    /// does not change hit-testing, so chrome stays readable and clicks still reach the port.
+    public static func bodyOpacity(level: Double, moving: Bool) -> Double {
+        let settled = portOpacity(level)
+        return moving ? min(settled, movingOpacity) : settled
+    }
+
     // MARK: - Where the person is (#130)
 
     /// The window's title: where the person is, for VoiceOver and for any tool that reads window

@@ -45,7 +45,8 @@ versions where the baseline stopped at 4).
    is not installed. Named with codenames, like any companion.
 3. **A version budget, not rounds (5, raised to 10 by GM on 2026-09-26).** Rounds let a lead decide how much a round holds;
    a budget of versions bounds the work, and so the tokens, whatever the lead decides. The lead is told
-   the number and reports DONE by it. `/imagine` takes an optional `--versions N`.
+   the number and reports DONE by it. `/imagine` takes an optional `--versions N`. There is no upper
+   limit, and 0 is no limit at all (GM, 2026-09-29; it was capped at 20).
 4. **The agents run visible (decided, GM 2026-09-26).** Three terminals on the new space's desktop,
    so each can be watched and typed into.
 5. **After DONE the team stays, idle.** You can keep asking it for changes in the port's chat.

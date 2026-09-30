@@ -270,6 +270,26 @@
     "name" : "companions_list"
   },
   {
+    "description" : "Take a companion off a space's roster, as its card's \"Remove from this space\" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.",
+    "input_schema" : {
+      "properties" : {
+        "companion" : {
+          "description" : "The companion's id or name.",
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "The space whose roster it leaves (default: your space).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "companion"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_remove"
+  },
+  {
     "description" : "Stop watching a port. Call it as the watcher, or pass `companion`.",
     "input_schema" : {
       "properties" : {
@@ -424,7 +444,7 @@
     "name" : "help"
   },
   {
-    "description" : "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing \/imagine --versions N in that space's chat.",
+    "description" : "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent; a budget of 0 has no limit. The same as typing \/imagine --versions N in that space's chat.",
     "input_schema" : {
       "properties" : {
         "space" : {
@@ -444,7 +464,7 @@
     "name" : "imagine_budget"
   },
   {
-    "description" : "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default 10), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
+    "description" : "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default 10; 0 is no limit), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
     "input_schema" : {
       "properties" : {
         "line" : {

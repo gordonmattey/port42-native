@@ -142,7 +142,8 @@ struct BridgeSchemaParityTests {
         // + presence_list (who is on a chat's messages, in the API: GM, 2026-09-27). = 65.
         // + state_set, state_get (a port says what it is doing; docs/plan-port-state-v1.md). = 67.
         // + port_look, port_act (browser use: see a page and act on it, docs/plan-browser-use.md). = 69.
-        #expect(checked == 69, "expected 69 parity-set methods, checked \(checked)")
+        // + companions_remove (take a companion off a space's roster, #131). = 70.
+        #expect(checked == 70, "expected 70 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

@@ -146,6 +146,7 @@ public enum RemoteAccess {
         "companions.list": .port(param: "port", right: .see),     // the shared port's own space
         "companions.get": .never,
         "companions.create": .never,
+        "companions.remove": .never,
         "companions.watch": .never,
         "companions.unwatch": .never,
         "companions.watches": .never,

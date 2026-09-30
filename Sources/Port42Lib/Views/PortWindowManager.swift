@@ -70,6 +70,9 @@ public struct PortPanel: Identifiable {
     /// Pinned in every space: the port shows on every desktop, above unpinned tiles, at ONE position
     /// (moving it anywhere moves it everywhere). Implies pinned.
     public var pinnedEverywhere: Bool = false
+    /// How opaque the port's body is, set by the person from its menu (#195) and kept with the port.
+    /// 1 is solid. Only the body fades: its title bar and chat stay solid, so they stay readable.
+    public var opacity: Double = 1
     public var isBackground: Bool = false
     public var portType: String = "web"
     /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip) or "background" (the desktop
@@ -393,6 +396,7 @@ public final class PortWindowManager: ObservableObject {
             panel.railOrder = row.dockOrder
             // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
             panel.pinnedEverywhere = row.pinnedEverywhere
+            panel.opacity = ShellState.portOpacity(row.opacity)   // #195
             if let adoptedStr = row.adoptedSpaceIds,
                let data = adoptedStr.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
@@ -661,6 +665,13 @@ public final class PortWindowManager: ObservableObject {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isAlwaysOnTop = pin != .none
         panels[idx].pinnedEverywhere = pin == .everywhere
+        persistPanel(id)
+    }
+
+    /// Set how opaque a port's body is (#195), within what stays readable, then persist.
+    public func setOpacity(id: String, _ level: Double) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].opacity = ShellState.portOpacity(level)
         persistPanel(id)
     }
 
@@ -1630,7 +1641,21 @@ class PortNavigationBlocker: NSObject, WKNavigationDelegate {
     var onDocumentSettled: (() -> Void)?
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(Self.allows(navigationAction.request.url) ? .allow : .cancel)
+        let url = navigationAction.request.url
+        if let link = Self.portLink(url, activated: navigationAction.navigationType == .linkActivated) {
+            NotificationCenter.default.post(name: .handleDeepLink, object: link)
+        }
+        decisionHandler(Self.allows(url) ? .allow : .cancel)
+    }
+
+    /// A port42:// link the person clicked, handed to the app's deep-link handler (#213) instead of
+    /// the webview, which cannot load it. The port itself still never leaves its document. A script
+    /// setting `location` arrives as `.other` and is refused. A script's `a.click()` arrives as
+    /// `.linkActivated` with the same button as a person's click (measured, 2026-09-29), so it counts:
+    /// it can move the view to another port, and reads or changes nothing.
+    static func portLink(_ url: URL?, activated: Bool) -> URL? {
+        guard activated, let url, url.scheme == "port42" else { return nil }
+        return url
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { onDocumentSettled?() }

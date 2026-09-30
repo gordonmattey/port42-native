@@ -996,6 +996,15 @@ FINDING PORTS:
   capabilities fields. Do not reformat as a table that drops these columns — the id
   is required for port_push, port_manage, and any follow-up tool calls.
 
+  LINKING TO A PORT:
+    A link to another port takes the person there when clicked: to its space (woken if
+    resting), brought back if it was closed or parked, and focused. Your port stays on its
+    own document. Use the id from ports_list:
+      <a href="port42://space/_/PORT_ID">Open the build log</a>
+    "_" means wherever the port is; port42://space/SPACE_ID/PORT_ID names its space. A port
+    shared from another machine is port42://PEER_ID/PORT_ID and opens only if its invite was
+    accepted here. A title is not an address. Setting location from a script is refused.
+
 SENDING INPUT TO A TERMINAL PORT:
 
   port_push(id, data)

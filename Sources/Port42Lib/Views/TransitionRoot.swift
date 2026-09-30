@@ -294,6 +294,7 @@ public struct TransitionRoot: View {
             return
         }
         if let req = ImagineLinkRequest.parse(url) { appState.openImagineLink(req); return }
+        if appState.openPortLink(url) { return }   // #213: a port's address takes you to the port
         p42log("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }

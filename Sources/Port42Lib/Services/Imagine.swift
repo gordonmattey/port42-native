@@ -357,7 +357,7 @@ extension AppState {
 @MainActor
 func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["imagine.start"] = BridgeMethod(permission: .terminal, paramNames: ["line", "versions"],
-        description: "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default \(Imagine.defaultVersions)), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.",
+        description: "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default \(Imagine.defaultVersions); 0 is no limit), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -377,7 +377,7 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["imagine.budget"] = BridgeMethod(permission: nil, paramNames: ["space", "versions"],
-        description: "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing /imagine --versions N in that space's chat.",
+        description: "Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent; a budget of 0 has no limit. The same as typing /imagine --versions N in that space's chat.",
         inputSchema: [
             "type": "object",
             "properties": [

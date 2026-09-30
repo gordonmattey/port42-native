@@ -215,7 +215,8 @@ struct ShellDesktopView: View {
                               tile: ShellTileModel(id: item.id,
                                                    title: item.peek?.title ?? item.panel?.title ?? "port",
                                                    panel: item.panel),
-                              frame: ShellPlacement.resolvedTileFrame(
+                              // #196: a neighbor giving way to a resize is drawn where it goes.
+                              frame: shell.makeRoomPreview[item.id] ?? ShellPlacement.resolvedTileFrame(
                                   position: item.panel?.position(on: sid),
                                   size: item.panel?.size ?? ShellPlacement.peekSize,
                                   fallbackIndex: fallbackIdx),
@@ -234,6 +235,34 @@ struct ShellDesktopView: View {
                             ? AnyTransition.move(edge: .leading).combined(with: .opacity)
                             : AnyTransition.opacity)
                 }
+                // #196: while a resize is making room, how to keep it or only look; after, one action
+                // puts the layout back.
+                if !shell.makeRoomPreview.isEmpty {
+                    VStack { Spacer()
+                        Text("let go to keep this layout · hold ⌥ to only look")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                            .padding(.bottom, 96)
+                    }.zIndex(9_000).allowsHitTesting(false)
+                } else if let undo = shell.layoutUndo, undo.space == sid {
+                    VStack { Spacer()
+                        HStack(spacing: 8) {
+                            Button { withAnimation(.spring(response: 0.4)) { shell.putLayoutBack() } } label: {
+                                Label("Put the layout back", systemImage: "arrow.uturn.backward")
+                                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                            }
+                            .buttonStyle(.plain)
+                            Button { shell.layoutUndo = nil } label: {
+                                Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                                    .frame(width: 20, height: 20).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain).accessibilityLabel("Keep this layout")
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Port42Theme.bgPrimary.opacity(0.92), in: Capsule())
+                        .overlay(Capsule().stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                        .padding(.bottom, 90)
+                    }.zIndex(9_000)
+                }
                 if shell.exposeActive {
                     VStack { Spacer()
                         Text("EXPOSÉ · click a tile · Tab / Esc to exit")
@@ -250,6 +279,7 @@ struct ShellDesktopView: View {
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
             // Here we only spring unit insertion/removal (tiles + peeks) and the exposé transition.
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
+            .animation(.easeOut(duration: 0.12), value: shell.makeRoomPreview)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
             .onAppear {
@@ -434,6 +464,8 @@ struct ShellTile: View {
     private let peekHeaderH: CGFloat = 24
 
     private var isFocused: Bool { shell.zoom == .focus(tile.id) }
+    /// Being dragged or resized by the person right now (#195).
+    private var isMoving: Bool { moveDelta != .zero || resizeCorner != nil }
     private var isPeeking: Bool { peekFrame != nil && !isFocused }
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
@@ -544,6 +576,10 @@ struct ShellTile: View {
             // SAME view — no placeholder, no second mount, the webview never detaches.
             ShellTileBody(shell: shell, appState: appState, tile: tile)
             .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
+            // #195: the body alone fades, to its own level and further while it is being moved, so
+            // what is behind shows through; the title bar, chat and card above stay solid.
+            .opacity(ShellState.bodyOpacity(level: tile.panel?.opacity ?? 1, moving: isMoving))
+            .animation(.easeOut(duration: 0.15), value: isMoving)
             // At card size (a peek is card-sized) Port42 draws the port's state over its content, not a
             // miniature of it (docs/plan-port-state-v1.md). The content stays mounted underneath, so
             // growing the unit shows it again with no reload.
@@ -789,6 +825,10 @@ struct ShellTile: View {
                             }
                         } : nil,
                         onMove: shareablePort ? { showMore = false; showMove = true } : nil,
+                        opacity: tile.panel?.opacity ?? 1,
+                        onOpacity: { level in
+                            if let id = tile.panel?.id { appState.portWindows.setOpacity(id: id, level) }
+                        },
                         pin: tile.panel?.pin ?? .none,
                         onPin: { pin in
                             if let id = tile.panel?.id { appState.portWindows.setPin(id: id, pin) }
@@ -980,10 +1020,15 @@ struct ShellTile: View {
                 if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true }
                 resizeCorner = corner
                 resizeDelta = v.translation
+                // #196: the neighbors give way as it grows, instead of being covered.
+                shell.previewMakeRoom(resizing: tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
             }
             .onEnded { v in
                 let f = Self.resized(frame, corner: corner, by: v.translation)
-                commit(origin: f.origin, size: f.size)
+                // Holding ⌥ is a quick look: on release everything goes back, this tile included.
+                let quickLook = NSEvent.modifierFlags.contains(.option)
+                shell.endMakeRoom(resizing: tile.id, from: frame, keep: !quickLook)
+                if !quickLook { commit(origin: f.origin, size: f.size) }
                 resizeCorner = nil
                 resizeDelta = .zero
                 shell.isDraggingTile = false
@@ -1678,10 +1723,14 @@ struct PortMorePopover: View {
     /// Move it to another space, or hand it to another machine (4.6b); nil hides the row.
     var onMove: (() -> Void)? = nil
     /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
+    /// This port's body opacity and how to change it (#195).
+    var opacity: Double = 1
+    var onOpacity: ((Double) -> Void)? = nil
     let pin: PortPin
     let onPin: (PortPin) -> Void
     let onSetBackground: () -> Void
     @State private var pinOpen = false
+    @State private var opacityOpen = false
 
     private var pinTitle: String {
         switch pin {
@@ -1722,11 +1771,25 @@ struct PortMorePopover: View {
                 subRow("In every space", on: pin == .everywhere) { onPin(.everywhere) }
                 if pin != .none { subRow("Unpin", on: false) { onPin(.none) } }
             }
+            // #195: how see-through the port is. The menu stays open, so the person can try levels.
+            if let onOpacity {
+                row("Opacity: \(Self.percent(opacity))", icon: opacity < 1 ? "circle.lefthalf.filled" : "circle.fill",
+                    trailing: opacityOpen ? "▾" : "▸") {
+                    withAnimation(.easeOut(duration: 0.15)) { opacityOpen.toggle() }
+                }
+                if opacityOpen {
+                    ForEach(ShellState.portOpacityChoices, id: \.self) { level in
+                        subRow(level == 1 ? "Solid" : Self.percent(level), on: abs(opacity - level) < 0.01) { onOpacity(level) }
+                    }
+                }
+            }
         }
         .padding(.vertical, 4)
         .frame(width: 200)
         .background(Port42Theme.bgPrimary)
     }
+
+    static func percent(_ level: Double) -> String { "\(Int((level * 100).rounded()))%" }
 
     private func row(_ title: String, icon: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {

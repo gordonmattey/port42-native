@@ -23,6 +23,15 @@ Make a companion, as the new-companion card does: an agent CLI (claude or codex)
 
     port42 companions.create name=… agent=… args=… runs=… port=… kinds=… cwd=… prompt=… command=… space_id=…
 
+## companions.remove
+
+Take a companion off a space's roster, as its card's "Remove from this space" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.
+
+        companion (string, required): The companion's id or name.
+        space_id (string): The space whose roster it leaves (default: your space).
+
+    port42 companions.remove companion=… space_id=…
+
 ## companions.unwatch
 
 Stop watching a port. Call it as the watcher, or pass `companion`.
@@ -53,7 +62,7 @@ List watches: yours, another companion's (`companion`), or every one (`companion
 
 ## imagine.budget
 
-Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent. The same as typing /imagine --versions N in that space's chat.
+Set the version budget of the imagine team in a space, for example to let it keep going after the budget is spent. The team's writes to its port past the budget are refused with budget_spent; a budget of 0 has no limit. The same as typing /imagine --versions N in that space's chat.
 
         space (string, required): The space the team was imagined in.
         versions (integer): The new budget, in versions of the port: any number, or 0 (or leave it out) for no limit.
@@ -64,7 +73,7 @@ Set the version budget of the imagine team in a space, for example to let it kee
 
 _needs the terminal permission_
 
-Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default 10), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
+Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default 10; 0 is no limit), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.
 
         line (string, required): What to make, in the person's words.
         versions (integer): The version budget (default 10; no upper limit; 0 is no limit at all).
