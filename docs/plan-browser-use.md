@@ -107,12 +107,45 @@ How it is checked:
    once for mail.google.com. What it reads goes to the model it runs on, so the first version keeps to
    the inbox's first page. Screenshots.
 
-## Phase 3: Keychain logins (planned in full before it starts)
+## Phase 3: remembered logins (future work, low priority; decided 2026-09-30)
 
-- Logins stored as Keychain internet passwords per site, added in Settings, Secrets, or offered for
-  saving when the person signs in by hand.
-- `port.act login`: Port42 finds the form and fills it; the credential never leaves Port42. Its own
-  permission card, naming the account.
+**How it works today (why this is needed).** A browser port keeps cookies and site storage, which is
+what keeps the person signed in across restarts. It stores no passwords: password saving and autofill
+are Safari's, built on WebKit, not WebKit's. The person's saved passwords live in iCloud Keychain (the
+Passwords app), and Apple lets only Safari, the Passwords app, an app signing in to its own associated
+website, and password-manager extensions fill from it. A browser like Port42 cannot read them. (Chrome and
+Firefox reach them only through Apple's iCloud Passwords browser extension, which talks to the Passwords
+app through a helper Apple installs; there is no public equivalent for Port42.) To be confirmed with a
+spike before building: that no API gives a third-party browser iCloud Keychain passwords.
+
+What it does (Gordon: 1 yes, 2 yes, 3 yes, 4 the one-time import):
+
+1. **Save.** A script in Port42's own world watches a browser port's forms; when one with a password field
+   is submitted, Port42 offers "Save this login to Port42?" with the site and the username. Yes stores it
+   in the Keychain as Port42's own internet password for that host (server, account, password). Never
+   offered for a site the person said "never" to (remembered per site).
+2. **Fill for the person.** When a page shows a login form for a site Port42 has a login for, a small
+   offer by the field fills it on a click, as Safari does. Several accounts for one site: a choice.
+3. **Fill for a companion.** `port.act` gains `login`: Port42 finds the form and fills the username and
+   password itself, then submits. First a card, per companion, site and account: "calm-moth wants to sign
+   in to github.com as gordon@...". The password never passes through the companion, the model or a
+   page's instructions. A page that asks for a password it has no form for gets nothing.
+4. **One-time import.** Settings, Secrets: import the CSV the Passwords app exports (File, Export All
+   Passwords). Each row becomes a Port42 Keychain login; the screen then asks the person to delete the
+   exported file, since it holds every password in plain text. Nothing is kept of the file.
+
+Also: Settings, Secrets lists Port42's saved logins (site, username), with delete; the Keychain items are
+readable only by Port42.
+
+Not in it: passkeys (they need Apple's browser entitlement, and once granted come from iCloud Keychain
+directly); reading a password manager (1Password and others) beyond the CSV import; syncing logins to
+another Mac.
+
+How it is checked: tests for the form watcher (a password form submit offers once; a "never" site is not
+offered), the Keychain store (save, read back, delete, per host and account, in a test keychain), the
+companion fill (a card per site and account; the password is typed into the page by Port42 and never in
+any reply), and the CSV import (Apple's column layout, bad rows skipped and reported). Live on Dev6: save a
+login, sign out, fill it; a companion signs in after the card; import a small exported file.
 
 ## Not in this
 
