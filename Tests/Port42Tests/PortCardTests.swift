@@ -63,7 +63,7 @@ struct PortCardTests {
         #expect(card.lines[1].value == "1m" && card.lines[2].value == "editing ShellDesktop.swift")
         let waiting = ChatPresence(name: "echo", state: .waiting("needs approval"), since: now)
         let w = PortCard.build(title: "echo", companion: .init(presence: waiting, waitingMessages: false), now: now)
-        #expect(w.lines.first?.value == "needs approval" && w.lines.first?.tone == .alert)
+        #expect(w.lines.first?.value == "needs approval" && w.lines.first?.tone == .waiting)
     }
 
     @Test("a web port's card says what Port42 sees around it: who works in its chat, errors, unread, who changed it, sharing")
@@ -93,16 +93,47 @@ struct PortCardTests {
         #expect(PortStateCard.lines(fitting: CGSize(width: 150, height: 20), progress: true) == 1)
     }
 
-    @Test("a hidden port's rail card dot: red when something needs you, accent while someone works, else quiet")
+    @Test("a card's dot: red broken, amber waiting on you, green working, grey idle, the same in every space")
     func railDot() {
         let accent = Color.orange
         let now = Date()
         let failing = PortCard.build(title: "t", errors: 1, now: now)
+        let asking = PortCard.build(title: "t", companion: .init(presence: ChatPresence(name: "echo", state: .waiting("needs approval"), since: now),
+                                                                  waitingMessages: false), now: now)
         let working = PortCard.build(title: "t", activity: .init(working: [ChatPresence(name: "eng", state: .working, since: now)]), now: now)
         let quiet = PortCard.build(title: "t", declared: [StateLine(label: "doing", value: "polling")], now: now)
-        #expect(RailPortCard.dot(failing, accent: accent) != accent && RailPortCard.dot(failing, accent: accent) != RailPortCard.dot(quiet, accent: accent))
-        #expect(RailPortCard.dot(working, accent: accent) == accent)
-        #expect(RailPortCard.dot(quiet, accent: accent) != accent)
+        #expect(failing.status == .broken && asking.status == .waiting && working.status == .working && quiet.status == .idle)
+        #expect(RailPortCard.dot(working, accent: accent) == RailPortCard.working, "working took the space's accent")
+        #expect(RailPortCard.dot(working, accent: accent) != accent)
+        #expect(Set([RailPortCard.dot(failing, accent: accent), RailPortCard.dot(asking, accent: accent),
+                     RailPortCard.dot(working, accent: accent), RailPortCard.dot(quiet, accent: accent)]).count == 4)
+    }
+
+    @Test("a finished turn is not an alarm: a bell, a notice or unread chat leave the dot grey")
+    func finishedIsIdle() {
+        let now = Date()
+        var rang = TerminalFacts()
+        rang.apply(.bell, at: now.addingTimeInterval(-5))
+        var told = TerminalFacts()
+        told.apply(.notification(title: "Claude Code", body: "Claude is waiting for your input"), at: now)
+        for card in [PortCard.build(title: "t", terminal: rang, now: now),
+                     PortCard.build(title: "t", terminal: told, now: now),
+                     PortCard.build(title: "t", activity: .init(unread: 3), now: now)] {
+            #expect(card.status == .idle, "lines: \(card.lines)")
+            #expect(!card.needsAttention)
+        }
+    }
+
+    @Test("the folded edge shows the worst of what needs you: broken before waiting, nothing for idle")
+    func edgeWorst() {
+        let now = Date()
+        let failing = PortCard.build(title: "t", errors: 1, now: now)
+        let asking = PortCard.build(title: "t", companion: .init(presence: ChatPresence(name: "e", state: .waiting(""), since: now),
+                                                                  waitingMessages: false), now: now)
+        let working = PortCard.build(title: "t", activity: .init(working: [ChatPresence(name: "e", state: .working, since: now)]), now: now)
+        #expect(ShellState.railEdgeStatus([working]) == nil)
+        #expect(ShellState.railEdgeStatus([working, asking]) == .waiting)
+        #expect(ShellState.railEdgeStatus([asking, failing]) == .broken)
     }
 
     @Test("a browser's card: its page, its site and a bar while it loads; a web port's errors; five lines at most")

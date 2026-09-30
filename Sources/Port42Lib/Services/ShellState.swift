@@ -1158,9 +1158,14 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// Whether the folded edge shows a red dot: some running port's card says something needs you.
+    /// Whether the folded edge shows a dot: some running port's card says something needs you.
     nonisolated public static func railNeedsAttention(_ cards: [PortCard]) -> Bool {
         cards.contains { $0.needsAttention }
+    }
+
+    /// The edge dot's status: the worst among the running ports that need you (broken before waiting).
+    nonisolated public static func railEdgeStatus(_ cards: [PortCard]) -> PortCard.Status? {
+        cards.map(\.status).filter { $0 >= .waiting }.max()
     }
 
     /// Rail geometry, fixed so a point maps to a slot exactly (Phase 2 step 3): the chrome clearance

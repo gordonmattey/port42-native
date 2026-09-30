@@ -92,7 +92,8 @@ struct PortStateCard: View {
     private func color(_ tone: PortCard.Tone) -> Color {
         switch tone {
         case .normal: return Port42Theme.textPrimary.opacity(0.9)
-        case .alert: return Color(red: 1, green: 0.45, blue: 0.4)
+        case .alert: return RailPortCard.alert
+        case .waiting: return RailPortCard.waiting
         case .quiet: return Port42Theme.textSecondary
         }
     }
@@ -125,15 +126,23 @@ struct RailPortCard: View {
     let onShow: () -> Void
     @State private var hovered = false
 
-    /// The red of a card that needs you, on the card's dot and on the folded rail's edge.
+    /// The dot's colors, the same in every space (GM, 2026-09-29: a space's accent made "working" a
+    /// different color in each): red broken, amber waiting on you, green working, grey idle.
     static let alert = Color(red: 1, green: 0.45, blue: 0.4)
+    static let waiting = Port42Theme.warning
+    static let working = Port42Theme.accent
 
-    /// How it is doing, from its card: something needs you (red), someone is working (accent), or quiet.
-    static func dot(_ card: PortCard, accent: Color) -> Color {
-        if card.needsAttention { return alert }
-        if card.lines.contains(where: { $0.label == "working" }) { return accent }
-        return Port42Theme.textSecondary.opacity(0.4)
+    static func color(_ status: PortCard.Status) -> Color {
+        switch status {
+        case .broken: return alert
+        case .waiting: return waiting
+        case .working: return working
+        case .idle: return Port42Theme.textSecondary.opacity(0.4)
+        }
     }
+
+    /// How it is doing, from its card.
+    static func dot(_ card: PortCard, accent: Color) -> Color { color(card.status) }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { _ in
@@ -147,7 +156,7 @@ struct RailPortCard: View {
                     }
                     ForEach(Array(card.lines.prefix(2).enumerated()), id: \.offset) { _, line in
                         (Text(line.label + " ").foregroundColor(Port42Theme.textSecondary.opacity(0.7))
-                         + Text(line.value).foregroundColor(line.tone == .alert ? Color(red: 1, green: 0.45, blue: 0.4)
+                         + Text(line.value).foregroundColor(line.tone == .alert ? Self.alert : line.tone == .waiting ? Self.waiting
                                                             : Port42Theme.textPrimary.opacity(0.85)))
                             .font(Port42Theme.mono(9))
                             .lineLimit(1).truncationMode(.tail)

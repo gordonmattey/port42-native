@@ -159,7 +159,9 @@ public final class PortStateStore: ObservableObject {
 /// knows (docs/plan-port-state-v1.md). Built in one place, so the card, `state.get`, the rail and
 /// ⌘K all say the same thing.
 public struct PortCard: Equatable {
-    public enum Tone: Equatable { case normal, alert, quiet }
+    /// A line's tone. `alert` is something broken (red), `waiting` is a companion waiting on the person
+    /// (amber). A bell, a notice or unread chat is neither: a turn that finished rings too (GM, 2026-09-29).
+    public enum Tone: Equatable { case normal, alert, waiting, quiet }
     public struct Line: Equatable {
         public let label: String
         public let value: String
@@ -170,8 +172,21 @@ public struct PortCard: Equatable {
 
     public var title: String
     public var lines: [Line]
-    /// Something on the card needs the person: an error, a failure, a question waiting.
-    public var needsAttention: Bool { lines.contains { $0.tone == .alert } }
+    /// Something on the card needs the person: something broken, or a companion waiting on them.
+    public var needsAttention: Bool { status == .broken || status == .waiting }
+
+    /// How the port is doing, as its dot shows it: broken (red), waiting on you (amber), working (green),
+    /// or idle (grey), in that order of precedence (GM, 2026-09-29).
+    public enum Status: Int, Comparable {
+        case idle, working, waiting, broken
+        public static func < (a: Status, b: Status) -> Bool { a.rawValue < b.rawValue }
+    }
+    public var status: Status {
+        if lines.contains(where: { $0.tone == .alert }) { return .broken }
+        if lines.contains(where: { $0.tone == .waiting }) { return .waiting }
+        if lines.contains(where: { $0.label == "working" || $0.label == "received" }) { return .working }
+        return .idle
+    }
     /// A bar, 0...1, when the port reports progress or is loading.
     public var progress: Double?
     public var progressFailed = false
@@ -217,7 +232,7 @@ public struct PortCard: Equatable {
             case .received: lines.append(Line(label: "received", value: ago(p.since, now)))
             case .working: lines.append(Line(label: "working", value: ago(p.since, now)))
             case .waiting(let why):
-                lines.append(Line(label: "waiting", value: why.isEmpty ? ago(p.since, now) : why, tone: .alert))
+                lines.append(Line(label: "waiting", value: why.isEmpty ? ago(p.since, now) : why, tone: .waiting))
             }
             if let doing = p.doing { lines.append(Line(label: "doing", value: doing.detail)) }
         }
@@ -226,7 +241,7 @@ public struct PortCard: Equatable {
         for p in activity.working where p.name.caseInsensitiveCompare(companion?.presence?.name ?? "") != .orderedSame {
             switch p.state {
             case .waiting(let why):
-                lines.append(Line(label: "waiting", value: why.isEmpty ? p.name : "\(p.name): \(why)", tone: .alert))
+                lines.append(Line(label: "waiting", value: why.isEmpty ? p.name : "\(p.name): \(why)", tone: .waiting))
             default:
                 lines.append(Line(label: "working", value: p.doing.map { "\(p.name): \($0.detail)" } ?? "\(p.name) · \(ago(p.since, now))"))
             }
@@ -248,9 +263,9 @@ public struct PortCard: Equatable {
             }
             if let cwd = shortPath(t.cwd, home: home) { lines.append(Line(label: "in", value: cwd, tone: .quiet)) }
             if let n = t.notification, n.at > (t.bellAt ?? .distantPast) {
-                lines.append(Line(label: "notice", value: n.body.isEmpty ? n.title : n.body, tone: .alert))
+                lines.append(Line(label: "notice", value: n.body.isEmpty ? n.title : n.body))
             } else if let bell = t.bellAt, now.timeIntervalSince(bell) < 600 {
-                lines.append(Line(label: "bell", value: "\(ago(bell, now)) ago", tone: .alert))
+                lines.append(Line(label: "bell", value: "\(ago(bell, now)) ago"))
             }
             if let p = t.progress {
                 progress = p.percent.map { Double($0) / 100 } ?? 0
@@ -266,7 +281,7 @@ public struct PortCard: Equatable {
             lines.append(Line(label: "errors", value: "\(errors)", tone: .alert))
         }
         if activity.unread > 0 {
-            lines.append(Line(label: "chat", value: activity.unread == 1 ? "1 unread" : "\(activity.unread) unread", tone: .alert))
+            lines.append(Line(label: "chat", value: activity.unread == 1 ? "1 unread" : "\(activity.unread) unread"))
         }
         if let c = activity.lastChange {
             lines.append(Line(label: "changed", value: "\(ago(c.at, now)) ago by \(c.name)", tone: .quiet))

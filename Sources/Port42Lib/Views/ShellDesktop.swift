@@ -1102,8 +1102,8 @@ struct ShellParkRail: View {
         TimelineView(.periodic(from: .now, by: 5)) { _ in
             let cards = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id).map { appState.portCard($0) }
             VStack {
-                if ShellState.railNeedsAttention(cards) {
-                    Circle().fill(RailPortCard.alert).frame(width: 6, height: 6)
+                if let status = ShellState.railEdgeStatus(cards) {
+                    Circle().fill(RailPortCard.color(status)).frame(width: 6, height: 6)
                         .padding(.top, ShellState.parkZoneHeight + ShellState.railHeaderHeight)
                         .help("A running port needs you")
                 }
