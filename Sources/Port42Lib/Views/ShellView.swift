@@ -493,13 +493,15 @@ public struct ShellView: View {
 
     private func sendAfterWords(into target: NSResponder?) {
         guard Self.sendsOnRelease else { return }
+        // A hold cut off at the limit is mid-sentence: its words land, and the person sends when done.
+        guard voiceSession?.endedAtLimit != true else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.sendDelay) {
             if let target { VoiceInserter.submit(into: target) } else { VoiceTyper.pressReturn() }
         }
     }
 
     /// Let go of a hold without treating it as a finished sentence: no transcription, no insertion, and any
-    /// uncommitted text taken back. The watchdog and the focus changes both land here.
+    /// uncommitted text taken back. The focus changes land here.
     @MainActor
     private func abandonVoiceHold() {
         voiceTimer?.invalidate(); voiceTimer = nil
@@ -517,11 +519,11 @@ public struct ShellView: View {
         clearVoiceNotice()
     }
 
-    private func endVoice() {
+    private func endVoice(atLimit: Bool = false) {
         voiceWatchdog?.invalidate(); voiceWatchdog = nil
         shell.voiceCapturing = false
         VoiceCue.play(.end)
-        voiceSession?.end()
+        voiceSession?.end(atLimit: atLimit)
         // A hold that produced nothing must leave no uncommitted text behind. The final text, when it
         // comes, commits over the mark; this is the silence case.
         if voiceSession?.transcription == nil {
@@ -542,13 +544,16 @@ public struct ShellView: View {
         }
     }
 
-    /// A hold that runs past the maximum is a stuck state, not a sentence.
+    /// A hold that reaches the maximum ends as a release does, and its words are kept (not sent). The end cue
+    /// tells the person it stopped listening.
     private func armVoiceWatchdog() {
         voiceWatchdog?.invalidate()
         voiceWatchdog = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.maximumHold, repeats: false) { _ in
             Task { @MainActor in
-                p42log("[Port42] voice: hold ran past %.0fs with no release; letting go", VoiceTrigger.maximumHold)
-                abandonVoiceHold()
+                voiceTimer?.invalidate(); voiceTimer = nil
+                guard voice.reachedLimit() == .endCapture, shell.voiceCapturing else { return }
+                p42log("[Port42] voice: hold reached %.0fs; ending it and keeping the words", VoiceTrigger.maximumHold)
+                endVoice(atLimit: true)
             }
         }
     }

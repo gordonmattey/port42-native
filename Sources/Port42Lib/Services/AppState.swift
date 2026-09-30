@@ -535,8 +535,8 @@ public final class AppState: ObservableObject {
                                            label: VoiceTyper.frontmostAppName)
                     }
                 },
-                onEnd: { [weak self] in
-                    self?.voice.end()
+                onEnd: { [weak self] atLimit in
+                    self?.voice.end(atLimit: atLimit)
                     self?.voiceHUD.hide()
                 })
             guard trigger.install() else { return }      // not granted yet; the watcher tries again

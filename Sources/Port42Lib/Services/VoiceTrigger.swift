@@ -34,10 +34,11 @@ public struct VoiceTrigger {
     /// (80 to 120 ms) and below a deliberate press feeling sluggish.
     public static let threshold: TimeInterval = 0.2
 
-    /// A hold longer than this is a stuck state, not a sentence. While capturing, the trigger swallows every
-    /// key (the hold owns the keyboard), so a release that is never seen would leave the keyboard dead until the
-    /// app is quit: it happened, and it looked like the app had hung. Both paths cancel on this.
-    public static let maximumHold: TimeInterval = 45
+    /// The longest a hold runs. At this point the hold ends as if released, and what was said is kept and
+    /// typed, but not sent: the person was cut off, not finished (GM, 2026-09-29: two minutes at most). It is
+    /// also the backstop for a release that is never seen, since while capturing the trigger swallows every
+    /// key and a lost release would otherwise leave the keyboard dead. Both paths end on this.
+    public static let maximumHold: TimeInterval = 120
 
     /// The space bar. `kVK_Space`.
     public static let spaceKeyCode: UInt16 = 49
@@ -48,6 +49,9 @@ public struct VoiceTrigger {
         case pending(since: TimeInterval)
         /// The hold completed and audio is being captured.
         case capturing
+        /// The hold reached `maximumHold` with the key still down. Its repeats are swallowed until the key
+        /// comes up, so a space bar still held does not type a run of spaces into what was dictated.
+        case spent
     }
 
     private var state: State = .idle
@@ -81,7 +85,19 @@ public struct VoiceTrigger {
             return .consume
         case .capturing:
             return .consume
+        case .spent:
+            // Repeats are the same press; a fresh press means the release was never seen, so it starts over.
+            guard !isRepeat else { return .consume }
+            state = .pending(since: now)
+            return .passThrough
         }
+    }
+
+    /// The hold ran to `maximumHold`. It ends as a release does, and the key is spent until it comes up.
+    public mutating func reachedLimit() -> Action {
+        guard state == .capturing else { return .passThrough }
+        state = .spent
+        return .endCapture
     }
 
     /// The threshold elapsed with the key still down. The caller arms this after a `.pending`
@@ -105,6 +121,9 @@ public struct VoiceTrigger {
         case .capturing:
             state = .idle
             return .endCapture
+        case .spent:
+            state = .idle
+            return .passThrough
         }
     }
 

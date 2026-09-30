@@ -48,12 +48,26 @@ public final class VoiceSession {
     private var askedForPermissions = false
 
     /// How often the words so far are re-read while the hold is open. The whole buffer is transcribed
-    /// each time rather than a sliding window: at the measured throughput a 40 second buffer costs about
-    /// 200 ms, which is cheaper than a second model and gives the same text the release will give.
+    /// each time rather than a sliding window, which needs no second model and gives the same text the
+    /// release will give. The cost grows with the hold: measured on an M-series Mac, 10 seconds of audio
+    /// reads in about 0.6 s, 45 seconds in 1.5 s, two minutes in 4.3 s (`VoiceLongHoldBench`).
     /// Half a second, so dictated words land close behind the voice (GM, 2026-09-29: at a second they
-    /// arrived in chunks). The model runs on the Neural Engine and keeps up.
+    /// arrived in chunks). This is the floor: see `partialGap` for a long hold.
     public var partialInterval: TimeInterval = 0.5
     private var partials: Task<Void, Never>?
+    /// Counts holds, so a re-read that finishes after its hold ended cannot land in the next one.
+    private var holdNumber = 0
+    /// Whether the last hold ended at `VoiceTrigger.maximumHold` rather than by a release. Its words are
+    /// typed but not sent: the person was cut off mid-sentence.
+    public private(set) var endedAtLimit = false
+
+    /// The wait before the next re-read, given how long the last one took. The whole buffer is re-read,
+    /// so the cost grows with the hold; at a fixed half second a long hold would keep the model busy
+    /// without pause, and the release's final read (and the next hold) would wait behind it. Waiting
+    /// twice the last read's time keeps the model idle at least two thirds of the time.
+    nonisolated public static func partialGap(interval: TimeInterval, lastRead: TimeInterval) -> TimeInterval {
+        max(interval, lastRead * 2)
+    }
 
     /// Whether the weights may be fetched. ON by default, because the app does not ship them: holding space
     /// IS the consent, and the indicator shows the download as it runs rather than stalling in silence.
@@ -132,15 +146,20 @@ public final class VoiceSession {
         do {
             try source.start()
             isCapturing = true
+            holdNumber += 1
+            endedAtLimit = false
             startPartials()
         } catch {
             setModel(.failed("microphone: \(error)"))
         }
     }
 
-    public func end() {
+    /// The hold is over: stop the microphone and read what was said. `atLimit` is a hold that ran to
+    /// `VoiceTrigger.maximumHold`; its words are kept all the same.
+    public func end(atLimit: Bool = false) {
         guard isCapturing else { return }
         isCapturing = false
+        endedAtLimit = atLimit
         partials?.cancel()
         partials = nil
         let samples = source.stop()          // first, always: a running engine is a live microphone
@@ -163,11 +182,14 @@ public final class VoiceSession {
         partials?.cancel()
         guard partialInterval > 0 else { return }
         partials = Task { [weak self] in
+            var lastRead: TimeInterval = 0
             while !Task.isCancelled {
                 guard let interval = self?.partialInterval else { return }
-                try? await Task.sleep(for: .seconds(interval))
+                try? await Task.sleep(for: .seconds(Self.partialGap(interval: interval, lastRead: lastRead)))
                 guard !Task.isCancelled, let self, self.isCapturing else { return }
+                let started = Date()
                 await self.runPartialOnce()
+                lastRead = Date().timeIntervalSince(started)
             }
         }
     }
@@ -176,10 +198,12 @@ public final class VoiceSession {
     /// directly, which is why the partial tests assert on behavior instead of on a sleep.
     public func runPartialOnce() async {
         guard isCapturing else { return }
+        let hold = holdNumber
         let samples = source.snapshot()
         guard samples.count > 8_000 else { return }          // half a second of audio to work with
         let text = (try? await transcriber.transcribe(samples)) ?? ""
-        guard isCapturing, !text.isEmpty else { return }
+        // Still this hold: a re-read of a hold that has ended, or been replaced by the next, says nothing.
+        guard isCapturing, hold == holdNumber, !text.isEmpty else { return }
         onPartial?(text)
     }
 

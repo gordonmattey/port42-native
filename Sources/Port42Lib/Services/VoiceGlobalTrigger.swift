@@ -31,9 +31,10 @@ public final class VoiceGlobalTrigger {
     private var runLoop: CFRunLoop?
 
     private let onBegin: () -> Void
-    private let onEnd: () -> Void
+    /// Called when the hold ends. True when it ran to `VoiceTrigger.maximumHold` rather than being released.
+    private let onEnd: (_ atLimit: Bool) -> Void
 
-    public init(onBegin: @escaping () -> Void, onEnd: @escaping () -> Void) {
+    public init(onBegin: @escaping () -> Void, onEnd: @escaping (_ atLimit: Bool) -> Void) {
         self.onBegin = onBegin
         self.onEnd = onEnd
     }
@@ -148,7 +149,7 @@ public final class VoiceGlobalTrigger {
             return Unmanaged.passUnretained(event)         // the threshold timer raises this, not an event
         case .endCapture:
             cancelThreshold()
-            DispatchQueue.main.async { [onEnd] in onEnd() }
+            DispatchQueue.main.async { [onEnd] in onEnd(false) }
             return nil                                      // the release belongs to the hold
         }
     }
@@ -159,7 +160,7 @@ public final class VoiceGlobalTrigger {
         guard trigger.isCapturing || trigger.isPending else { return }
         _ = trigger.cancel()
         cancelThreshold()
-        DispatchQueue.main.async { [onEnd] in onEnd() }
+        DispatchQueue.main.async { [onEnd] in onEnd(false) }
     }
 
     /// On the tap's own thread, where `trigger` lives.
@@ -183,12 +184,15 @@ public final class VoiceGlobalTrigger {
         watchdog = nil
     }
 
-    /// A release that is never seen (an app switch mid-hold, a lost key event) must not leave this capturing.
+    /// A hold ends at `VoiceTrigger.maximumHold`, which also covers a release that is never seen (an app switch
+    /// mid-hold, a lost key event).
     private func armWatchdog() {
         watchdog?.invalidate()
         let timer = Timer(timeInterval: VoiceTrigger.maximumHold, repeats: false) { [weak self] _ in
-            p42log("[Port42] voice: hold ran past %.0fs with no release; letting go", VoiceTrigger.maximumHold)
-            self?.cancelHold()
+            guard let self, self.trigger.reachedLimit() == .endCapture else { return }
+            p42log("[Port42] voice: hold reached %.0fs; ending it and keeping the words", VoiceTrigger.maximumHold)
+            self.cancelThreshold()
+            DispatchQueue.main.async { [onEnd = self.onEnd] in onEnd(true) }
         }
         watchdog = timer
         if let runLoop { CFRunLoopAddTimer(runLoop, timer, .defaultMode) }
