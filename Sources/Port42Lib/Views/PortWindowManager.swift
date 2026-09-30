@@ -1575,7 +1575,21 @@ class PortNavigationBlocker: NSObject, WKNavigationDelegate {
     var onDocumentSettled: (() -> Void)?
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(Self.allows(navigationAction.request.url) ? .allow : .cancel)
+        let url = navigationAction.request.url
+        if let link = Self.portLink(url, activated: navigationAction.navigationType == .linkActivated) {
+            NotificationCenter.default.post(name: .handleDeepLink, object: link)
+        }
+        decisionHandler(Self.allows(url) ? .allow : .cancel)
+    }
+
+    /// A port42:// link the person clicked, handed to the app's deep-link handler (#213) instead of
+    /// the webview, which cannot load it. The port itself still never leaves its document. A script
+    /// setting `location` arrives as `.other` and is refused. A script's `a.click()` arrives as
+    /// `.linkActivated` with the same button as a person's click (measured, 2026-09-29), so it counts:
+    /// it can move the view to another port, and reads or changes nothing.
+    static func portLink(_ url: URL?, activated: Bool) -> URL? {
+        guard activated, let url, url.scheme == "port42" else { return nil }
+        return url
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { onDocumentSettled?() }
