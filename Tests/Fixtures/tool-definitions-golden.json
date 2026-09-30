@@ -270,6 +270,26 @@
     "name" : "companions_list"
   },
   {
+    "description" : "Take a companion off a space's roster, as its card's \"Remove from this space\" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.",
+    "input_schema" : {
+      "properties" : {
+        "companion" : {
+          "description" : "The companion's id or name.",
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "The space whose roster it leaves (default: your space).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "companion"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_remove"
+  },
+  {
     "description" : "Stop watching a port. Call it as the watcher, or pass `companion`.",
     "input_schema" : {
       "properties" : {

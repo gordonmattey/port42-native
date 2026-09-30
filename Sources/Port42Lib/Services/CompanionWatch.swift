@@ -450,6 +450,34 @@ func registerWatchMethods(into r: inout BridgeRegistry, appState: AppState) {
 
 @MainActor
 func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
+    // #131: the other half of companions.create. An agent that made a companion for a job (a spike,
+    // an imagine team, a desk) takes it off the roster when the job is done; closing its terminal only
+    // archives the session. Exactly the card's "Remove from this space": the companion, its ports and
+    // its files are kept, and it can be added back.
+    r["companions.remove"] = BridgeMethod(permission: nil, paramNames: ["companion", "space_id"],
+        description: "Take a companion off a space's roster, as its card's \"Remove from this space\" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "companion": ["type": "string", "description": "The companion's id or name."],
+                "space_id": ["type": "string", "description": "The space whose roster it leaves (default: your space)."],
+            ],
+            "required": ["companion"],
+        ]) { p, args in
+        let ref = try args.requireString("companion")
+        guard let c = appState.companions.first(where: { $0.id == ref || $0.displayName.caseInsensitiveCompare(ref) == .orderedSame })
+        else { throw BridgeError.notFound("companion '\(ref)'") }
+        let sid = args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
+        // Only a space the caller acts in (the APP-11 write scope), refused as not_found like a read.
+        guard let space = appState.spaces.first(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p)
+        else { throw BridgeError.notFound("space '\(sid)'") }
+        guard ((try? appState.db.getAgentsForSpace(spaceId: sid)) ?? []).contains(where: { $0.id == c.id }) else {
+            throw BridgeError.notFound("\(c.displayName) is not on the roster of '\(space.name)'")
+        }
+        appState.removeCompanionFromSpace(c, space: space)
+        return .object(["ok": .bool(true), "companion": .string(c.displayName), "space": .string(sid)])
+    }
+
     r["companions.create"] = BridgeMethod(permission: .terminal, paramNames: ["name", "agent", "args", "runs", "port", "kinds", "cwd", "prompt", "command", "space_id"],
         description: "Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: \"port\" (default, on the desktop) or \"running\" (off the desktop, a card under Running in the rail; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default [\"port\"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.",
         inputSchema: [

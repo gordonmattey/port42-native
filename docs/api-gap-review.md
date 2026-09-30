@@ -59,7 +59,7 @@ revoking permissions, secrets, relays, sign out, power down, reset.
 | Runs in a port or hidden | ShellView.swift:1198-1201 | updateCompanion, setCompanionHidden :244 | none | |
 | Grant secrets | ShellView.swift:1211-1214 | updateCompanion (secretNames) | none | likely human-only |
 | Add to this space | ShellView.swift:1557, :1683-1686 | addCompanionToSpace :2452 | none explicit | only as a side effect of an @mention in `chat.post` (PortChat.swift:190-196) |
-| Remove from this space | ShellView.swift:1217 | removeCompanionFromSpace :2463 | none | |
+| Remove from this space | ShellView.swift:1217 | removeCompanionFromSpace :2463 | none | Since closed: `companions.remove` (#131) |
 | Open (respawn its terminal) | ShellDesktop.swift:1338 | activateCompanion :1128 | partial | `port.manage focus` on its terminal only |
 
 The API does more than the UI in one place: `companions.unwatch` has no UI.
@@ -91,7 +91,8 @@ The API does more than the UI in one place: `companions.unwatch` has no UI.
    adopt/unadopt; `ports.list` reports `pinned` and `alsoIn`; `port.manage close` on an adopted tile
    detaches it here instead of archiving it.
 3. **Companion lifecycle:** `companions.update` (name, prompt, runs hidden), `companions.delete`,
-   `space.addCompanion` / `space.removeCompanion`. Secrets stay human-only.
+   `space.addCompanion` / `space.removeCompanion` (removal shipped as `companions.remove`, #131). Secrets
+   stay human-only.
 4. **Space management:** `space.update` (name, accent), `space.rest`, `space.wake` (and
    `space.switchTo` wakes), `space.reorder`; `space.list` reports resting and accent.
 5. **Port tiles:** `port.manage park` / `unpark`, `port.move` width and height, `port.manage reload`,

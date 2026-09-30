@@ -538,7 +538,7 @@ Things that would be cool once the five scenarios hold. Grouped 2026-09-28; buil
 - **`companions.remove`** (GM, 2026-09-26). Take a companion out of a space by id or name, keeping
   every port it made (the card's "Remove from this space", as an API). Today the only removal is by
   hand, one card at a time, and "Delete companion" also closes the ports it created. Found cleaning
-  up ten stale companions in prod's port42-app space.
+  up ten stale companions in prod's port42-app space. Done in #131.
 - **Crews by kind for imagine** (GM via growth, 2026-09-27: "for these application types surely you want
   a set of agents appropriate to them"). Same shape and cost as today (a lead and two members, the same
   version budget); only the member roles change by kind: data (analyst, engineer), design (designer,

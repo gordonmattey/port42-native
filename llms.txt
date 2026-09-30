@@ -227,6 +227,10 @@ Generated from the live method registry: every entry below is served exactly as 
       List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want). From another machine: the companions of the shared port's own space, named by `port`.
         port (string): From another machine: the shared port whose space to list.
         space_id (string): Omit for your own space (the default). A space id targets that space. "*" returns the whole-instance roster.
+  companions.remove(companion, space_id)
+      Take a companion off a space's roster, as its card's "Remove from this space" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.
+        companion (string, required): The companion's id or name.
+        space_id (string): The space whose roster it leaves (default: your space).
   companions.unwatch(port, companion)
       Stop watching a port. Call it as the watcher, or pass `companion`.
         companion (string): Whose watch, by name or id (default: you).

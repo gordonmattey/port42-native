@@ -30,6 +30,7 @@ struct BridgeTargetScopeTests {
         "invite.list": "the port's authority or the invite's maker (APP-01)",
         "invite.revoke": "the port's authority or the invite's maker (APP-01)",
         "space.delete": "read scope, and a card every time for anyone but the person (APP-11)",
+        "companions.remove": "write scope: only a space the caller acts in (APP-11 rule, #131)",
         "space.create": "creates only", "space.list": "space names",
         "space.switchTo": "moves the person's view only",
         // Open, each with the ticket that closes it.

@@ -23,6 +23,15 @@ Make a companion, as the new-companion card does: an agent CLI (claude or codex)
 
     port42 companions.create name=… agent=… args=… runs=… port=… kinds=… cwd=… prompt=… command=… space_id=…
 
+## companions.remove
+
+Take a companion off a space's roster, as its card's "Remove from this space" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.
+
+        companion (string, required): The companion's id or name.
+        space_id (string): The space whose roster it leaves (default: your space).
+
+    port42 companions.remove companion=… space_id=…
+
 ## companions.unwatch
 
 Stop watching a port. Call it as the watcher, or pass `companion`.
