@@ -65,7 +65,7 @@ Create a port and return its id. The uniform way to make any port. type:"web" ne
         env (object): type:"terminal" — custom environment variables for the shell.
         html (string): type:"web" — full port HTML body (include a <title> and <meta name="version">).
         initialInput (string): type:"terminal" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input.
-        presentation (string): Where the port appears: "tiled" (default, a desktop tile), "parked" (a chip in the rail) or "hidden" (runs with no tile: a background job, a pipe stage, or an agent nobody needs to watch; show it with port.manage show).
+        presentation (string): Where the port appears: "tiled" (default, a desktop tile), "running" (off the desktop at full speed, a card under Running in the rail: a background job, a pipe stage, or an agent nobody needs to watch) or "paused" (off the desktop, slowed, listed under Paused). Show it with port.manage show. "hidden" and "parked" are the older names.
         space_id (string): Space to create the port in (default: current space).
         systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
         title (string): Port title (default: derived from html <title>, or the command).
@@ -126,9 +126,9 @@ Return the calling port's own id, title, space, capabilities, and activity token
 
 ## port.manage
 
-Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.
+Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
 
-        action (string, required): One of: focus, close, hide, show, pin, pinEverywhere, unpin (minimize, dock, restore and undock are older names for hide and show)
+        action (string, required): One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
 
@@ -238,6 +238,23 @@ List active ports. Each port has an id (UDID), title, capabilities array, status
 The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
 
     port42 presentation
+
+## state.get
+
+What a port's card shows: its title, then its lines, declared first (known: false), then what Port42 knows (known: true): a terminal's running command, last exit code, directory and bell, a companion working or waiting, a browser's page, console errors. progress is 0 to 1 when there is a bar.
+
+        port (string): The port's id; omit from a port's own page.
+
+    port42 state.get port=…
+
+## state.set
+
+Say what a port is doing, in a few short lines, shown on its card when it is small (a peek), on its card under Running in the rail and in ⌘K, before what Port42 knows about it. From a port's page: port42.state.set([{label, value}, …]) for itself. From an agent: name the port. Only the port, its author, the person or a companion in its space may set it. Kept until the port sets it again or closes.
+
+        lines (array, required): Up to 5 lines, first the most important, each {label, value}: e.g. [{"label":"doing","value":"building the join card"},{"label":"progress","value":"3 of 5"}]. Values are cut at 80 characters. An empty list clears it.
+        port (string): The port's id; omit from a port's own page.
+
+    port42 state.set lines=… port=…
 
 ## storage.delete
 

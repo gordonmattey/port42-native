@@ -114,7 +114,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-compose/SKILL.md</key>
 		<data>
-		2/XJR+lDxWPAOqFKGP0UgPB3sVE=
+		PQ6Bdu3QyVLhm/twPt/1p0g4g6Q=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-compose/reference.md</key>
 		<data>
@@ -130,23 +130,23 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/SKILL.md</key>
 		<data>
-		PFonMHz9kqHGEF3U5URsJ7p3PTU=
+		R/U6wNaW1E25fQgzMZiFbSQbu7E=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/manual.md</key>
 		<data>
-		/3JEcdr+l5eSalXj5krrJnnHmCk=
+		2toDnYJK7nU7Daq80Ruhzz+HmDU=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/reference.md</key>
 		<data>
-		Jzju+8wW8ncBj/GTGn4bSXmP9oM=
+		ja4SF2B5qi2/IzxTn8Wk49ftC3c=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
 		<data>
-		L2jnIFpG+5d/THOPgK/Y0CYk9Iw=
+		B7/9Euwf9NnoMahXnWdUMBrbD8A=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/reference.md</key>
 		<data>
-		j7GIfs/IrKOHMTziplXjTKvTx5w=
+		Tsr73F4YiDGVMZNAXr2rmEmL+CI=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42/SKILL.md</key>
 		<data>
@@ -154,11 +154,11 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42/reference.md</key>
 		<data>
-		uQpgMtKGj4PKV5pkMbfqmRMig7o=
+		600kGtA4R1hxY7U8y2c78D6TOso=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		odTwVHaa37r86WMUBLE1PWFXzJs=
+		ju40aqkvEvTaiSzhpBeY6TkZjO4=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<data>
@@ -184,7 +184,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			w60asgsCK0vx8EnhaQZkSHpn15M=
+			KelOcbzCGDqpO/WoTW90mu4l5gU=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-claude-shim" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -193,7 +193,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			GUOuBjbO0iTOSfYAKIyUTnSVqbo=
+			bxlQ885X4WXMkNmfDtYxMgvNT64=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-cli" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -202,7 +202,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			9sPkOw4hmwM4v5Nw+Mw2NWtd+uo=
+			pFjjJnlg/w2ffIm+KXtK/RerrqQ=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -400,7 +400,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			7ZFzbdo8WSoueFjKOoWIQ5QD6SKLqBoKj200sJTI+bY=
+			1GdChf5QEeQPJRxKn0/W6dhb+oiNSl4JBibE8pGudEw=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-compose/reference.md</key>
@@ -428,35 +428,35 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			PChPSNd3LAwUJmEGBppiwSua9Vjugu0dqPIWPZpx+Is=
+			NNaWgWSmo082PcnQLocna+tlmgMSknmM+PZOs+wMNVQ=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/manual.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			VuH7TWiLQDIjcpOc2MfgH4GT6I26ToFXGlSWnuYdmmM=
+			tX1rcT2HAh3MPSgFVigsD7uK7pE206AQwmMaaaZsaGg=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-ports/reference.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			zmMwyNFXvVk2lf5EVycrrjXxIA5PqY1f7fSuRwEEK+U=
+			fVt4m07uSO0UiypLHTpQpY7TThVJsjIyyP9MQE+qOe8=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/SKILL.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			LW8lfSLi0i52aGodi69R8mkxKv2u8CWEhQN9hUn2Blo=
+			7PlMQb+0qvexGyWpRKQFR/8tYmhhJlRSaQoQC+oadOU=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42-team/reference.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			CWbRtxzwCcpL6TsBblPmyka0q7eiRJCaxT8qdWFG5oo=
+			GwgB+VSA35rlIaPiFGDEkcDg3JrVlr+D2W9DKP1wPHo=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-skills/skills/port42/SKILL.md</key>
@@ -470,14 +470,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			p6qoUtngkKeCooRwI+gv1Zvol1w7L+pby53wTRf2IyY=
+			A9XWP8QY6aMcbRKYdEuekiV4nRUQ+9ZF6sjNQmFErmI=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			sqk/n9OLbPA+eIp7BXhJPUStSlEYFYa+ZNyCZhWI8z8=
+			dNgErK9zAnMhQsNtKilJ6fW1OJ8cS9tH+9LmUbqH+cA=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>

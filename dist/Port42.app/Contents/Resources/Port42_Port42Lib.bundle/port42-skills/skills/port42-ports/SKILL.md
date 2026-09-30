@@ -1,6 +1,6 @@
 ---
 name: port42-ports
-description: Use before making or changing a Port42 port (a web, terminal or browser surface on the person's desktop), and when a port misbehaves. Covers creating, patching and checking ports, live updates, hidden ports, storage and the gotchas that break them.
+description: Use before making or changing a Port42 port (a web, terminal or browser surface on the person's desktop), and when a port misbehaves. Covers creating, patching and checking ports, live updates, running ports, storage and the gotchas that break them.
 ---
 
 # Making and changing ports
@@ -24,7 +24,8 @@ Write the HTML to a file, then:
 
 - Include a `<title>` and `<meta name="version" content="1">`, and bump the version on every change.
 - Write only what goes inside `<body>`. The Port42 dark theme is injected for you.
-- It returns the port's `id` and `token`. Answer where you were asked with the title and id.
+- Call `port42.state.set([{label, value}])` as it changes: small or off the desktop, it shows only that.
+- It returns the port's `id` and `token`. Answer with the title and id.
 
 ## Asked for a website, an app or a page
 
@@ -46,7 +47,7 @@ Read it, change the least you can, write it back with its token:
     port42 port.patch id=<id> search=@old.txt replace=@new.txt token=<token>
     port42 port.update id=<id> html=@port.html token=<token>
 
-Prefer `port.patch`. Never rewrite a working port to fix one bug. Every write returns the next token.
+Prefer `port.patch`; never rewrite a working port to fix one bug. Each write returns the next token.
 
 A write reloads the port only when it must, and returns `applied`:
 
@@ -74,15 +75,15 @@ The whole log, every level, is for debugging:
 
 Check the DOM for the controls you added, then say what you checked.
 
-## Hidden ports
+## Ports off the desktop
 
-A port with nothing to show (a pipe stage, a poller, a scheduler, a watcher) is made hidden:
+A port with nothing to show (a pipe stage, a poller, a scheduler, a watcher) runs off the desktop:
 
-    port42 port.create type=web presentation=hidden html=@stage.html
+    port42 port.create type=web presentation=running html=@stage.html
 
-It runs with its storage, chat and subscriptions and no tile. The person finds it in the command
-palette and the "N hidden" count. `port42 port.manage id=<id> action=show token=<token>` (or `hide`) moves it. A
-hidden claude or codex terminal is a headless agent reached through its chat.
+It runs with its storage, chat and subscriptions, as a card under Running in the rail. `port42
+port.manage id=<id> action=show token=<token>` brings it back; `hide` or `pause` (slowed) sends it
+off. A running claude or codex terminal is an agent reached through its chat.
 
 ## Share one
 
@@ -102,20 +103,19 @@ this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unus
   relative units.
 - **Never let a canvas's backing store feed its layout.** Lock the display size in CSS
   (`width:100%; height:100%`), then size the backing store from it, or it grows without end.
-- **three.js:** `renderer.setSize(w, h)`, never `setSize(w, h, false)`.
+- **three.js:** `renderer.setSize(w, h)`, not `setSize(w, h, false)`.
 - **WebGL screenshots are black** without `preserveDrawingBuffer: true`.
 - **Scripts run as ES modules.** Inline `onclick="fn()"` cannot see your functions; use
-  `addEventListener`, or `window.fn = fn`.
+  `addEventListener` or `window.fn = fn`.
 - **Remote scripts, styles and images are blocked.** Inline your libraries. For network, use
-  `port42.rest.call` from the page.
+  `port42.rest.call`.
 - **Animation:** start the loop running, then pause it when `port42.on('presentation', p => ...)`
   reports `p.visible` false. Never wait for that event to start: it fires on change. Use
   `port42.presentation()` for the state at startup.
-- **Off screen** (hidden, parked, another space) a port still receives every event at full rate. Its
-  timers run at full rate only when hidden; parked or in another space they slow to about once a
-  second, and animation frames stop.
-- **A failed bridge call rejects.** Wrap startup in try/catch so one failure does not blank the port,
-  and show failures in the UI.
+- **Off screen** (running, paused, another space) a port still gets every event. Timers run at full
+  rate only when running; paused or elsewhere they slow to about once a second and frames stop.
+- **A failed bridge call rejects.** Wrap startup in try/catch so one failure cannot blank the port;
+  show failures in the UI.
 - **`port.exec`** runs your JS as a function body: a multi-statement line needs an explicit `return`,
   and never return a promise that does not settle.
 
