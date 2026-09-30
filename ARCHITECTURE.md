@@ -222,7 +222,7 @@ turn are held and delivered together, and an hourly ceiling pauses a runaway wat
 
 **Imagine.** `/imagine <line>` in a chat, or ⌘I, creates a space, a placeholder port and three
 companions (a lead and two engineers) on the CLI the person chose, with a version budget (default
-10, at most 20). From then on they are ordinary companions (`Imagine.swift`).
+10, no upper limit, 0 for none). From then on they are ordinary companions (`Imagine.swift`).
 
 **Bringing sessions in.** Session import (`SessionImport.swift`, first run and ⌘K) finds running
 Claude Code and Codex sessions and brings them into spaces. `port42 teleport` does the same for one
