@@ -116,6 +116,10 @@ next build instead of at ship time. `SKIP_TESTS=1 ./build.sh --run` when you nee
 > To confirm the bundle is current, the binary mtime should be newer than your last edit:
 > `stat -f '%Sm %N' .build/Port42.app/Contents/MacOS/Port42`.
 
+**Dev instances have owners** (`docs/dev-instances.md`): build and test only on yours, and never on
+one someone holds. `scripts/dev-lock.sh` shows and takes locks; `build.sh` refuses a locked instance
+unless `PORT42_DEV_OWNER` names its holder. Dev8 and Dev9 exist too (4250, 4251).
+
 ### Ship a release (sign + notarize + push)
 
 ```bash

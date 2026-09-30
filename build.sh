@@ -71,6 +71,8 @@ DEV4=false
 DEV5=false
 DEV6=false
 DEV7=false
+DEV8=false
+DEV9=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -83,6 +85,8 @@ for arg in "$@"; do
         --dev5)    DEV5=true ;;
         --dev6)    DEV6=true ;;
         --dev7)    DEV7=true ;;
+        --dev8)    DEV8=true ;;
+        --dev9)    DEV9=true ;;
     esac
 done
 
@@ -107,6 +111,13 @@ elif $DEV6; then
 elif $DEV7; then
     APP_DIR_NAME="Port42Dev7"; EXEC="Port42Dev7"; BUNDLE_ID="com.port42.dev7"
     DISPLAY_NAME="Port42 Dev7"; GW_PORT="4249"; DATA_DIR="Port42Dev7"; INVITE_NAME="com.port42.dev7.invite"; DEV_ISO=true
+elif $DEV8; then
+    # Dev8 and Dev9 (2026-09-29): the squad's specialists and the architect (docs/dev-instances.md).
+    APP_DIR_NAME="Port42Dev8"; EXEC="Port42Dev8"; BUNDLE_ID="com.port42.dev8"
+    DISPLAY_NAME="Port42 Dev8"; GW_PORT="4250"; DATA_DIR="Port42Dev8"; INVITE_NAME="com.port42.dev8.invite"; DEV_ISO=true
+elif $DEV9; then
+    APP_DIR_NAME="Port42Dev9"; EXEC="Port42Dev9"; BUNDLE_ID="com.port42.dev9"
+    DISPLAY_NAME="Port42 Dev9"; GW_PORT="4251"; DATA_DIR="Port42Dev9"; INVITE_NAME="com.port42.dev9.invite"; DEV_ISO=true
 elif $DEV4; then
     # Fourth isolated dev instance. Added 2026-07-30 as the standing test target, so Dev/Dev2/Dev3
     # can keep running whatever they are running (companion loops, long sessions) while changes are
@@ -126,6 +137,23 @@ elif $DEV3; then
 else
     APP_DIR_NAME="Port42Dev"; EXEC="Port42Dev"; BUNDLE_ID="com.port42.dev"
     DISPLAY_NAME="Port42 Dev"; GW_PORT="4243"; DATA_DIR="Port42Dev"; INVITE_NAME="com.port42.dev.invite"; DEV_ISO=true
+fi
+
+# --- Who holds this dev instance (docs/dev-instances.md) ---------------------------------------
+# A build stops and relaunches its instance, which wrecks whatever someone is testing there. A lock
+# (scripts/dev-lock.sh) says who holds an instance; anyone else's build of it is refused, naming the
+# holder. Say who you are with PORT42_DEV_OWNER. Release builds are never locked.
+if [ "$CONFIG" != "release" ]; then
+    INSTANCE=$(echo "$APP_DIR_NAME" | sed 's/^Port42//' | tr '[:upper:]' '[:lower:]')
+    LOCK="$HOME/.port42/dev-locks/$INSTANCE"
+    if [ -f "$LOCK" ]; then
+        HOLDER=$(head -1 "$LOCK")
+        if [ "${PORT42_DEV_OWNER:-}" != "$HOLDER" ]; then
+            echo "[build] $DISPLAY_NAME is locked by $HOLDER: $(sed -n 2p "$LOCK")"
+            echo "[build] Not building it. Use your own instance (docs/dev-instances.md), or ask $HOLDER to release it."
+            exit 3
+        fi
+    fi
 fi
 
 # Auto-bump patch version for release builds if not manually bumped.
