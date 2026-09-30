@@ -114,16 +114,35 @@ struct BrowserUseTests {
         #expect(window.firstResponder === personsResponder, "acting took the person's keyboard")
     }
 
-    @Test("a port that is not on the desktop cannot be acted on, and says to show it")
-    func hiddenPortRefused() async throws {
+    @Test("a port that is not on screen is worked on out of sight, and put back afterwards; its card says so")
+    func outOfSight() async throws {
         let (w, udid, wv, window) = try await world()
-        wv.removeFromSuperview()
+        wv.removeFromSuperview()                            // running with no tile, or on another space's desktop
         window.close()
+        #expect(wv.window == nil)
+        let look = try await call(w, "port.look", ["id": udid])
+        let go = try #require(element(look, labelled: "Search"), "an out-of-sight port could not be seen")
+        #expect(wv.window == nil, "the page was left in the off-screen window after the look")
+        _ = try await call(w, "port.act", ["id": udid, "action": "click", "n": go, "token": look["token"]!.stringValue!])
+        let log = try await pageLog(wv)
+        #expect(log.contains("click:true"), "a click out of sight did not arrive: \(log)")
+        #expect(wv.window == nil, "the page was left in the off-screen window after the act")
+        let panel = try #require(w.state.portWindows.panels.first { $0.udid == udid })
+        let line = w.state.portCard(panel).lines.first { $0.value.contains("clicking") }
+        #expect(line?.value == "calm-moth: clicking 'Search'", "the card did not say what the companion did: \(w.state.portCard(panel).lines)")
+    }
+
+    @Test("a paused port is not looked at or acted on")
+    func pausedRefused() async throws {
+        let (w, udid, _, window) = try await world()
+        defer { window.close() }
+        let panel = try #require(w.state.portWindows.panels.first { $0.udid == udid })
+        w.state.portWindows.park(id: panel.id)
         do {
             _ = try await call(w, "port.look", ["id": udid])
-            Issue.record("a port with no window was looked at")
+            Issue.record("a paused port was looked at")
         } catch let e as BridgeError {
-            #expect(e.code == "no_surface")
+            #expect(e.code == "port_paused")
         }
     }
 

@@ -463,6 +463,8 @@ public final class AppState: ObservableObject {
     private var portWindowsCancellable: AnyCancellable?
     /// Until when a port's input is Port42 acting for a companion (port.act), by port udid.
     var agentInputUntil: [String: Date] = [:]
+    /// The last thing a companion did in a port through port.act, by panel id, for its card.
+    var agentActs: [String: (name: String, what: String, at: Date)] = [:]
 
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]

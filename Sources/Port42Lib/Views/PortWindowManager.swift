@@ -248,6 +248,39 @@ public final class PortWindowManager: ObservableObject {
     /// a time: a second replaces the first, as a page opening its sign-in again expects.
     @Published public private(set) var browserPopups: [String: WKWebView] = [:]
 
+    /// Where a port that is not on screen is drawn while a companion looks at it or acts on it (browser
+    /// use): a window far off every display that never takes a click or the keyboard. Input and a
+    /// snapshot need the page to be in a window; this lets a running port, or one on another space's
+    /// desktop, be worked on out of sight (Gordon, 2026-09-30). A paused port is not.
+    private lazy var offscreenHost: NSWindow = {
+        let w = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 900),
+                         styleMask: [.borderless], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.ignoresMouseEvents = true
+        w.hasShadow = false
+        return w
+    }()
+
+    /// Draw a port's page off screen for a companion, at its tile size. Returns whether it was moved
+    /// there, so the caller puts it back.
+    @discardableResult
+    func hostOffscreen(_ id: String) -> Bool {
+        guard let wv = webViews[id], wv.window == nil, let panel = panels.first(where: { $0.id == id }) else { return false }
+        wv.removeFromSuperview()
+        wv.frame = CGRect(origin: .zero, size: panel.size)
+        offscreenHost.setContentSize(panel.size)
+        offscreenHost.contentView?.addSubview(wv)
+        if !offscreenHost.isVisible { offscreenHost.orderBack(nil) }
+        return true
+    }
+
+    /// Take a page back out of the off-screen window once the companion is done with it.
+    func releaseOffscreen(_ id: String) {
+        guard let wv = webViews[id], wv.window === offscreenHost else { return }
+        wv.removeFromSuperview()
+        if offscreenHost.contentView?.subviews.isEmpty ?? true { offscreenHost.orderOut(nil) }
+    }
+
     /// Close a browser port's popup, from its close button.
     public func closeBrowserPopup(port id: String) {
         guard let popup = browserPopups.removeValue(forKey: id) else { return }

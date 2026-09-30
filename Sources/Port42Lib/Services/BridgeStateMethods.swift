@@ -30,6 +30,7 @@ extension AppState {
             activity.lastChange = portInput.lastChange(of: key)   // a web port's code or content, not keystrokes
         }
         activity.sharedWith = sharing[panel.udid]?.people.count ?? 0
+        activity.agentAct = agentActs[panel.id]
         return PortCard.build(title: panel.title,
                               declared: portStates.declared[panel.id] ?? [],
                               terminal: portStates.terminals[panel.id],

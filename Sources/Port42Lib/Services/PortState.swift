@@ -209,14 +209,22 @@ public struct PortCard: Equatable {
         public var lastChange: (name: String, at: Date)? = nil
         public var unread: Int = 0
         public var sharedWith: Int = 0
+        /// A companion driving the page through port.act (browser use), and what it did last. Shown for a
+        /// short while, so a port acted on out of sight still says so on its card.
+        public var agentAct: (name: String, what: String, at: Date)? = nil
         public init(working: [ChatPresence] = [], lastChange: (name: String, at: Date)? = nil,
-                    unread: Int = 0, sharedWith: Int = 0) {
+                    unread: Int = 0, sharedWith: Int = 0, agentAct: (name: String, what: String, at: Date)? = nil) {
             self.working = working; self.lastChange = lastChange; self.unread = unread; self.sharedWith = sharedWith
+            self.agentAct = agentAct
         }
         public static func == (a: Activity, b: Activity) -> Bool {
             a.working == b.working && a.lastChange?.name == b.lastChange?.name
                 && a.lastChange?.at == b.lastChange?.at && a.unread == b.unread && a.sharedWith == b.sharedWith
+                && a.agentAct?.name == b.agentAct?.name && a.agentAct?.what == b.agentAct?.what && a.agentAct?.at == b.agentAct?.at
         }
+
+        /// How long a companion's last act keeps its line on the card.
+        public static let agentActShown: TimeInterval = 20
     }
 
     public static func build(title: String, declared: [StateLine] = [], terminal: TerminalFacts? = nil,
@@ -235,6 +243,10 @@ public struct PortCard: Equatable {
                 lines.append(Line(label: "waiting", value: why.isEmpty ? ago(p.since, now) : why, tone: .waiting))
             }
             if let doing = p.doing { lines.append(Line(label: "doing", value: doing.detail)) }
+        }
+        // A companion driving the page (browser use), perhaps out of sight: it counts as working.
+        if let a = activity.agentAct, now.timeIntervalSince(a.at) < Activity.agentActShown {
+            lines.append(Line(label: "working", value: "\(a.name): \(a.what)"))
         }
         // Anyone else at work in the port's chat (a companion building it, an imagine team), the one
         // already shown for a terminal aside.

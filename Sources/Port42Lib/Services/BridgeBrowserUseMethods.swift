@@ -40,23 +40,34 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
     /// The live web view a look or act works on, and the checks every call makes: the caller may see
     /// the port, it is a web or browser port, it is on screen (input needs a window), and, for a browser
     /// port, the caller may use its site.
-    func surface(_ p: Principal, _ id: String) async throws -> (PortRef, WKWebView, PortPanel) {
+    func surface(_ p: Principal, _ id: String) async throws -> (PortRef, WKWebView, PortPanel, Bool) {
         let ref = try appState.requireReadablePort(id, by: p)
         guard ref.kind == .web || ref.kind == .browser, let pid = ref.id,
               let panel = appState.portWindows.panels.first(where: { $0.id == pid }),
               let wv = appState.portWindows.webViews[pid] else {
             throw BridgeError.notFound("web or browser port '\(id)'")
         }
+        // Paused means the person set it aside: nothing acts on it. Anything else that is not on screen
+        // (running with no tile, or a tile on another space) is worked on out of sight (Gordon, 2026-09-30).
+        guard panel.presentation != "parked" else {
+            throw BridgeError(code: .portPaused,
+                              message: "port '\(id)' is paused; it has to be running or shown before it can be looked at or acted on")
+        }
+        let offscreen = wv.window == nil && appState.portWindows.hostOffscreen(pid)
         guard wv.window != nil else {
-            throw BridgeError(code: .noSurface,
-                              message: "port '\(id)' is not on the desktop; show it first (port.manage show) so it can be seen and acted on")
+            throw BridgeError(code: .noSurface, message: "port '\(id)' has no page to work on")
         }
         if ref.kind == .browser, let host = wv.url?.host, !host.isEmpty {
-            guard try await appState.ensureSiteGrant(host, for: p) else {
-                throw BridgeError(code: .permissionDenied, message: "not allowed to use \(host) in the browser")
+            do {
+                guard try await appState.ensureSiteGrant(host, for: p) else {
+                    throw BridgeError(code: .permissionDenied, message: "not allowed to use \(host) in the browser")
+                }
+            } catch {
+                if offscreen { appState.portWindows.releaseOffscreen(pid) }
+                throw error
             }
         }
-        return (ref, wv, panel)
+        return (ref, wv, panel, offscreen)
     }
 
     func token(_ ref: PortRef) -> BridgeValue? {
@@ -71,7 +82,8 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             "required": ["id"]
         ]) { p, args in
         let id = try args.requireString("id")
-        let (ref, wv, panel) = try await surface(p, id)
+        let (ref, wv, panel, offscreen) = try await surface(p, id)
+        defer { if offscreen { appState.portWindows.releaseOffscreen(panel.id) } }
         let raw = try? await wv.callAsyncJavaScript(BrowserLook.scanJS, arguments: [:], in: nil, contentWorld: BrowserLook.world)
         let (elements, text) = BrowserLook.parse(raw)
         let config = WKSnapshotConfiguration()
@@ -114,8 +126,21 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
         ]) { p, args in
         let id = try args.requireString("id")
         let action = try args.requireString("action")
-        let (ref, wv, panel) = try await surface(p, id)
+        let (ref, wv, panel, offscreen) = try await surface(p, id)
+        defer { if offscreen { appState.portWindows.releaseOffscreen(panel.id) } }
         let before = wv.url
+        /// What the card says the companion is doing, for a port worked on out of sight as much as one on screen.
+        @MainActor func doing(_ what: String) { appState.agentActs[panel.id] = (p.displayName, what, Date()) }
+        @MainActor func label(_ n: Int) async -> String {
+            let js = "const el = (globalThis.__port42marks || [])[n - 1]; if (!el) return '';"
+                   + " return (el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').replace(/\\s+/g, ' ').trim().slice(0, 40);"
+            return ((try? await wv.callAsyncJavaScript(js, arguments: ["n": n], in: nil, contentWorld: BrowserLook.world)) as? String) ?? ""
+        }
+        @MainActor func named(_ n: Int?) async -> String {
+            guard let n else { return "the page" }
+            let l = await label(n)
+            return l.isEmpty ? "element \(n)" : "'\(l)'"
+        }
         appState.markAgentInput(on: panel.udid, for: 3)
         defer { appState.markAgentInput(on: panel.udid, for: 0.6) }
 
@@ -144,6 +169,7 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
         try await BrowserAct.keepingKeyboard(wv) {
         switch action {
         case "click":
+            doing("clicking \(await named(args.int("n")))")
             let css: CGPoint
             if let n = args.int("n") { css = try await center(n) }
             else if let x = args.double("x"), let y = args.double("y") { css = CGPoint(x: x, y: y) }
@@ -152,6 +178,7 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             if let n = args.int("n") { await focus(n) }
         case "type":
             let text = try args.requireString("text")
+            doing("typing into \(await named(args.int("n")))")
             if let n = args.int("n") { _ = try await center(n); await focus(n) }
             let js = "const a = document.activeElement;"
                    + " if (!a || !(a.isContentEditable || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return false;"
@@ -162,6 +189,7 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             }
         case "key":
             let spec = try args.requireString("key")
+            doing("pressing \(spec)")
             let parts = spec.split(separator: "+").map(String.init)
             guard let name = parts.last, let k = BrowserAct.key(name) else {
                 throw BridgeError(code: .badArg, message: "unknown key '\(spec)'")
@@ -169,6 +197,7 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             await BrowserAct.press(wv, code: k.code, chars: k.chars, modifiers: BrowserAct.modifiers(Array(parts.dropLast())))
         case "scroll":
             let dy = args.double("dy") ?? 400
+            doing("scrolling")
             let css: CGPoint
             if let n = args.int("n") { css = try await center(n) }
             else { css = CGPoint(x: wv.bounds.width / 2 / max(wv.magnification, 0.01), y: wv.bounds.height / 2 / max(wv.magnification, 0.01)) }
@@ -183,10 +212,11 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
                     throw BridgeError(code: .permissionDenied, message: "not allowed to use \(host) in the browser")
                 }
             }
+            doing("going to \(url.host ?? raw)")
             appState.browserNavigated(port: panel.udid, to: url)
             wv.load(URLRequest(url: url))
-        case "back": wv.goBack()
-        case "forward": wv.goForward()
+        case "back": doing("going back"); wv.goBack()
+        case "forward": doing("going forward"); wv.goForward()
         default:
             throw BridgeError(code: .badArg, message: "unknown action '\(action)'")
         }
