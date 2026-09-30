@@ -12,11 +12,20 @@ struct VoiceSettledTests {
         #expect(s == "one thing on ")
     }
 
+    @Test("new words keep coming after the recognizer revises an early one (it used to stall to release)")
+    func revisionDoesNotStall() {
+        var typed = VoiceInserter.settled(streamed: "", previousGuess: "one thing on voice", guess: "one thing on voice mode")
+        #expect(typed == "one thing on voice ")
+        // The recognizer capitalizes and punctuates the start; the new words still arrive.
+        typed = VoiceInserter.settled(streamed: typed, previousGuess: "One thing, on voice mode is", guess: "One thing, on voice mode is that if")
+        #expect(typed.hasPrefix("one thing on voice ") && typed.contains("is"), "stalled: \(typed)")
+    }
+
     @Test("a revision never takes back what is already typed")
     func neverShrinks() {
         let typed = "one thing on "
         let s = VoiceInserter.settled(streamed: typed, previousGuess: "one thing on voice", guess: "won thing on voice mode")
-        #expect(s == typed, "the recognizer changed its mind about an early word; the terminal is left alone")
+        #expect(s.hasPrefix(typed), "the recognizer changed its mind about an early word; what is typed stays")
     }
 
     @Test("it grows as more words settle, and a steady guess settles fully")

@@ -67,16 +67,25 @@ public enum VoiceInserter {
     /// grows, so the input box only grows, a line at a time, as with typing; the unsettled tail waits in the
     /// voice pill, and the final read lands it on release.
     static func settled(streamed: String, previousGuess: String, guess: String) -> String {
-        let a = Array(previousGuess), b = Array(guess)
-        var shared = 0
-        while shared < a.count, shared < b.count, a[shared] == b[shared] { shared += 1 }
-        // Back to the end of the last whole word both agree on (a word still being said may change).
-        var cut = shared
-        if shared < b.count || shared < a.count {
-            while cut > 0, !b[cut - 1].isWhitespace { cut -= 1 }
+        // Word by word, and only past what is already typed. Comparing whole guesses from the start
+        // stalled everything once the recognizer revised an early word (a capital, a comma), so the
+        // words stopped and all landed on release (GM, 2026-09-29, "it's batching"). A revision to a
+        // word already typed is left alone here; the final read corrects it once, on release.
+        let typed = streamed.split(whereSeparator: \.isWhitespace).count
+        let prev = previousGuess.split(whereSeparator: \.isWhitespace).map(String.init)
+        let cur = guess.split(whereSeparator: \.isWhitespace).map(String.init)
+        var add: [String] = []
+        var i = typed
+        // A word counts once the next guess agrees on it; the last word of a guess may still be changing.
+        while i < cur.count - 1, i < prev.count, cur[i] == prev[i] {
+            add.append(cur[i]); i += 1
         }
-        let agreed = String(b[..<cut])
-        return agreed.hasPrefix(streamed) ? agreed : streamed
+        // A guess that repeats unchanged is settled whole, last word included.
+        if i == cur.count - 1, i < prev.count, cur == prev { add.append(cur[i]) }
+        guard !add.isEmpty else { return streamed }
+        let lead = streamed.isEmpty || streamed.last?.isWhitespace == true ? "" : " "
+        let tail = add.count + typed == cur.count && cur == prev ? "" : " "
+        return streamed + lead + add.joined(separator: " ") + tail
     }
 
     /// Stream `next` into a surface that wants real characters, replacing whatever `previous` put there.
