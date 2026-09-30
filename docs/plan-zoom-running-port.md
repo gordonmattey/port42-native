@@ -1,6 +1,6 @@
 # Plan: zoom into a running port (#191)
 
-Status: planned, 2026-09-29, waiting on Gordon's go. Board card #191 (Gordon: "zoom into running ports and
+Status: built on Dev6, 2026-09-29, for Gordon to try. Board card #191 (Gordon: "zoom into running ports and
 pop them up, and then zoom out will pop them back in").
 
 ## The problem
@@ -11,12 +11,12 @@ back into the rail.
 
 ## What it does
 
-- **Click a Running card: the port pops up**, zoomed to focus, as a peek does. It is live: type into the
-  terminal, click the page.
+- **Hover a Running card and click its magnifier: the port pops up**, zoomed to focus, as a peek does.
+  It has the keyboard, so you can type into it. A click on the card itself still shows it (keeps it).
 - **Zoom out (⌘↑, Esc, pinch, or clicking the space pill): it pops back into Running**, in the slot it
   came from. Nothing else on the desktop moves.
-- **Keep it on the desktop**: while it is popped up, Keep in its title bar makes it an ordinary tile, as
-  Show is today.
+- **A click on it in zoom view keeps it** as an ordinary tile (Gordon). The same now holds for a peek you
+  zoomed into: a click keeps it, and zooming out without one sends it back.
 - A popped-up port in another space takes you to that space first, as Show does now.
 
 ## Not in this
@@ -31,8 +31,6 @@ back into the rail.
 - Live on Dev6: pop up a running terminal, type into it, zoom out, and it is back in its slot; Keep one and
   it stays. Screenshots.
 
-## Decision for Gordon
+## Decided
 
-1. How to keep a popped-up port on the desktop. Recommendation: a Keep button in its title bar, the same
-   word peeks use. The alternative is dragging the card out of the rail onto the desktop, which also
-   needs the rail's cards to become draggable.
+1. Keeping is a click, as for peeks, not a button (Gordon, 2026-09-29).

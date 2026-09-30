@@ -558,6 +558,17 @@ struct ShellTile: View {
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
+            // Zoomed in on a peek or a running port popped up from the rail, but not kept: a click on it
+            // keeps it (GM, 2026-09-29), and zooming out without one sends it back.
+            .overlay {
+                if isFocused {
+                    if let peek = shell.peekingPorts.first(where: { $0.id == tile.id }) {
+                        PeekClickCatcher { shell.keepPeek(peek, arrange: false) }
+                    } else if shell.poppedRunning?.id == tile.id {
+                        PeekClickCatcher { shell.keepPopped() }
+                    }
+                }
+            }
             // The chat and console slide down OVER the port from its title bar. They used to push the
             // port down, which resized it, so a shader redrew squeezed every time the chat opened (GM,
             // 2026-09-25). Hosted in their own AppKit view, so they take clicks over a web or terminal
@@ -1181,7 +1192,8 @@ struct ShellParkRail: View {
                     ForEach(Array(hidden.enumerated()), id: \.element.id) { i, p in
                         if gap == i { runningGap }
                         RailPortCard(appState: appState, states: appState.portStates, presence: appState.presence,
-                                     chats: appState.chats, panel: p, accent: shell.accent) {
+                                     chats: appState.chats, panel: p, accent: shell.accent,
+                                     onLook: { shell.popRunning(p.id) }) {
                             shell.showHidden(p.id)
                         }
                     }

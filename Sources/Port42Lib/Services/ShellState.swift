@@ -18,7 +18,9 @@ public final class ShellState: ObservableObject {
         case focus(String)   // focused port udid
     }
 
-    @Published public var zoom: Zoom = .space
+    @Published public var zoom: Zoom = .space {
+        didSet { if zoom != oldValue { returnPoppedIfLeft() } }
+    }
     /// The highlighted tile zoom-in targets (hover/click); nil ⇒ fall back to the first port.
     @Published public var selectedPortId: String?
     /// The highlighted desktop tile (chat or a tiled port) — hover/click; what ⌘↓ focuses.
@@ -1271,6 +1273,38 @@ public final class ShellState: ObservableObject {
     /// How tall the rail's open Paused cards are right now, in the current space.
     public var pausedCardsHeight: CGFloat {
         Self.pausedCardsHeight(open: pausedOpen, count: appState.portWindows.railIds(in: appState.currentSpace?.id).count)
+    }
+
+    /// A running port popped up from the rail for a look (#191), and the Running slot it came from.
+    public struct PoppedRunning: Equatable { public let id: String; public let slot: Int }
+    @Published public private(set) var poppedRunning: PoppedRunning?
+
+    /// Pop a running port up for a look: zoomed to focus and live, but not kept (GM: "zoom into running
+    /// ports and pop them up, and then zoom out will pop them back in"). One at a time.
+    public func popRunning(_ id: String) {
+        returnPopped()
+        guard let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return }
+        let slot = appState.portWindows.hiddenPanels(in: panel.spaceId).firstIndex { $0.id == id } ?? 0
+        showHidden(id)
+        poppedRunning = PoppedRunning(id: id, slot: slot)
+        withAnimation(.spring(response: 0.4)) { zoom = .focus(id) }
+    }
+
+    /// Keep the popped-up port: it is already a tile, so it simply stops being on loan (a click on it
+    /// in zoom view, as for a peek).
+    public func keepPopped() { poppedRunning = nil }
+
+    /// Send the popped-up port back into Running, in the slot it came from.
+    public func returnPopped() {
+        guard let p = poppedRunning else { return }
+        poppedRunning = nil
+        hideTile(p.id, at: p.slot)
+    }
+
+    /// Zooming anywhere but the popped-up port sends it back.
+    private func returnPoppedIfLeft() {
+        guard let p = poppedRunning, zoom != .focus(p.id) else { return }
+        returnPopped()
     }
 
     /// Show a hidden port (Phase 3.2): on its home desktop, going there if it is another space, placed

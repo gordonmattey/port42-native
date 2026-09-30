@@ -120,7 +120,10 @@ struct RailPortCard: View {
     @ObservedObject var console = PortConsole.shared
     let panel: PortPanel
     let accent: Color
+    /// Pop it up for a look (#191), from the magnifier that shows on hover. Nil for a paused port.
+    var onLook: (() -> Void)? = nil
     let onShow: () -> Void
+    @State private var hovered = false
 
     /// The red of a card that needs you, on the card's dot and on the folded rail's edge.
     static let alert = Color(red: 1, green: 0.45, blue: 0.4)
@@ -169,6 +172,21 @@ struct RailPortCard: View {
             }
             .buttonStyle(.plain)
             .help("Show \(panel.title)")
+            // On hover, as on a peek: look (zoom in; zoom out and it goes back). A click on the card keeps it.
+            .overlay(alignment: .topTrailing) {
+                if hovered, let onLook {
+                    Button(action: onLook) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(accent)
+                            .frame(width: 18, height: 18)
+                            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).padding(4)
+                    .help("Look: zoom in; zoom out and it goes back")
+                }
+            }
+            .onHover { hovered = $0 }
         }
     }
 }
