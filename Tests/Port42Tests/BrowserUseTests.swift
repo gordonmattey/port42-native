@@ -187,6 +187,37 @@ struct BrowserUseTests {
         }
     }
 
+    @Test("a look reads the page's main content first, so a long sidebar does not crowd it out")
+    func mainTextFirst() async throws {
+        let (w, udid, wv, window) = try await world()
+        defer { window.close() }
+        let labels = (0..<400).map { "label-\($0)" }.joined(separator: " ")
+        let mail = (0..<20).map { "Email \($0) from someone about something that matters today" }.joined(separator: "<br>")
+        wv.loadHTMLString("<nav>\(labels)</nav><div role=main>\(mail)</div>", baseURL: URL(string: "http://localhost/"))
+        for _ in 0..<200 where wv.isLoading { try await Task.sleep(nanoseconds: 20_000_000) }
+        let look = try await call(w, "port.look", ["id": udid])
+        let text = look["text"]?.stringValue ?? ""
+        #expect(text.hasPrefix("Email 0"), "the sidebar came first: \(text.prefix(60))")
+        #expect(!text.contains("label-399"), "the sidebar's text was returned with the main content")
+    }
+
+    @Test("an act waits for a navigation it set off, so the token it returns is still good")
+    func actSettles() async throws {
+        let (w, udid, wv, window) = try await world()
+        defer { window.close() }
+        wv.loadHTMLString("""
+            <button id=b style="position:absolute;left:40px;top:30px;width:120px;height:36px">Open</button>
+            <script>b.addEventListener('click', () => setTimeout(() => history.pushState({}, '', '#thread'), 700));</script>
+            """, baseURL: URL(string: "http://localhost/"))
+        for _ in 0..<200 where wv.isLoading { try await Task.sleep(nanoseconds: 20_000_000) }
+        let look = try await call(w, "port.look", ["id": udid])
+        let open = try #require(element(look, labelled: "Open"))
+        let act = try await call(w, "port.act", ["id": udid, "action": "click", "n": open, "token": look["token"]!.stringValue!])
+        #expect(act["url"]?.stringValue?.hasSuffix("#thread") == true, "the act returned before the page moved")
+        try await Task.sleep(nanoseconds: 800_000_000)
+        #expect(w.state.portInput.token(for: udid) == act["token"]?.stringValue, "the page moved after the act returned its token")
+    }
+
     @Test("keys by name, with modifiers")
     func keys() {
         #expect(BrowserAct.key("Enter")?.code == 36)
@@ -199,4 +230,13 @@ struct BrowserUseTests {
 
 private extension BridgeValue {
     var stringValue: String? { if case .string(let s) = self { return s } else { return nil } }
+}
+
+@Suite("Browser use: a site grant reads as its site in Access")
+@MainActor
+struct SiteGrantLabelTests {
+    @Test("Settings, Access names the site a companion may use, not 'a port'")
+    func siteLabel() {
+        #expect(PortGrantDisplay.objectLabel(AppState.siteObject("mail.google.com")) == "mail.google.com")
+    }
 }

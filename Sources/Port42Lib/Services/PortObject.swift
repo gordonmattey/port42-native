@@ -96,6 +96,8 @@ public enum PortGrantDisplay {
     public static func objectLabel(_ object: String) -> String {
         if object == PortObject.machinePortKey { return "Port42" }
         if object.hasPrefix("secret:") { return "the secret '\(object.dropFirst("secret:".count))'" }
+        // A site a companion may use in a browser port (browser use, #177): named by its host.
+        if object.hasPrefix("site:") { return String(object.dropFirst("site:".count)) }
         if object.hasPrefix("share:") {
             return object.dropFirst("share:".count).contains("/") ? "a port on another machine" : "one port"
         }

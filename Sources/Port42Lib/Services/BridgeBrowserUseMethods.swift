@@ -221,7 +221,10 @@ func registerBrowserUseMethods(into r: inout BridgeRegistry, appState: AppState)
             throw BridgeError(code: .badArg, message: "unknown action '\(action)'")
         }
         }
-        try? await Task.sleep(nanoseconds: 300_000_000)            // let the page answer before reporting
+        // Let the page answer before reporting, and wait out a navigation the act set off: a site that
+        // routes a moment after the click (Gmail) would otherwise move the port's token after this returned,
+        // and the companion's next act would be refused as stale (found on the Gmail test, 2026-09-30).
+        await BrowserAct.settle(wv)
         var out: [String: BridgeValue] = [
             "ok": .bool(true),
             "url": .string(wv.url?.absoluteString ?? ""),

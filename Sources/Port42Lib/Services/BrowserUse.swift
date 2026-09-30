@@ -83,7 +83,12 @@ enum BrowserLook {
       out.push(e);
     }
     globalThis.__port42marks = marks;
-    return { elements: out, text: (document.body ? document.body.innerText : '').slice(0, \(maxText)),
+    // The page's main content first, when it marks one, so a long sidebar (Gmail's labels) does not use up
+    // the text before the part the person is reading.
+    const main = document.querySelector('[role=main], main');
+    const mainText = main ? main.innerText : '';
+    const text = mainText.trim().length >= 200 ? mainText : (document.body ? document.body.innerText : '');
+    return { elements: out, text: text.slice(0, \(maxText)),
              url: location.href, title: document.title, vw, vh };
     """
 
@@ -216,6 +221,20 @@ enum BrowserAct {
         let result = try await body()
         try? await Task.sleep(nanoseconds: eventGap * 2)       // WebKit's late request lands inside the act
         return result
+    }
+
+    /// Wait until the page has stopped moving: not loading, and its address unchanged for a few beats, up
+    /// to `limit`. A click that navigates, straight away or through a site's own routing a moment later,
+    /// is over by the time this returns.
+    static func settle(_ wv: WKWebView, limit: TimeInterval = 3) async {
+        let deadline = Date().addingTimeInterval(limit)
+        var last = wv.url, still = 0
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        while Date() < deadline {
+            if !wv.isLoading && wv.url == last { still += 1 } else { still = 0; last = wv.url }
+            if still >= 5 { return }                        // half a second with nothing moving
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     static func click(_ wv: WKWebView, at p: CGPoint) async {
