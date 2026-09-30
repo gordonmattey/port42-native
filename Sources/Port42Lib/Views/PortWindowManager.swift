@@ -247,9 +247,13 @@ public final class PortWindowManager: ObservableObject {
         panels.filter { $0.isBackground }
     }
 
-    /// The hidden ports that belong to a space.
+    /// The hidden (running) ports that belong to a space, in the order the rail shows them: by their slot
+    /// (`railOrder`, shared with paused ports, since a port is never both), unslotted ones after.
     public func hiddenPanels(in spaceId: String?) -> [PortPanel] {
         hiddenPanels.filter { $0.spaceId == spaceId }
+            .enumerated()
+            .sorted { ($0.element.railOrder ?? Int.max, $0.offset) < ($1.element.railOrder ?? Int.max, $1.offset) }
+            .map(\.element)
     }
 
     /// Put a port in the presentation it was created with ("tiled" is where it already is).
@@ -734,9 +738,12 @@ public final class PortWindowManager: ObservableObject {
 
     /// Hide a port (off the desktop and out of the rail, still running). The unit unmounts; the live
     /// view stays in the registry and remounts (repainting) on restore, which shows it again.
-    public func minimize(_ id: String) {
+    public func minimize(_ id: String, at slot: Int? = nil) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        // Its place among the running cards: where it was dropped, else last (GM, 2026-09-29).
+        let running = hiddenPanels(in: panels[idx].spaceId).map(\.id).filter { $0 != id }
         panels[idx].isBackground = true
+        renumberRail(Self.railInserting(id, into: running, at: slot))
         if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(false, on: wv) }
         panels[idx].bridge.suspendAI()      // backgrounded = off-screen: stop billing the model
         persistPanel(id)
@@ -748,6 +755,8 @@ public final class PortWindowManager: ObservableObject {
     public func restore(_ id: String) -> Bool {
         guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return false }
         panels[idx].isBackground = false
+        panels[idx].railOrder = nil
+        renumberRail(hiddenPanels(in: panels[idx].spaceId).map(\.id))
         if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(true, on: wv) }
         persistPanel(id)
         p42log("[Port42] Port restored from background: %@", panels[idx].title)

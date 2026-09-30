@@ -901,6 +901,14 @@ struct ShellTile: View {
                 if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
+                // Over Running, show where it would land among the cards.
+                if shell.draggingOverPark == .hide, let panel = tile.panel {
+                    let count = appState.portWindows.hiddenPanels(in: panel.spaceId).filter { $0.id != panel.id }.count
+                    let slot = ShellState.runningSlot(forY: v.location.y, pausedHeight: shell.pausedCardsHeight, count: count)
+                    if shell.railDropSlot != slot { shell.railDropSlot = slot }
+                } else if shell.railDropSlot != nil {
+                    shell.railDropSlot = nil
+                }
             }
             .onEnded { v in
                 guard !isFocused else { return }
@@ -923,7 +931,12 @@ struct ShellTile: View {
                 let zone = railZone(at: v.location)
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
-                case .hide: if let panel = tile.panel { shell.hideTile(panel.id) }
+                case .hide:
+                    if let panel = tile.panel {
+                        let count = appState.portWindows.hiddenPanels(in: panel.spaceId).filter { $0.id != panel.id }.count
+                        shell.hideTile(panel.id, at: ShellState.runningSlot(forY: v.location.y,
+                                                                            pausedHeight: shell.pausedCardsHeight, count: count))
+                    }
                 case .park:
                     // The newest parked port goes last in the list.
                     if let panel = tile.panel {
@@ -938,7 +951,7 @@ struct ShellTile: View {
 
     /// The rail zone under a desktop-space point. The chat is NOT exempt — it parks/closes too.
     private func railZone(at p: CGPoint) -> ShellState.ParkZone? {
-        ShellState.parkZone(at: p, in: area)
+        ShellState.parkZone(at: p, in: area, pausedHeight: shell.pausedCardsHeight)
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
@@ -1083,7 +1096,7 @@ struct ShellParkRail: View {
                                  : (open ? "Fold the paused ports" : "Show the paused ports"))
             if open {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 6) {
+                    VStack(spacing: ShellState.railCardSpacing) {
                         ForEach(parked) { p in
                             RailPortCard(appState: appState, states: appState.portStates, presence: appState.presence,
                                          chats: appState.chats, panel: p, accent: shell.accent) {
@@ -1095,12 +1108,20 @@ struct ShellParkRail: View {
                     }
                     .padding(.horizontal, 6).padding(.bottom, 6)
                 }
-                .frame(maxHeight: 260)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: ShellState.pausedCardsHeight(open: true, count: parked.count))
             }
         }
         .frame(maxWidth: .infinity)
         .background(Rectangle().fill(shell.accent.opacity(active ? 0.18 : 0)))
+    }
+
+    /// The slot a drag will land in among the running cards: an accent gap one card tall.
+    private var runningGap: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .stroke(shell.accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            .background(shell.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+            .frame(height: ShellState.railCardHeight)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     /// HIDDEN PORTS in this space: a card each, with its state, since a hidden port keeps running and
@@ -1115,13 +1136,17 @@ struct ShellParkRail: View {
                 .frame(maxWidth: .infinity).frame(height: ShellState.railHeaderHeight)
                 .help("Running with no tile. Drag a port here to keep it running off the desktop.")
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
-                    ForEach(hidden) { p in
+                VStack(spacing: ShellState.railCardSpacing) {
+                    // Where a dragged tile would land, shown as a gap before the drop.
+                    let gap = active ? shell.railDropSlot : nil
+                    ForEach(Array(hidden.enumerated()), id: \.element.id) { i, p in
+                        if gap == i { runningGap }
                         RailPortCard(appState: appState, states: appState.portStates, presence: appState.presence,
                                      chats: appState.chats, panel: p, accent: shell.accent) {
                             shell.showHidden(p.id)
                         }
                     }
+                    if let g = gap, g >= hidden.count { runningGap }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 6)
             }

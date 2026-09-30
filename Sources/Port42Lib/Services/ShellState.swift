@@ -1083,13 +1083,31 @@ public final class ShellState: ObservableObject {
     /// running and worth watching), and the close zone (a trash icon) at the bottom.
     nonisolated public static let parkZoneHeight: CGFloat = 40
     nonisolated public static let closeZoneHeight: CGFloat = 64
+    /// A card in the rail is one fixed height, so a point maps to a slot exactly.
+    nonisolated public static let railCardHeight: CGFloat = 64
+    nonisolated public static let railCardSpacing: CGFloat = 6
+    nonisolated public static let pausedMaxHeight: CGFloat = 260
+
+    /// How tall the Paused section's cards are, open, for `count` paused ports (0 when folded).
+    nonisolated public static func pausedCardsHeight(open: Bool, count: Int) -> CGFloat {
+        guard open, count > 0 else { return 0 }
+        return min(pausedMaxHeight, CGFloat(count) * (railCardHeight + railCardSpacing) + railCardSpacing)
+    }
+
+    /// The Running slot under a desktop-space y, among `count` cards (count = after the last). The cards
+    /// start below the Paused header, Paused's open cards, and the Running header.
+    nonisolated public static func runningSlot(forY y: CGFloat, pausedHeight: CGFloat, count: Int) -> Int {
+        let top = parkZoneHeight + pausedHeight + railHeaderHeight
+        let slot = Int(((y - top) / (railCardHeight + railCardSpacing)).rounded())
+        return min(max(0, slot), count)
+    }
 
     /// Classify a point (in desktop coordinates) against the right rail: the top band of the strip is
     /// **park**, the bottom **close**, the rest **hide** (where the hidden ports' cards are), and
     /// everything left of the strip is nil. Pure → headless-testable.
-    nonisolated public static func parkZone(at p: CGPoint, in area: CGSize) -> ParkZone? {
+    nonisolated public static func parkZone(at p: CGPoint, in area: CGSize, pausedHeight: CGFloat = 0) -> ParkZone? {
         guard p.x >= area.width - parkWidth(area.width) else { return nil }
-        if p.y < parkZoneHeight { return .park }
+        if p.y < parkZoneHeight + pausedHeight { return .park }
         return p.y >= area.height - closeZoneHeight ? .close : .hide
     }
 
@@ -1172,8 +1190,13 @@ public final class ShellState: ObservableObject {
 
     /// Hide a port (GM, 2026-09-26): off the desktop and the rail, still running, listed under the top
     /// bar's "N hidden" to show again. From the port's "…" or by dragging it onto the top bar.
-    public func hideTile(_ id: String) {
-        appState.portWindows.applyPresentation("hidden", to: id)
+    public func hideTile(_ id: String, at slot: Int? = nil) {
+        if let slot { appState.portWindows.minimize(id, at: slot) } else { appState.portWindows.applyPresentation("hidden", to: id) }
+    }
+
+    /// How tall the rail's open Paused cards are right now, in the current space.
+    public var pausedCardsHeight: CGFloat {
+        Self.pausedCardsHeight(open: pausedOpen, count: appState.portWindows.railIds(in: appState.currentSpace?.id).count)
     }
 
     /// Show a hidden port (Phase 3.2): on its home desktop, going there if it is another space, placed

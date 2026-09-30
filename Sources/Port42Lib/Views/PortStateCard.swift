@@ -139,7 +139,7 @@ struct RailPortCard: View {
                         Text(card.title).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
                             .lineLimit(1).truncationMode(.tail)
                     }
-                    ForEach(Array(card.lines.prefix(3).enumerated()), id: \.offset) { _, line in
+                    ForEach(Array(card.lines.prefix(2).enumerated()), id: \.offset) { _, line in
                         (Text(line.label + " ").foregroundColor(Port42Theme.textSecondary.opacity(0.7))
                          + Text(line.value).foregroundColor(line.tone == .alert ? Color(red: 1, green: 0.45, blue: 0.4)
                                                             : Port42Theme.textPrimary.opacity(0.85)))
@@ -158,7 +158,8 @@ struct RailPortCard: View {
                     }
                 }
                 .padding(7)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // One height for every card, so a drop point maps to a slot exactly.
+                .frame(maxWidth: .infinity, minHeight: ShellState.railCardHeight, maxHeight: ShellState.railCardHeight, alignment: .topLeading)
                 .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
                 .contentShape(Rectangle())
