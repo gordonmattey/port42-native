@@ -46,7 +46,9 @@ export async function canSealKeys(subtle) {
 export async function loadIdentity({ storage, store, subtle = globalThis.crypto?.subtle, coupon }) {
   const sealed = store ? await store.get(SEALED).catch(() => undefined) : undefined;
   if (hostAcceptsV2(coupon) && store && (sealed || await canSealKeys(subtle))) {
-    return sealedIdentity(sealed ?? await sealTheKeys({ storage, store, subtle }), subtle);
+    const keys = sealed ?? await sealTheKeys({ storage, store, subtle });
+    if (keys) return sealedIdentity(keys, subtle);
+    // The keys could not be kept (see sealTheKeys): stay on the seed, and the same guest.
   }
   if (sealed) {
     throw new Refusal('host_outdated', 'this invite is from a version of Port42 that cannot take this guest');
@@ -89,9 +91,22 @@ async function sealTheKeys({ storage, store, subtle }) {
   const x = await subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']);
   const keys = { edPriv, edPub, xPriv: x.privateKey, xPub: new Uint8Array(await subtle.exportKey('raw', x.publicKey)) };
   await store.set(SEALED, keys);
+  // Read them back before trusting them. An app that embeds WebKit (Port42's own browser among them)
+  // keeps a CryptoKey in IndexedDB only if it gives WebKit a master key to wrap it with; without one
+  // the write succeeds and the read returns nothing, so a reload made new keys and the guest lost its
+  // identity (found on Dev5, 2026-09-29; Safari and Chrome keep them). Then the seed stays, and so
+  // does the guest: v1, as before.
+  const back = await store.get(SEALED).catch(() => undefined);
+  if (!isSealed(back)) return null;
   // Only once the keys are safely stored: the seed leaves localStorage for good (Gordon, 2026-09-29).
   try { storage?.removeItem(SEED_KEY); } catch {}
   return keys;
+}
+
+/// Keys read back whole: both private keys present, as keys, not an empty or partial record.
+function isSealed(k) {
+  return !!k && k.edPriv && k.xPriv && k.edPub?.length === 32 && k.xPub?.length === 32
+    && typeof k.edPriv === 'object' && typeof k.xPriv === 'object';
 }
 
 function sealedIdentity(keys, subtle) {

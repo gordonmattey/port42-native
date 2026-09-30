@@ -79,3 +79,17 @@ test('the v2 binding is the bytes the host checks (noise.go, V2Binding)', () => 
   assert.equal(new TextDecoder().decode(b.slice(0, prefix.length)), prefix);
   assert.equal(b.length, prefix.length + 64);
 });
+
+// Found on Dev5 (2026-09-29): an app that embeds WebKit, Port42's own browser among them, keeps a
+// CryptoKey in IndexedDB only with a master key of its own; without one the write succeeds and the read
+// returns nothing. The guest then made new keys on every reload and lost its identity, with the seed
+// already gone. It must read the keys back before it lets the seed go, and stay on the seed if not.
+test('where stored keys do not read back, the guest keeps its seed and its identity', async () => {
+  const forgetful = { get: async () => undefined, set: async () => {} };
+  const storage = memoryStorage();
+  const first = await loadIdentity({ storage, store: forgetful, coupon: v2 });
+  assert.equal(first.version, 1, 'it stays on the seed');
+  assert.ok(storage.getItem(SEED_KEY), 'the seed is still there');
+  const again = await loadIdentity({ storage, store: forgetful, coupon: v2 });   // a reload
+  assert.equal(again.id, first.id, 'the same guest after a reload');
+});
