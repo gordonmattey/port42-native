@@ -1141,10 +1141,18 @@ public final class ShellState: ObservableObject {
         guard let previous = railAlerted else { railAlerted = ids; return }
         railAlerted = ids
         guard !Self.newAlerts(previous: previous, current: ids).isEmpty else { return }
+        openRailBriefly(Self.railAlertTime)
+    }
+
+    /// How long the rail shows a port going back into it after a look.
+    nonisolated public static let railReturnTime: TimeInterval = 2.5
+
+    /// Hold the rail open for a moment, for something the person should see land there.
+    public func openRailBriefly(_ seconds: TimeInterval) {
         railAlerting = true
         railAlertTask?.cancel()
         railAlertTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.railAlertTime))
+            try? await Task.sleep(for: .seconds(seconds))
             guard let self, !Task.isCancelled else { return }
             self.railAlerting = false
         }
@@ -1318,6 +1326,8 @@ public final class ShellState: ObservableObject {
         guard let p = poppedRunning else { return }
         poppedRunning = nil
         hideTile(p.id, at: p.slot)
+        // Show it going back, so a zoom out does not seem to lose the port (GM, 2026-09-29).
+        openRailBriefly(Self.railReturnTime)
     }
 
     /// Zooming anywhere but the popped-up port sends it back.

@@ -40,6 +40,7 @@ struct PopRunningTests {
         shell.zoom = .space
         #expect(running(w) == ["a", "b", "c"], "it did not go back where it was")
         #expect(shell.poppedRunning == nil)
+        #expect(shell.railOpen, "the rail did not show it going back")
     }
 
     @Test("a click in zoom view keeps it: zoom out and it stays on the desktop")
