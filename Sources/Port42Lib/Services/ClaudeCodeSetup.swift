@@ -193,16 +193,28 @@ public final class ClaudeCodeSetup: ObservableObject {
             return npmGlobal
         }
 
-        // Fallback: `which`
+        // Fallback: `which`.
+        //
+        // Never `waitUntilExit()`: it runs the calling thread's run loop while it waits, and callers
+        // reach here while SwiftUI is drawing (the setup screen's agent scan, the new-companion card).
+        // A run loop turned mid-update let SwiftUI start a second transaction inside the first, and
+        // AttributeGraph aborted the app (a new user's crash on 1.0.3, 2026-09-29: first run, with no
+        // claude or codex in the usual places, is exactly when this fallback runs). The wait below
+        // blocks on the process ending and turns no run loop; it gives up after 2 s.
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         proc.arguments = [name]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()
+        let done = DispatchSemaphore(value: 0)
+        proc.terminationHandler = { _ in done.signal() }
         do {
             try proc.run()
-            proc.waitUntilExit()
+            guard done.wait(timeout: .now() + 2) == .success else {
+                proc.terminate()
+                return nil
+            }
             if proc.terminationStatus == 0 {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
