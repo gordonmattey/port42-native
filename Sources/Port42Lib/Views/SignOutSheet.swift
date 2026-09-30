@@ -222,8 +222,35 @@ public struct SignOutSheet: View {
                     Toggle("", isOn: $fullscreenTakeover).labelsHidden().toggleStyle(.switch).tint(accent)
                         .onChange(of: fullscreenTakeover) { _, _ in applyTakeoverSetting() }
                 }
+                defaultBrowserRow
             }
         }
+    }
+
+    /// Port42 as the default web browser: a link from any other app opens as a browser port on the space
+    /// you are in (docs/plan-default-browser.md). macOS shows its own prompt to confirm.
+    @State private var isDefaultBrowser = WebLink.isDefault
+
+    private var defaultBrowserRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("DEFAULT BROWSER").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                Text(isDefaultBrowser ? "links from other apps open here, as a browser port on the space you are in."
+                     : "links from other apps open in \(WebLink.currentDefaultName ?? "another browser"). Make Port42 the default and they open here, as a browser port on the space you are in.")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            if isDefaultBrowser {
+                Text("default").font(Port42Theme.mono(10)).foregroundStyle(accent)
+            } else {
+                Button("Make default") {
+                    Task { await WebLink.makeDefault(); isDefaultBrowser = WebLink.isDefault }
+                }
+                .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(accent)
+            }
+        }
+        .padding(.top, 6)
     }
 
     /// Voice input: hold space to dictate. The speech model is not in the app (461 MB), so this is where someone

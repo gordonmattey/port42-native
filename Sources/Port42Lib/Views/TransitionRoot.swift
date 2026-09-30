@@ -285,6 +285,8 @@ public struct TransitionRoot: View {
     /// companions, and `port42://space` invites rode the messaging hub (nautilus Phase 1 step 4).
     /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
+        // A web page, from another app with Port42 as the default browser: a browser port on this space.
+        if WebLink.isWebLink(url) { appState.openWebLink(url); return }
         guard url.scheme == "port42" else { return }
         // An invite to one port (4.6b): the accept box asks the person, nothing is joined unasked.
         if let link = InviteCoupon.inviteLink(in: url.absoluteString) {

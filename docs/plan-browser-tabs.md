@@ -1,6 +1,6 @@
 # Plan: tabs in a browser port (Arc's left-hand list)
 
-Status: parked, 2026-09-29, behind browser use (#177, docs/plan-browser-use.md): "we won't need tabs for a start" (Gordon). The Phase 1 step 1 model and tests are drafted, not committed. Card: "Tabs in a browser port, like Arc's left-hand list"
+Status: DROPPED, 2026-09-30 (Gordon: "we aren't doing tabs, tabs are an antipattern"). A link from elsewhere opens as a new browser port on the current space instead (docs/plan-default-browser.md). Card: "Tabs in a browser port, like Arc's left-hand list"
 (dash `dev-browser-tabs`). Gordon: "the only reason I like Arc is the left-hand nav for managing tabs";
 "we can just build browser use into Port42 natively". Research: the architect's spike #197,
 `docs/research/browser-tabs.md` on `spike/browser-tabs` (09ad3ed).

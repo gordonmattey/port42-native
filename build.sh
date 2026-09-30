@@ -434,6 +434,9 @@ EOF
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName '$DISPLAY_NAME'" "$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLName $INVITE_NAME" "$APP/Contents/Info.plist" 2>/dev/null || true
+    # A dev instance does not offer to be the default browser: only the release app claims http and https,
+    # so System Settings' browser list does not fill with Port42 Dev, Dev2 and the rest.
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes:1" "$APP/Contents/Info.plist" 2>/dev/null || true
     echo "[build] Dev isolation: $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT"
 fi
 cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"

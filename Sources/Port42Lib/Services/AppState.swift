@@ -465,6 +465,8 @@ public final class AppState: ObservableObject {
     var agentInputUntil: [String: Date] = [:]
     /// The last thing a companion did in a port through port.act, by panel id, for its card.
     var agentActs: [String: (name: String, what: String, at: Date)] = [:]
+    /// Web links from other apps that arrived before setup was done (Port42 as the default browser).
+    var heldWebLinks: [URL] = []
 
     /// Active tool executors for remote RPC calls, keyed by senderId
     private var remoteExecutors: [String: RemoteToolExecutor] = [:]
