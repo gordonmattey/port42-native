@@ -1,6 +1,6 @@
 # Plan: the rail gets out of the way (#192)
 
-Status: built on Dev6, 2026-09-29, for Gordon to try (hover and drag need a person). Board card #192 (Gordon: a port under the rail is behind it and cannot be
+Status: DONE, 2026-09-29 (Gordon: "lock it in"). Commits d44feff, 8719ecc, 8474ab2; ships in the next release. Board card #192 (Gordon: a port under the rail is behind it and cannot be
 resized; he wants that space for the port).
 
 ## The problem
@@ -15,9 +15,11 @@ even when nothing is running or paused.
   that edge, and a tile under the folded rail is fully usable: click, resize, drag.
 - **The edge shows what matters**: a red dot when a running port needs you (its card's dot is red), so
   folding never hides a problem.
-- **It opens over the desktop** (140 wide, as today) when the pointer rests on the edge, and while a tile
-  is being dragged, so the Paused, Running and trash drop zones are there when you need them. It folds
-  again shortly after the pointer leaves or the drag ends.
+- **It opens over the desktop** (140 wide, as today), at once, when the pointer touches the edge or sweeps
+  quickly toward it (from 160 points out; a slow approach leaves it folded so a tile's edge beside it can
+  be resized), for the whole of a tile drag so the drop zones are there, and for 4 seconds when a running
+  port newly needs you. It folds the moment the pointer is off it (Gordon, trying it: open instantly,
+  open ahead of a move to the edge, shut as soon as you are off it).
 - Opening it covers tiles for the moment it is open; it never moves or resizes them.
 
 ## Not in this
