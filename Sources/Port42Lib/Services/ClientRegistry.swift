@@ -72,9 +72,15 @@ public final class ClientRegistry {
     private let db: DatabaseService
     private let instance: String
 
-    public init(db: DatabaseService, instance: String = ClientRegistry.currentInstance) {
+    /// Where the root secret comes from when this launch has not read it yet. Tests pass their own to
+    /// count the reads; the app's is the Keychain (`keptRootSecret`).
+    private let secretSource: ((String) -> String)?
+
+    public init(db: DatabaseService, instance: String = ClientRegistry.currentInstance,
+                secretSource: ((String) -> String)? = nil) {
         self.db = db
         self.instance = instance
+        self.secretSource = secretSource
     }
 
     /// Which Port42 this is: `Port42`, `Port42Dev`, `Port42Dev3`. The same value that already picks
@@ -89,38 +95,43 @@ public final class ClientRegistry {
     ///
     /// Generated lazily rather than at launch so a build that never mints one never writes to the
     /// Keychain at all.
+    ///
+    /// READ ONCE PER LAUNCH, THEN HELD (#218). Every API call verifies its token with this secret on
+    /// the main actor, and it used to be read from the Keychain each time. A Keychain read can block
+    /// (securityd busy on a loaded machine, an access prompt after a rebuild): on Dev6 one blocked for
+    /// 79 s, the main actor with it, and every API call timed out behind it. The secret never changes
+    /// while the app runs, so there is nothing to read again.
     func rootSecret() -> String {
+        if let held = Self.heldSecrets[instance] { return held }
+        let secret = secretSource?(instance) ?? Self.loadRootSecret(instance: instance)
+        Self.heldSecrets[instance] = secret
+        return secret
+    }
+
+    /// The secret for a launch that has not read it yet.
+    private static func loadRootSecret(instance: String) -> String {
         // A TEST NEVER MINTS WITH THE DAILY DRIVER'S SECRET (A2). Under a test runner the secret is
         // per-process and in memory, so a suite run neither reads nor writes the Keychain. Before
         // this, `AppState`'s registry resolved to the real instance and minted with prod's real root
         // secret, which is what made the orphan token files this plan opened on.
-        if Self.isTestProcess {
-            if let cached = Self.testSecrets[instance] { return cached }
-            let fresh = Self.randomSecret()
-            Self.testSecrets[instance] = fresh
-            return fresh
-        }
+        if isTestProcess { return randomSecret() }
         // Keep the secret there is; make one only when there is none. One that could not be read is
         // never replaced (that invalidated every token, Dev2 2026-09-27): this launch uses a secret of
         // its own, unsaved, so clients cannot connect until the next launch reads the real one again.
         switch KeptSecret.resolve(Port42AuthStore.shared.readGatewayRootSecret(instance: instance),
-                                  make: Self.randomSecret,
+                                  make: randomSecret,
                                   save: { Port42AuthStore.shared.saveGatewayRootSecret($0, instance: instance) }) {
         case .kept(let v), .made(let v): return v
         case .unreadable(let status):
             p42log("[gateway] the root secret is in the Keychain but could not be read (status %d); "
                    + "using a temporary one for this launch, not replacing it", Int(status))
-            if let cached = Self.launchSecrets[instance] { return cached }
-            let temp = Self.randomSecret()
-            Self.launchSecrets[instance] = temp
-            return temp
+            return randomSecret()
         }
     }
 
-    /// Per-instance secrets for a test process. Never touched in a real build.
-    nonisolated(unsafe) private static var testSecrets: [String: String] = [:]
-    /// A temporary secret for a launch that could not read the real one. Never saved.
-    nonisolated(unsafe) private static var launchSecrets: [String: String] = [:]
+    /// Each instance's secret once this launch has it: read or made, or a temporary one when the
+    /// Keychain could not be read. A test process holds its own random ones and never saves them.
+    nonisolated(unsafe) private static var heldSecrets: [String: String] = [:]
 
     /// True only under a test runner, established from the runner's own signals rather than from a
     /// build flag, because the defect this guards against reached a RELEASE user's home directory
