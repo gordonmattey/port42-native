@@ -617,9 +617,13 @@ BRIDGE API REFERENCE:
     Make an HTTP request with optional secret injection from the host's Keychain.
     url: the request URL
     opts: { method, headers, body, secret }
-    secret: name of a stored secret — the host resolves it and injects the auth header.
+    secret: name of a stored secret — the host resolves it and puts it where the secret says:
+      Bearer (Authorization: Bearer, the default), API Key (x-api-key), Basic, a Header the API
+      names (e.g. xi-api-key for ElevenLabs), or a Query parameter (e.g. key). The person sets the
+      place when adding the secret in Settings → Secrets.
     The secret value never reaches the port — only the response data.
-    Returns: { status, headers, body }
+    Returns: { status, headers, body }, plus hint on a 401 or 403 made with a secret: where Port42
+      sent it and where to change it. Show the hint to the person; it never holds the value.
     Requires REST permission.
 
 RESILIENCE: All bridge APIs are async, and a failed call REJECTS its promise (there is no

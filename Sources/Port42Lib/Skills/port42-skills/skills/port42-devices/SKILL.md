@@ -37,8 +37,14 @@ A browser port on the desktop is made with `port42 port.create type=browser url=
 
     port42 rest.call url=https://api.example.com/v1/items secret=<name>
 
-Port42 adds the secret's header; you never see its value. You can use only the secrets the person
-ticked for you in your companion settings.
+Port42 puts the secret where the person said the API wants it, and you never see its value:
+`Authorization: Bearer` by default, or `x-api-key`, Basic, a header of the API's own (ElevenLabs:
+`xi-api-key`) or a query parameter (`key`). You can use only the secrets the person ticked for you in
+your companion settings.
+
+On a 401 or 403 the result carries `hint`: where Port42 sent the secret. If the API wants it
+elsewhere, pass the hint to the person; they add the secret again in Settings → Secrets as Header or
+Query with the name the API uses. You cannot change it yourself.
 
 ## Streams
 
