@@ -223,7 +223,10 @@ public struct ShellView: View {
                     // Drop-down size, or zoomed to a full view like a focused port.
                     // Or the size the person dragged it to (GM, 2026-09-26).
                     let expanded = shell.spaceChatExpanded
-                    let room = CGSize(width: geo.size.width - 120, height: geo.size.height - topInset - 50 - 110)
+                    // Clear of the peek rail while a peek is up (#136): it sits where the chat drops down.
+                    let peeks = shell.peekingPorts.count
+                    let room = CGSize(width: ShellState.spaceChatRoomWidth(geo.size.width, peeks: peeks),
+                                      height: geo.size.height - topInset - 50 - 110)
                     let size = expanded ? ShellState.spaceChatSize(room, room: room)
                                         : ShellState.spaceChatSize(shell.spaceChatSize, room: room)
                     let w = size.width, h = size.height
@@ -263,7 +266,8 @@ public struct ShellView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.top, topInset + 50).padding(.leading, 60)
+                    .padding(.top, topInset + 50).padding(.leading, ShellState.spaceChatLeading(peeks: peeks))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: peeks > 0)
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(150)
