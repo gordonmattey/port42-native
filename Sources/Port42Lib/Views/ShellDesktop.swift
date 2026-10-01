@@ -402,7 +402,7 @@ struct ShellTile: View {
     @State private var peekHovered = false
     @State private var showVersions = false
     @State private var showMore = false
-    @State private var showMove = false
+    @State private var showSpaces = false
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
     /// The port's console, opened from its title bar (it used to be a ">" drawn inside the page).
@@ -441,6 +441,12 @@ struct ShellTile: View {
     private var shareablePort: Bool {
         guard let p = tile.panel else { return false }
         return AppState.shareable(p) && appState.mirroredRemote(p.id) == nil
+    }
+
+    /// This tile lives in another space and is shown here: its menu offers taking it off this desktop.
+    private var shownHereFromElsewhere: Bool {
+        guard let p = tile.panel, let cur = appState.currentSpace?.id else { return false }
+        return p.spaceId != cur && p.adoptedSpaceIds.contains(cur)
     }
 
     /// The version history, as a picker. Every version is already kept forever in `port_versions`;
@@ -833,7 +839,7 @@ struct ShellTile: View {
                                 if let copy = try? await appState.forkPort(id) { shell.bringToFront(copy) }
                             }
                         } : nil,
-                        onMove: shareablePort ? { showMore = false; showMove = true } : nil,
+                        onSpaces: tile.panel == nil ? nil : { showMore = false; showSpaces = true },
                         opacity: tile.panel?.opacity ?? 1,
                         onOpacity: { level in
                             if let id = tile.panel?.id { appState.portWindows.setOpacity(id: id, level) }
@@ -853,12 +859,21 @@ struct ShellTile: View {
                         })
                 }
                 .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
-                .popover(isPresented: $showMove, arrowEdge: .bottom) {
-                    PortMovePopover(appState: appState, accent: shell.accent, home: tile.panel?.spaceId) { target in
-                        showMove = false
+                .popover(isPresented: $showSpaces, arrowEdge: .bottom) {
+                    PortSpacesPopover(
+                        accent: shell.accent,
+                        spaces: appState.spaces.filter { $0.id != tile.panel?.spaceId },
+                        shownIn: Set(tile.panel?.adoptedSpaceIds ?? []),
+                        canMove: shareablePort,
+                        removeHere: shownHereFromElsewhere) { action in
+                        showSpaces = false
                         let id = tile.panel?.id ?? tile.id
-                        switch target {
-                        case .space(let sid): appState.portWindows.move(id: id, toSpace: sid)
+                        switch action {
+                        case .move(let sid): appState.portWindows.move(id: id, toSpace: sid)
+                        case .show(let sid): appState.portWindows.adopt(id: id, into: sid)
+                        case .stopShowing(let sid): appState.portWindows.unadopt(id: id, from: sid)
+                        case .removeHere:
+                            if let cur = appState.currentSpace?.id { appState.portWindows.unadopt(id: id, from: cur) }
                         case .machine: shell.shareMove = true; shell.shareTarget = tile.panel?.udid
                         }
                     }
@@ -1738,8 +1753,9 @@ struct PortMorePopover: View {
     var onShare: (() -> Void)? = nil
     /// A copy of this port, beside it (4.6b); nil hides the row.
     var onFork: (() -> Void)? = nil
-    /// Move it to another space, or hand it to another machine (4.6b); nil hides the row.
-    var onMove: (() -> Void)? = nil
+    /// Which spaces it lives in (GM, 2026-09-30): move its home, also show it elsewhere, take a copy
+    /// shown here off this desktop, or hand it to another machine. One row, so the menu stays short.
+    var onSpaces: (() -> Void)? = nil
     /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
     /// This port's body opacity and how to change it (#195).
     var opacity: Double = 1
@@ -1773,10 +1789,10 @@ struct PortMorePopover: View {
             if let onFork {
                 row("Fork: a copy", icon: "arrow.triangle.branch", action: onFork)
             }
-            if let onMove {
-                row("Move to…", icon: "arrow.right.square", action: onMove)
+            if let onSpaces {
+                row("Spaces…", icon: "square.stack", action: onSpaces)
             }
-            if onShare != nil || onFork != nil || onMove != nil { Divider().opacity(0.4) }
+            if onShare != nil || onFork != nil || onSpaces != nil { Divider().opacity(0.4) }
             row("Hide: keeps running", icon: "eye.slash", action: onHide)
             row("Set as background", icon: "photo", action: onSetBackground)
             // One "Pin" option with its choices under it (GM, 2026-09-27). A popover has no

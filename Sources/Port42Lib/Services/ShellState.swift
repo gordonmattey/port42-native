@@ -1452,6 +1452,24 @@ public final class ShellState: ObservableObject {
         return min(1, max(min(chatMinHeight, body) / body, height / body))
     }
 
+    /// Where the space chat's left edge sits (#136). It drops down at the desktop's top-left, which is
+    /// exactly where the peek rail is (`ShellPlacement.railSlot`: x 12, from y 60), and it is hosted
+    /// in its own AppKit layer above the desktop, so a peek raised while the person was in the chat
+    /// landed under it and was missed: the companion they were talking to asked them to look, and
+    /// they could not see it. While a peek is up the chat starts right of the rail instead, and its
+    /// room shrinks to match, so even the full view leaves the rail visible. With none, it is where
+    /// it always was.
+    nonisolated static let spaceChatInset: CGFloat = 60
+    nonisolated static func spaceChatLeading(peeks: Int) -> CGFloat {
+        peeks > 0 ? ShellPlacement.railSlot(0, in: .zero).maxX + 16 : spaceChatInset
+    }
+
+    /// The room the space chat may fill in a view `width` wide: from its left edge to the same
+    /// inset on the right.
+    nonisolated static func spaceChatRoomWidth(_ width: CGFloat, peeks: Int) -> CGFloat {
+        width - spaceChatLeading(peeks: peeks) - spaceChatInset
+    }
+
     /// The space chat's size: dragged (kept between its minimum and the room there is), or the default.
     nonisolated static func spaceChatSize(_ proposed: CGSize?, room: CGSize) -> CGSize {
         let p = proposed ?? spaceChatDefault

@@ -887,6 +887,9 @@ public final class AppState: ObservableObject {
 
     /// Bring a revoked client back. The only way to (APP-12): spawning, renaming or re-redeeming no
     /// longer clears a revocation.
+    /// Watches the dev-lock requests on a dev instance (#222); nil on the daily driver and in tests.
+    var devLockEnrolment: DevLockEnrolment?
+
     public func restoreClient(id: String) {
         try? db.restoreClient(id: id)
     }
@@ -1077,6 +1080,14 @@ public final class AppState: ObservableObject {
                 // on the Mac, not only Port42's, and Port42's own companions get their instructions
                 // per session. Blocks already there are left as they are.
                 CLIInstallService.shared.install(registry: self.clientRegistry)
+
+                // #222: on a dev instance, the dev-lock holder's own client (never the daily driver).
+                if DevLockEnrolment.applies(to: ClientRegistry.currentInstance) {
+                    let enrolment = DevLockEnrolment(registry: self.clientRegistry,
+                                                     restore: { [weak self] id in self?.restoreClient(id: id) })
+                    enrolment.start()
+                    self.devLockEnrolment = enrolment
+                }
 
                 // AFTER the boot enrolments, never before (E1): the CLI enrols here, and reaping
                 // first would delete a file that is about to be rewritten. Ordering is the whole

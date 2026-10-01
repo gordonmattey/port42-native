@@ -224,7 +224,10 @@ public struct ShellView: View {
                     // Drop-down size, or zoomed to a full view like a focused port.
                     // Or the size the person dragged it to (GM, 2026-09-26).
                     let expanded = shell.spaceChatExpanded
-                    let room = CGSize(width: geo.size.width - 120, height: geo.size.height - topInset - 50 - 110)
+                    // Clear of the peek rail while a peek is up (#136): it sits where the chat drops down.
+                    let peeks = shell.peekingPorts.count
+                    let room = CGSize(width: ShellState.spaceChatRoomWidth(geo.size.width, peeks: peeks),
+                                      height: geo.size.height - topInset - 50 - 110)
                     let size = expanded ? ShellState.spaceChatSize(room, room: room)
                                         : ShellState.spaceChatSize(shell.spaceChatSize, room: room)
                     let w = size.width, h = size.height
@@ -264,7 +267,8 @@ public struct ShellView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.top, topInset + 50).padding(.leading, 60)
+                    .padding(.top, topInset + 50).padding(.leading, ShellState.spaceChatLeading(peeks: peeks))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: peeks > 0)
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(150)
@@ -1056,7 +1060,10 @@ struct ShellGalaxyView: View {
                     }
                 }.frame(width: 120, height: 120)
                 Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hovered || on ? acc : Port42Theme.textPrimary).tracking(2)
-                Text("\(portCount(space)) ports").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                // What is happening there, at a glance (#137): who needs you, who is working on what,
+                // the ports running and paused, and unread chat.
+                SpaceGlanceView(appState: appState, space: space, accent: acc, presence: appState.presence,
+                                states: appState.portStates, chats: appState.chats)
             }
             .padding(18).frame(maxWidth: .infinity)
             // Hover = loud (fill + bright ring + glow + lift). Current space = quiet (a solid accent
@@ -1877,5 +1884,56 @@ struct ShellBackgroundPort: View {
         }
         // Re-mount if the chosen background changes (new HTML → new surface).
         .id(html.hashValue)
+    }
+}
+
+/// A galaxy tile's glance at its space (#137). Observes the stores the glance is built from, so it
+/// follows presence, terminals and unread live, as the rail and the port cards do.
+struct SpaceGlanceView: View {
+    let appState: AppState
+    let space: Space
+    let accent: Color
+    @ObservedObject var presence: ChatPresenceStore
+    @ObservedObject var states: PortStateStore
+    @ObservedObject var chats: PortChatStore
+
+    var body: some View {
+        let g = appState.spaceGlance(space)
+        VStack(spacing: 4) {
+            if g.needsYou {
+                HStack(spacing: 5) {
+                    Circle().fill(Port42Theme.error).frame(width: 7, height: 7)
+                    Text(Self.attentionLine(g)).lineLimit(1).truncationMode(.tail)
+                }
+                .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.error)
+            }
+            ForEach(g.working.prefix(2), id: \.self) { line in
+                Text(line).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary.opacity(0.8))
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            if g.working.count > 2 {
+                Text("+\(g.working.count - 2) more working").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+            }
+            HStack(spacing: 6) {
+                Text(Self.portsLine(g)).foregroundStyle(Port42Theme.textSecondary)
+                if g.unread > 0 {
+                    Text(g.unread > 99 ? "99+ unread" : "\(g.unread) unread").foregroundStyle(accent)
+                }
+            }
+            .font(Port42Theme.mono(10))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// "wise-hare: needs permission to use Bash", or "2 need you" when more than one does.
+    static func attentionLine(_ g: SpaceGlance) -> String {
+        let all = g.waiting + g.failed.map { "\($0) failed" }
+        return all.count == 1 ? all[0] : "\(all.count) need you: " + all.joined(separator: ", ")
+    }
+
+    /// "3 running · 1 paused", or "no ports".
+    static func portsLine(_ g: SpaceGlance) -> String {
+        if g.running == 0 && g.paused == 0 { return "no ports" }
+        return g.paused > 0 ? "\(g.running) running · \(g.paused) paused" : "\(g.running) running"
     }
 }

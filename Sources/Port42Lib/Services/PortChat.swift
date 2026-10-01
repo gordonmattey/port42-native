@@ -552,6 +552,20 @@ public final class PortChatStore: ObservableObject {
         lastRead = (defaults?.dictionary(forKey: Self.defaultsKey) as? [String: Int]) ?? [:]
     }
 
+    /// What the person has typed and not sent, per chat (#221). The panel's own state went with it
+    /// when the chat was closed, its port or space left, or the tile swapped for its focus view, so a
+    /// half-written message was lost. Held here, it comes back when the chat does. Not published: the
+    /// panel types into its own state and keeps this current, so a keystroke redraws nothing else.
+    private var drafts: [String: String] = [:]
+
+    /// The unsent text of a chat, or "".
+    public func draft(_ key: String) -> String { drafts[key] ?? "" }
+
+    /// Keep a chat's unsent text; empty text drops it.
+    public func keepDraft(_ text: String, for key: String) {
+        drafts[key] = text.isEmpty ? nil : text
+    }
+
     /// Load a chat's newest entries once. A chat already loaded is kept current by `received`.
     public func load(_ key: String, from db: DatabaseService) {
         guard entries[key] == nil else { return }

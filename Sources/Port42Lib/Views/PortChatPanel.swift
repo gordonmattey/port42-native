@@ -170,8 +170,13 @@ struct PortChatPanel: View {
         .onAppear {
             chats.load(key, from: appState.db)
             chats.markRead(key)
+            draft = chats.draft(key)
             inputFocused = true
         }
+        // #221: the unsent text outlives the panel, and each chat keeps its own. A space chat's panel
+        // is reused when the space changes, so the other space's text is swapped in, not carried over.
+        .onChange(of: draft) { _, text in chats.keepDraft(text, for: key) }
+        .onChange(of: key) { _, newKey in draft = chats.draft(newKey) }
     }
 
     /// Companions matching the @name being typed, up to five.
