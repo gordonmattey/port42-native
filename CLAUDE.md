@@ -143,6 +143,11 @@ This single command handles the full pipeline:
 git add -f dist/Port42.app dist/Port42.dmg && git commit -m "Release: <description>" && git push
 ```
 
+**Before cutting any release, run `scripts/unshipped.sh`** (1.0.5 left five built tickets behind: #128, #136,
+#137, #221, #222). It lists every ticket built on a branch and not in `main`. Reconcile each line: in this
+release, deferred (with the reason on its card), or dropped. A card moves to Resolved only when `main`
+contains it, and its Resolved note names the release.
+
 **Then tell growth, every release** (GM, 2026-09-28: 1.0.2 shipped and growth did not know). Post in the
 operator space (`port42-app`) to the growth lead (`@lucky-ibis`): the version and build, the release
 link, what changed in a line or two, and whether anything the site mirrors changed (`llms.txt`,
