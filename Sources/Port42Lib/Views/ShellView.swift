@@ -329,6 +329,7 @@ public struct ShellView: View {
             shell.showSettings = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .newSpaceRequested)) { _ in
+            guard shell.isKey else { return }   // #189: the menu command is the window in use's
             // ⌘N and File → New Space: the galaxy's new-space card, from anywhere.
             appState.createSpace(name: "space \(appState.spaces.count + 1)")
             withAnimation(.spring(response: 0.45)) { shell.zoom = .space }

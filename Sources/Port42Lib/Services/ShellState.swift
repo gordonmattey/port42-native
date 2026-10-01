@@ -425,8 +425,14 @@ public final class ShellState: ObservableObject {
     public func restSpace(_ space: Space) {
         appState.restSpace(space)
         guard appState.spaces.first(where: { $0.id == space.id })?.isResting == true else { return }
-        for p in peekingPorts where p.spaceId == space.id { peekRemaining[p.id] = nil }
-        peekingPorts.removeAll { $0.spaceId == space.id }
+        // Every window's peeks, not only this one's (#189: a window per display, each with its own strip).
+        for shell in appState.shells { shell.dropPeeks(of: space.id) }
+    }
+
+    /// Clear this window's peeks raised from one space (it went to rest).
+    func dropPeeks(of spaceId: String) {
+        for p in peekingPorts where p.spaceId == spaceId { peekRemaining[p.id] = nil }
+        peekingPorts.removeAll { $0.spaceId == spaceId }
     }
 
     /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't

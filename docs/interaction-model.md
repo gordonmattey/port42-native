@@ -57,7 +57,7 @@ on the desktop moves.
 ## Several displays (#189)
 
 With a space on each display (hold a space in the galaxy, then "Show on <display>"), every key and
-gesture above acts in the window it happens in: ⌘K, ⌘I, ⌘G, the ladder, ⌘1 to ⌘9, Tab, Esc and pinch move
+gesture above acts in the window it happens in: ⌘K, ⌘I, ⌘N, ⌘G, the ladder, ⌘1 to ⌘9, Tab, Esc and pinch move
 that display's window only. The window last clicked or typed in is the one in use: switching space from
 anywhere (the switcher, a port link, an agent) changes it, and a new port lands there. Holding Space to
 dictate works in any window. A port shown on two displays at once is live in the window in use; the

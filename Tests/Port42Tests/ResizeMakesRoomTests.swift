@@ -87,7 +87,13 @@ struct ResizeMakesRoomTests {
         return (try make("built", a), try make("team", b))
     }
 
-    func frame(_ w: ParityWorld, _ id: String) -> CGRect? { ShellState(appState: w.state).desktopFrames()[id] }
+    /// A tile's frame on the world's desktop, read through a window that shows that space. Since #189 a
+    /// second shell is another window, which shows nothing until it is given a space.
+    func frame(_ w: ParityWorld, _ id: String) -> CGRect? {
+        let window = ShellState(appState: w.state)
+        window.show(spaceId: w.space.id)
+        return window.desktopFrames()[id]
+    }
 
     @Test("letting go keeps the layout; one action puts it back")
     func keepAndPutBack() throws {
