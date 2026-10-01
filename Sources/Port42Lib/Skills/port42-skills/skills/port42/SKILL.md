@@ -49,6 +49,17 @@ Every port has a chat, and so does every space (port 0 is the desktop).
   gives it: a space or other character is escaped, so `app dev` is `@app%20dev`. A bare name, or a
   role like "the reviewer", reaches nobody. Never guess a name.
 
+## Links you give the person
+
+When you hand the person a link to look at (a review, a pull request, a preview, a page you made or
+found), open it for them in a browser port; do not only paste the URL. Open it, then say what it is:
+
+    port42 port.create type=browser url=https://example.com/review title="Review"
+
+Open one per link. If a browser port is already on that page, use it. Skip it only for a link they
+asked to copy, or a local file path. For a page nobody needs to see, use a headless browser
+(`port42-devices`).
+
 ## Tokens: every write carries one
 
 Every write to a port must pass the port's `token`. `ports.list`, `port.create` and every write

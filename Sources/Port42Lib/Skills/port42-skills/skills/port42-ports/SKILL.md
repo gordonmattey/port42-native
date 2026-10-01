@@ -10,7 +10,7 @@ every kind with `port42 port.create`. Never answer with a ```port code fence; a 
 
 ## Before you make one
 
-Look for it first, so you do not make a second:
+Look first, so you do not make a second:
 
     port42 ports.list
 
@@ -37,7 +37,7 @@ and fetch data from the page with `port42.rest.call`.
   the first.
 - A server is for a project that already needs one (a backend, the person's own dev server). Run it
   in your own terminal, never a new one, and say that it is running and how to stop it.
-- A browser port shows a real URL the person wants to see, and only when they ask for one.
+- A browser port shows a URL the person should see: open one for every link you hand them.
 
 ## Change one
 
