@@ -95,11 +95,15 @@ public struct ShellView: View {
                 ShellPortHost(view: v,
                               bridge: appState.portWindows.panels.first(where: { $0.id == bgId })?.bridge,
                               probeId: bgId)
+                    // Each space has its own backdrop: a new identity per port, or the host keeps showing the
+                    // first space's surface (its container is built once and never swaps the view).
+                    .id(bgId)
                     .ignoresSafeArea()
             } else if let bgHtml = shell.backgroundPortHtml {
                 // Fallback: the background port was CLOSED — nothing live to re-parent, so mount a
                 // fresh copy from its stored HTML.
                 ShellBackgroundPort(html: bgHtml, appState: appState)
+                    .id(appState.currentSpace?.id)
                     .ignoresSafeArea()
             } else if ShellBackground.isDisabledForMeasurement {
                 // A/B for the scroll-jitter + beachball investigation (summer2026-todo.md). Measured
