@@ -112,8 +112,8 @@ this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unus
 - **Animation:** start the loop running, then pause it when `port42.on('presentation', p => ...)`
   reports `p.visible` false. Never wait for that event to start: it fires on change. Use
   `port42.presentation()` for the state at startup.
-- **Off screen** (running, paused, another space) a port still gets every event. Timers run at full
-  rate only when running; paused or elsewhere they slow to about once a second and frames stop.
+- **Off screen** (running, paused, another space) a port still gets every event, and its timers never
+  stop: full rate when running, else about once a second (a long interval may fire late); frames stop.
 - **A failed bridge call rejects.** Wrap startup in try/catch so one failure cannot blank the port;
   show failures in the UI.
 - **`port.exec`** runs your JS as a function body: a multi-statement line needs an explicit `return`,
