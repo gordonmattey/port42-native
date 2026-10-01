@@ -1344,9 +1344,16 @@ struct ShellSettingsView: View {
         let otherDisplays = windows.connected().filter { !$0.isMain }
         VStack(alignment: .leading, spacing: 6) {
             Text("WINDOWS").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
-            spaceWindowRow("Open in a new window", icon: "macwindow.badge.plus",
-                           help: "Open this space in a window of its own, on this screen") {
-                windows.openInNewWindow(space.id)
+            if windows.hasWindow(space.id) {
+                spaceWindowRow("Close its window", icon: "xmark.rectangle",
+                               help: "Close the window this space is open in. The space keeps running (⌘W in that window does the same)") {
+                    windows.closeWindow(of: space.id)
+                }
+            } else {
+                spaceWindowRow("Open in a new window", icon: "macwindow.badge.plus",
+                               help: "Open this space in a window of its own, on this screen") {
+                    windows.openInNewWindow(space.id)
+                }
             }
             ForEach(otherDisplays) { d in
                 let showing = windows.isShowing(space.id, on: d.id)

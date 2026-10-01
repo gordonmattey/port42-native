@@ -229,6 +229,16 @@ public final class DisplaySpaces {
         map.close(record.id); map.save()
     }
 
+    /// Whether a space is open in a window of its own (not the main window).
+    public func hasWindow(_ spaceId: String) -> Bool { map.window(showing: spaceId) != nil }
+
+    /// Close the window a space is open in, wherever it is, and forget it. The space keeps running.
+    public func closeWindow(of spaceId: String) {
+        guard let record = map.window(showing: spaceId) else { return }
+        windows[record.id]?.close()           // willClose forgets it
+        map.close(record.id); map.save()
+    }
+
     /// A space was deleted: its window closes and is forgotten.
     public func forget(_ spaceId: String) {
         if let record = map.window(showing: spaceId) { windows[record.id]?.close() }
