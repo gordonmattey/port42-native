@@ -113,7 +113,7 @@ public struct ShellView: View {
                 // Fallback: the background port was CLOSED — nothing live to re-parent, so mount a
                 // fresh copy from its stored HTML.
                 ShellBackgroundPort(html: bgHtml, appState: appState)
-                    .id(appState.currentSpace?.id)
+                    .id(shell.spaceId)
                     .ignoresSafeArea()
             } else if ShellBackground.isDisabledForMeasurement {
                 // A/B for the scroll-jitter + beachball investigation (summer2026-todo.md). Measured
@@ -1298,7 +1298,7 @@ struct ShellSettingsView: View {
             ), accent: col)
 
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            Button { dismiss(save: false) { if let s = appState.currentSpace { appState.removeCompanionFromSpace(c, space: s) } } } label: {
+            Button { dismiss(save: false) { if let s = shell.space { appState.removeCompanionFromSpace(c, space: s) } } } label: {
                 HStack(spacing: 6) { Image(systemName: "rectangle.portrait.and.arrow.right"); Text("Remove from this space") }
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
             }.buttonStyle(.plain)
@@ -1561,7 +1561,7 @@ struct ShellNewCompanionView: View {
         return isCLI || !command.trimmingCharacters(in: .whitespaces).isEmpty
     }
     private var rosterNotHere: [AgentConfig] {
-        let here = Set(appState.spaceCompanions.map(\.id))
+        let here = Set(shell.companionsHere.map(\.id))
         return appState.companions.filter { !here.contains($0.id) }
     }
     /// The ports of this space a companion can watch.
@@ -1789,7 +1789,7 @@ struct ShellNewCompanionView: View {
     }
 
     private func addExisting(_ c: AgentConfig) {
-        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
+        if let s = shell.space { appState.addCompanionToSpace(c, space: s) }
         dismiss()
     }
     private func dismiss() {

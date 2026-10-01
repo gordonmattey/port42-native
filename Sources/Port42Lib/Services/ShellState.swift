@@ -110,6 +110,15 @@ public final class ShellState: ObservableObject {
     // (`SpaceBackgrounds.swift`): with a window per display (#189) each window reads the one for the
     // space it shows, and the API sets them with no window at all.
 
+    /// The companions of the space this window shows (#189). The window in use reads `spaceCompanions`
+    /// (from the database); another display's window reads the membership map an observer keeps current,
+    /// since `spaceCompanions` follows the window in use.
+    public var companionsHere: [AgentConfig] {
+        if isKey { return appState.spaceCompanions }
+        guard let sid = spaceId, let ids = appState.spaceAgentIds[sid] else { return [] }
+        return appState.companions.filter { ids.contains($0.id) }
+    }
+
     /// This window's space's live background port, if it has one.
     public var backgroundPortId: String? { spaceId.flatMap { appState.backgroundPorts[$0] } }
     /// This window's space's closed-port fallback HTML, if it has one.

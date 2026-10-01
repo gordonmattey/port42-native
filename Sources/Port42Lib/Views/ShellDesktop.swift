@@ -445,7 +445,7 @@ struct ShellTile: View {
 
     /// This tile lives in another space and is shown here: its menu offers taking it off this desktop.
     private var shownHereFromElsewhere: Bool {
-        guard let p = tile.panel, let cur = appState.currentSpace?.id else { return false }
+        guard let p = tile.panel, let cur = shell.spaceId else { return false }
         return p.spaceId != cur && p.adoptedSpaceIds.contains(cur)
     }
 
@@ -873,7 +873,7 @@ struct ShellTile: View {
                         case .show(let sid): appState.portWindows.adopt(id: id, into: sid)
                         case .stopShowing(let sid): appState.portWindows.unadopt(id: id, from: sid)
                         case .removeHere:
-                            if let cur = appState.currentSpace?.id { appState.portWindows.unadopt(id: id, from: cur) }
+                            if let cur = shell.spaceId { appState.portWindows.unadopt(id: id, from: cur) }
                         case .machine: shell.shareMove = true; shell.shareTarget = tile.panel?.udid
                         }
                     }
@@ -1512,7 +1512,7 @@ struct ShellDock: View {
     var body: some View {
         HStack(spacing: 14) {
             HStack(spacing: 10) {                                   // — COMPANIONS —
-                ForEach(appState.spaceCompanions) { companionChip($0) }
+                ForEach(shell.companionsHere) { companionChip($0) }   // this window's space (#189)
                 addCompanionButton
             }
             dockAligned { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40) }
