@@ -23,6 +23,7 @@ public final class VoiceGlobalTrigger {
     private var trigger = VoiceTrigger()
     private var thresholdTimer: Timer?
     private var watchdog: Timer?
+    private var releasePoll: Timer?
     /// The tap runs on a thread of its own, NOT on the main run loop. A tap that takes too long to answer is
     /// switched off by the system, and on the main thread that would mean every keystroke on the machine
     /// waiting behind whatever the app is drawing. Everything the tap touches (`trigger`, the timer) lives on
@@ -177,7 +178,27 @@ public final class VoiceGlobalTrigger {
         if let runLoop { CFRunLoopAddTimer(runLoop, timer, .defaultMode) }
     }
 
+    /// Checks the hold still has the space bar down; a release the tap never saw (it is switched off under
+    /// load) ends it, or the HUD stays up and the hold never closes.
+    private func armReleasePoll() {
+        releasePoll?.invalidate()
+        var upReads = 0
+        let timer = Timer(timeInterval: VoiceTrigger.releasePollInterval, repeats: true) { [weak self] t in
+            guard let self, self.trigger.isCapturing else { t.invalidate(); return }
+            upReads = VoiceTrigger.spaceIsDown ? 0 : upReads + 1
+            guard VoiceTrigger.releaseMissed(capturing: true, spaceDown: upReads == 0, upReads: upReads) else { return }
+            p42log("[Port42] voice: the space bar came up unseen; ending the hold")
+            t.invalidate()
+            _ = self.trigger.cancel()
+            self.cancelThreshold()
+            DispatchQueue.main.async { [onEnd = self.onEnd] in onEnd(false) }
+        }
+        releasePoll = timer
+        if let runLoop { CFRunLoopAddTimer(runLoop, timer, .defaultMode) }
+    }
+
     private func cancelThreshold() {
+        releasePoll?.invalidate(); releasePoll = nil
         thresholdTimer?.invalidate()
         thresholdTimer = nil
         watchdog?.invalidate()
@@ -188,6 +209,7 @@ public final class VoiceGlobalTrigger {
     /// mid-hold, a lost key event).
     private func armWatchdog() {
         watchdog?.invalidate()
+        armReleasePoll()
         let timer = Timer(timeInterval: VoiceTrigger.maximumHold, repeats: false) { [weak self] _ in
             guard let self, self.trigger.reachedLimit() == .endCapture else { return }
             p42log("[Port42] voice: hold reached %.0fs; ending it and keeping the words", VoiceTrigger.maximumHold)

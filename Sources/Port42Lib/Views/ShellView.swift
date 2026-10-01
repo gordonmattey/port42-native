@@ -43,6 +43,7 @@ public struct ShellView: View {
     @State private var voiceTyped = ""
     @State private var voiceObservers: [NSObjectProtocol] = []
     @State private var voiceWatchdog: Timer?
+    @State private var voiceReleasePoll: Timer?
     @State private var voiceNoticeTimer: Timer?
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
@@ -466,6 +467,7 @@ public struct ShellView: View {
                 shell.voiceNotice = nil
                 shell.voicePartial = nil
                 armVoiceWatchdog()
+                armVoiceReleasePoll()
                 voiceSession?.destination = .inApp
                 voiceTyped = ""
                 shell.voiceAnchorPortId = appState.portWindows.portHoldingKeyboard()
@@ -507,6 +509,7 @@ public struct ShellView: View {
     private func abandonVoiceHold() {
         voiceTimer?.invalidate(); voiceTimer = nil
         voiceWatchdog?.invalidate(); voiceWatchdog = nil
+        voiceReleasePoll?.invalidate(); voiceReleasePoll = nil
         _ = voice.cancel()
         guard shell.voiceCapturing else { return }
         shell.voiceCapturing = false
@@ -522,6 +525,7 @@ public struct ShellView: View {
 
     private func endVoice(atLimit: Bool = false) {
         voiceWatchdog?.invalidate(); voiceWatchdog = nil
+        voiceReleasePoll?.invalidate(); voiceReleasePoll = nil
         shell.voiceCapturing = false
         VoiceCue.play(.end)
         voiceSession?.end(atLimit: atLimit)
@@ -555,6 +559,24 @@ public struct ShellView: View {
                 guard voice.reachedLimit() == .endCapture, shell.voiceCapturing else { return }
                 p42log("[Port42] voice: hold reached %.0fs; ending it and keeping the words", VoiceTrigger.maximumHold)
                 endVoice(atLimit: true)
+            }
+        }
+    }
+
+    /// A hold ends if the space bar is no longer down: a release this window never saw must not leave
+    /// the hold open to swallow the keyboard.
+    private func armVoiceReleasePoll() {
+        voiceReleasePoll?.invalidate()
+        var upReads = 0
+        voiceReleasePoll = Timer.scheduledTimer(withTimeInterval: VoiceTrigger.releasePollInterval, repeats: true) { timer in
+            Task { @MainActor in
+                guard shell.voiceCapturing else { timer.invalidate(); return }
+                upReads = VoiceTrigger.spaceIsDown ? 0 : upReads + 1
+                guard VoiceTrigger.releaseMissed(capturing: true, spaceDown: upReads == 0, upReads: upReads) else { return }
+                p42log("[Port42] voice: the space bar came up unseen; ending the hold")
+                timer.invalidate()
+                _ = voice.cancel()
+                endVoice()
             }
         }
     }
