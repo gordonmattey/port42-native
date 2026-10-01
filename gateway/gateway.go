@@ -243,6 +243,44 @@ func (g *Gateway) hostCredentialMatches(presented string) bool {
 type httpCallback struct {
 	reply chan Envelope
 	host  string
+	// pending is signalled when the host says the call is waiting on a person (#247).
+	pending chan struct{}
+}
+
+// How long an HTTP /call waits for its host, and how long once the host says the call is waiting on
+// a person's answer to a permission card (#247): a card nobody was watching for needs minutes, not
+// seconds. Variables so tests can shorten them.
+var (
+	callWait     = 30 * time.Second
+	approvalWait = 5 * time.Minute
+)
+
+// cancelOnHost tells the host a caller gave up on a call (#247), so it withdraws any card the call is
+// waiting on: a late Allow must not act for a caller that is gone. Best effort; the host may be gone.
+func (g *Gateway) cancelOnHost(host, caller, callID string) {
+	g.mu.RLock()
+	hp, ok := g.peers[host]
+	g.mu.RUnlock()
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	hp.Send(ctx, Envelope{Type: "cancel", CallID: callID, SenderID: caller})
+}
+
+// routePending extends an HTTP call's wait: its host says the call waits on a person (#247).
+func (g *Gateway) routePending(sender *Peer, env Envelope) {
+	g.mu.RLock()
+	cb, ok := g.httpCallbacks[env.CallID]
+	g.mu.RUnlock()
+	if !ok || cb.host != sender.ID {
+		return
+	}
+	select {
+	case cb.pending <- struct{}{}:
+	default:
+	}
 }
 
 // inflightKey names one forwarded call. Callers choose their call ids, so the caller is part of the key.
@@ -287,12 +325,23 @@ func (g *Gateway) answeredBy(sender *Peer, target, callID string, done bool) boo
 }
 
 // forgetCallsOf drops the calls a gone caller made, or a gone host was answering. Caller holds g.mu.
-func (g *Gateway) forgetCallsOf(id string) {
+// forgetCallsOf retires every call to or from id, and returns the calls id made that are still with
+// a host, so the host can be told its caller is gone (#247).
+func (g *Gateway) forgetCallsOf(id string) (orphaned []inflightCall) {
 	for key, host := range g.inflight {
 		if key.caller == id || host == id {
 			delete(g.inflight, key)
+			if key.caller == id {
+				orphaned = append(orphaned, inflightCall{key: key, host: host})
+			}
 		}
 	}
+	return orphaned
+}
+
+type inflightCall struct {
+	key  inflightKey
+	host string
 }
 
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
@@ -453,6 +502,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.routeResponse(ctx, peer, env)
 		case "stream":
 			g.routeStream(ctx, peer, env)
+		case "pending":
+			g.routePending(peer, env)
 		case "remote_call":
 			// Only the app may send this instance's key out to call another.
 			if !provenHost {
@@ -514,6 +565,13 @@ func sameIdentity(old, newcomer *Peer) bool {
 }
 
 func (g *Gateway) removePeer(p *Peer) {
+	var orphaned []inflightCall
+	defer func() {
+		// A caller that left mid-call: its host withdraws the card the call waits on (#247).
+		for _, c := range orphaned {
+			go g.cancelOnHost(c.host, c.key.caller, c.key.callID)
+		}
+	}()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	// Only the connection that still holds the ID gives it up, host slot included (GW-02). Clearing
@@ -523,7 +581,7 @@ func (g *Gateway) removePeer(p *Peer) {
 		if g.globalHostID == p.ID {
 			g.globalHostID = ""
 		}
-		g.forgetCallsOf(p.ID)
+		orphaned = g.forgetCallsOf(p.ID)
 	}
 }
 
@@ -572,7 +630,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	if g.httpCallbacks == nil {
 		g.httpCallbacks = make(map[string]httpCallback)
 	}
-	g.httpCallbacks[callID] = httpCallback{reply: replyCh, host: hostID}
+	pendingCh := make(chan struct{}, 1)
+	g.httpCallbacks[callID] = httpCallback{reply: replyCh, host: hostID, pending: pendingCh}
 	g.mu.Unlock()
 
 	defer func() {
@@ -627,35 +686,47 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wait for response (30s timeout)
-	select {
-	case resp := <-replyCh:
-		w.Header().Set("Content-Type", "application/json")
-		if resp.Error != "" {
-			w.WriteHeader(http.StatusBadGateway)
-			// The host's code travels with its message: a caller branches on the code, never the text.
-			out := map[string]string{"error": resp.Error}
-			if resp.Code != "" {
-				out["code"] = resp.Code
-			}
-			json.NewEncoder(w).Encode(out)
-		} else if resp.Payload != nil {
-			var payload map[string]interface{}
-			if err := json.Unmarshal(resp.Payload, &payload); err == nil {
-				json.NewEncoder(w).Encode(payload)
+	// Wait for the response: callWait, or approvalWait once the host says a person is being asked
+	// (#247). A caller that gives up, by timeout or by leaving, tells the host, so the card it was
+	// waiting on is withdrawn and a late click does nothing.
+	timer := time.NewTimer(callWait)
+	defer timer.Stop()
+	for {
+		select {
+		case <-pendingCh:
+			timer.Reset(approvalWait)
+			continue
+		case resp := <-replyCh:
+			w.Header().Set("Content-Type", "application/json")
+			if resp.Error != "" {
+				w.WriteHeader(http.StatusBadGateway)
+				// The host's code travels with its message: a caller branches on the code, never the text.
+				out := map[string]string{"error": resp.Error}
+				if resp.Code != "" {
+					out["code"] = resp.Code
+				}
+				json.NewEncoder(w).Encode(out)
+			} else if resp.Payload != nil {
+				var payload map[string]interface{}
+				if err := json.Unmarshal(resp.Payload, &payload); err == nil {
+					json.NewEncoder(w).Encode(payload)
+				} else {
+					w.Write(resp.Payload)
+				}
 			} else {
-				w.Write(resp.Payload)
+				json.NewEncoder(w).Encode(map[string]string{"content": ""})
 			}
-		} else {
-			json.NewEncoder(w).Encode(map[string]string{"content": ""})
+		case <-timer.C:
+			go g.cancelOnHost(hostID, localPrincipalID, callID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusGatewayTimeout)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "timeout waiting for host response", "code": CodeTimedOut})
+		case <-ctx.Done():
+			// Client disconnected: nobody is left to act for.
+			go g.cancelOnHost(hostID, localPrincipalID, callID)
 		}
-	case <-time.After(30 * time.Second):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusGatewayTimeout)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "timeout waiting for host response", "code": CodeTimedOut})
-	case <-ctx.Done():
-		// Client disconnected
+		return
 	}
 }
 
