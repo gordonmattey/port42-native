@@ -31,6 +31,13 @@ takes it further. Change this file when a gesture or key changes.
 | A peek | magnifier / ✕ / click / flick left | Look / skip / keep / skip. Zoomed into it, a click keeps it. |
 | A browser port | the page | The person's own; touching it takes it back from a companion that was acting on it. |
 
+## New ports
+
+A new port goes in the largest empty area of the desktop that holds it at its own size. If none does, it
+goes in the largest empty area there is and shrinks to fill it, down to the smallest a port can be (where
+it shows its card). Only when there is no room at all does it land on top of the others. Nothing already
+on the desktop moves.
+
 ## Keys
 
 | Key | Does |

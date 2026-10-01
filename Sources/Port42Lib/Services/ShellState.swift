@@ -1559,12 +1559,14 @@ public final class ShellState: ObservableObject {
         occupied.insert(contentsOf: peekingPorts.indices.map { ShellPlacement.railSlot($0, in: area) }, at: 0)
 
         for p in panels where p.position(on: desktop) == nil {
-            let origin = ShellPlacement.place(p.size, among: occupied, in: area)
-            ArrangeLog.note("place", "id=\(shortId(p.id)) at=\(Int(origin.x)),\(Int(origin.y)) "
-                            + "size=\(Int(p.size.width))x\(Int(p.size.height)) among=\(occupied.count) "
+            let spot = ShellPlacement.placeRect(p.size, among: occupied, in: area)
+            ArrangeLog.note("place", "id=\(shortId(p.id)) at=\(Int(spot.minX)),\(Int(spot.minY)) "
+                            + "size=\(Int(spot.width))x\(Int(spot.height)) among=\(occupied.count) "
                             + "desktop=\(shortId(desktop))")
-            appState.portWindows.updateTileFrame(id: p.id, position: origin, size: nil, on: desktop)
-            occupied.append(CGRect(origin: origin, size: p.size))
+            // A port made smaller to fit a gap takes that size; one that fits keeps its own.
+            appState.portWindows.updateTileFrame(id: p.id, position: spot.origin,
+                                                 size: spot.size == p.size ? nil : spot.size, on: desktop)
+            occupied.append(spot)
         }
     }
 

@@ -91,6 +91,17 @@ public enum ShellPlacement {
     ///
     /// `occupied` is in z order, back to front, so `last` is the frontmost tile.
     nonisolated public static func place(_ size: CGSize, among occupied: [CGRect], in area: CGSize) -> CGPoint {
+        placeRect(size, among: occupied, in: area).origin
+    }
+
+    /// The smallest a new port is made to fit a gap, rather than land on top of the others: the smallest a
+    /// port can be (it then shows its card).
+    public static var fitMinimum: CGSize { ShellState.minTileSize }
+
+    /// Where a new port goes, and at what size: the largest gap that holds it at its size; failing that,
+    /// the largest gap at least `fitMinimum`, with the port shrunk to fill it (Gordon, 2026-09-30: a new
+    /// port should find the best space it can); failing that, on top of the others, cascaded. Pure.
+    nonisolated public static func placeRect(_ size: CGSize, among occupied: [CGRect], in area: CGSize) -> CGRect {
         let bounds = workArea(in: area)
         let blockers = occupied.map { $0.insetBy(dx: -tileGap, dy: -tileGap) }
 
@@ -103,18 +114,22 @@ public enum ShellPlacement {
         }
         xs = Array(Set(xs)).sorted(); ys = Array(Set(ys)).sorted()
 
-        var best: CGRect? = nil
+        func better(_ gap: CGRect, than b: CGRect?) -> Bool {
+            guard let b else { return true }
+            // Largest area wins; ties go to the topmost, then the leftmost.
+            let a1 = gap.width * gap.height, a0 = b.width * b.height
+            return a1 > a0 || (a1 == a0 && (gap.minY < b.minY || (gap.minY == b.minY && gap.minX < b.minX)))
+        }
+        var best: CGRect? = nil, bestSmaller: CGRect? = nil
         for y in ys {
             for x in xs {
                 let origin = CGPoint(x: x, y: y)
                 guard !blockers.contains(where: { $0.contains(origin) }) else { continue }
                 let gap = maximalRect(at: origin, blockers: blockers, bounds: bounds)
-                guard gap.width >= size.width, gap.height >= size.height else { continue }
-                guard let b = best else { best = gap; continue }
-                // Largest area wins; ties go to the topmost, then the leftmost.
-                let a1 = gap.width * gap.height, a0 = b.width * b.height
-                if a1 > a0 || (a1 == a0 && (gap.minY < b.minY || (gap.minY == b.minY && gap.minX < b.minX))) {
-                    best = gap
+                if gap.width >= size.width, gap.height >= size.height {
+                    if better(gap, than: best) { best = gap }
+                } else if gap.width >= fitMinimum.width, gap.height >= fitMinimum.height, better(gap, than: bestSmaller) {
+                    bestSmaller = gap
                 }
             }
         }
@@ -124,8 +139,11 @@ public enum ShellPlacement {
         // of them wide enough for the next tile, so every later birth would cascade on top of
         // something. Anchoring keeps the free space in one piece, and four tiles fit where centering
         // fits one. (A test pins it: four consecutive births must not land on each other.)
-        if let gap = best { return gap.origin }
-        return cascade(size, after: occupied.last, step: occupied.count, in: bounds)
+        if let gap = best { return CGRect(origin: gap.origin, size: size) }
+        if let gap = bestSmaller {
+            return CGRect(origin: gap.origin, size: CGSize(width: min(size.width, gap.width), height: min(size.height, gap.height)))
+        }
+        return CGRect(origin: cascade(size, after: occupied.last, step: occupied.count, in: bounds), size: size)
     }
 
     /// The largest empty rect whose TOP-LEFT is `origin`. Sweeps right, letting each blocker either
