@@ -1204,6 +1204,10 @@ public final class PortWindowManager: ObservableObject {
 
         // A browser port names Safari in its user agent, or Google's sign-in refuses it as an embedded view.
         if foreignSite { config.applicationNameForUserAgent = BrowserUserAgent.applicationName }
+        // Off screen a port's page is slowed, never frozen; a running port's is not slowed either (#244).
+        // Set on the configuration BEFORE the web view exists: WebKit reads some of these only when it
+        // creates the page, so set afterwards the clamp kept growing and the page could still stall.
+        PortWebViewFactory.setOffscreenTimers(panel.isBackground ? .running : .slowed, on: config.preferences)
         let webView = FileDropWebView(frame: .zero, configuration: config)
         let isBrowser = panel.portType == "browser"
         // A browser follows links & shows the site's own background; a normal port is locked to its
@@ -1259,8 +1263,6 @@ public final class PortWindowManager: ObservableObject {
         }
 
         webViews[panel.id] = webView
-        // Off screen a port's page is slowed, never frozen; a running port's is not slowed either (#244).
-        PortWebViewFactory.setOffscreenTimers(panel.isBackground ? .running : .slowed, on: webView)
     }
 
     /// Clean up a webview and its associated handlers.
@@ -1332,7 +1334,12 @@ enum PortWebViewFactory {
 
     @discardableResult
     static func setOffscreenTimers(_ mode: OffscreenTimers, on webView: WKWebView) -> [String] {
-        let prefs = webView.configuration.preferences
+        setOffscreenTimers(mode, on: webView.configuration.preferences)
+    }
+
+    /// The same, on a configuration's preferences before its web view is made (how a port starts).
+    @discardableResult
+    static func setOffscreenTimers(_ mode: OffscreenTimers, on prefs: WKPreferences) -> [String] {
         let wanted: [(String, Bool)] = [
             ("_setHiddenPageDOMTimerThrottlingEnabled:", mode == .slowed),   // the clamp
             ("_setHiddenPageDOMTimerThrottlingAutoIncreases:", false),       // ...that kept lengthening
