@@ -1345,8 +1345,8 @@ struct ShellSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("WINDOWS").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
             if windows.hasWindow(space.id) {
-                spaceWindowRow("Close its window", icon: "xmark.rectangle",
-                               help: "Close the window this space is open in. The space keeps running (⌘W in that window does the same)") {
+                spaceWindowRow("Close this window", icon: "xmark.rectangle",
+                               help: "Close this space's window. The space keeps running (⌘W does the same)") {
                     windows.closeWindow(of: space.id)
                 }
             } else {
