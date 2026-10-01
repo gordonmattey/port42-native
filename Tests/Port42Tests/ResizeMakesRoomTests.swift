@@ -139,3 +139,55 @@ struct ResizeMakesRoomModifierTests {
         #expect(ShellState.layoutPillBottom >= ShellPlacement.dockClearance + 20)
     }
 }
+
+/// Gordon, 2026-09-30: a pushed neighbor at its smallest, against any edge of the screen, stops the drag.
+@Suite("Make room stops at the screen's edges")
+@MainActor
+struct MakeRoomLimitTests {
+    let a = CGRect(x: 0, y: 0, width: 400, height: 300)
+    let b = CGRect(x: 410, y: 0, width: 400, height: 300)
+    let c = CGRect(x: 0, y: 310, width: 400, height: 300)
+    let bounds = CGRect(x: 0, y: 0, width: 810, height: 610)
+    var minW: CGFloat { ShellState.makeRoomMin.width }
+    var minH: CGFloat { ShellState.makeRoomMin.height }
+
+    @Test("pushing right: the edge stops where the neighbor, at its smallest, meets the right edge")
+    func right() {
+        let r = ShellState.limitForRoom(from: a, to: CGRect(x: 0, y: 0, width: 800, height: 300), others: ["b": b], bounds: bounds)
+        #expect(r.maxX == bounds.maxX - minW - 10)
+        let room = ShellState.makeRoom(from: a, to: r, others: ["b": b], bounds: bounds)
+        #expect(room["b"]!.maxX <= bounds.maxX, "the neighbor went off the screen")
+    }
+
+    @Test("pushing left: the edge stops where the neighbor meets the left edge")
+    func left() {
+        let r = ShellState.limitForRoom(from: b, to: CGRect(x: 0, y: 0, width: 810, height: 300), others: ["a": a], bounds: bounds)
+        #expect(r.minX == bounds.minX + minW + 10)
+        #expect(r.maxX == b.maxX, "the far edge moved")
+    }
+
+    @Test("pushing down and up: the same at the bottom and top edges")
+    func vertical() {
+        let down = ShellState.limitForRoom(from: a, to: CGRect(x: 0, y: 0, width: 400, height: 600), others: ["c": c], bounds: bounds)
+        #expect(down.maxY == bounds.maxY - minH - 10)
+        let up = ShellState.limitForRoom(from: c, to: CGRect(x: 0, y: 0, width: 400, height: 610), others: ["a": a], bounds: bounds)
+        #expect(up.minY == bounds.minY + minH + 10)
+        #expect(up.maxY == c.maxY)
+    }
+
+    @Test("nothing in the way: the resize is not limited")
+    func unlimited() {
+        let grown = CGRect(x: 0, y: 0, width: 400, height: 600)
+        #expect(ShellState.limitForRoom(from: a, to: grown, others: ["b": b], bounds: bounds) == grown)
+    }
+
+    @Test("a limited resize maps back to the drag that gives it, from any corner or side")
+    func deltaInverse() {
+        let f = CGRect(x: 100, y: 100, width: 300, height: 200)
+        for (corner, d) in [(ShellTile.Corner.se, CGSize(width: 40, height: 30)), (.nw, CGSize(width: -20, height: -10)),
+                            (.e, CGSize(width: 50, height: 0)), (.n, CGSize(width: 0, height: -25))] {
+            let target = ShellTile.resized(f, corner: corner, by: d)
+            #expect(ShellTile.delta(from: f, to: target, corner: corner) == d, "\(corner)")
+        }
+    }
+}

@@ -1035,6 +1035,40 @@ public final class ShellState: ObservableObject {
         return out
     }
 
+    /// How far a resize may go while it makes room: no further than leaves every neighbor it pushes, at
+    /// its smallest, inside the desktop. Past that the dragged edge stops, instead of pushing a neighbor
+    /// off the screen (Gordon, 2026-09-30). Pure.
+    public static func limitForRoom(from old: CGRect, to new: CGRect, others: [String: CGRect],
+                                    bounds: CGRect, minSize: CGSize = makeRoomMin) -> CGRect {
+        var r = new
+        let eps: CGFloat = 1
+        for n in others.values where !n.insetBy(dx: eps, dy: eps).intersects(old) {
+            let sharesRow = n.minY < r.maxY && n.maxY > r.minY
+            let sharesColumn = n.minX < r.maxX && n.maxX > r.minX
+            if n.minX >= old.maxX - eps, sharesRow, r.maxX > n.minX {                 // pushes one to the right
+                let limit = bounds.maxX - minSize.width - max(0, n.minX - old.maxX)
+                if r.maxX > limit { r.size.width = max(minTileSize.width, limit - r.minX) }
+            } else if n.maxX <= old.minX + eps, sharesRow, r.minX < n.maxX {          // to the left
+                let limit = bounds.minX + minSize.width + max(0, old.minX - n.maxX)
+                if r.minX < limit { let right = r.maxX; r.origin.x = limit; r.size.width = max(minTileSize.width, right - limit) }
+            } else if n.minY >= old.maxY - eps, sharesColumn, r.maxY > n.minY {       // below
+                let limit = bounds.maxY - minSize.height - max(0, n.minY - old.maxY)
+                if r.maxY > limit { r.size.height = max(minTileSize.height, limit - r.minY) }
+            } else if n.maxY <= old.minY + eps, sharesColumn, r.minY < n.maxY {       // above
+                let limit = bounds.minY + minSize.height + max(0, old.minY - n.maxY)
+                if r.minY < limit { let bottom = r.maxY; r.origin.y = limit; r.size.height = max(minTileSize.height, bottom - limit) }
+            }
+        }
+        return r
+    }
+
+    /// While a tile is resized with ⇧: the rect it may actually take, given what it pushes.
+    public func limitedResize(_ id: String, from old: CGRect, to new: CGRect) -> CGRect {
+        var others = desktopFrames()
+        others[id] = nil
+        return Self.limitForRoom(from: old, to: new, others: others, bounds: ShellPlacement.workArea(in: lastDesktopArea))
+    }
+
     /// The frames of the tiles on the desktop now, as the desktop draws them.
     public func desktopFrames() -> [String: CGRect] {
         let sid = appState.currentSpace?.id

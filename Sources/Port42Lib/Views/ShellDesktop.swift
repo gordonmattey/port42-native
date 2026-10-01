@@ -531,6 +531,15 @@ struct ShellTile: View {
     /// Apply a corner drag to a frame: the dragged corner follows the delta, the OPPOSITE corner
     /// stays pinned, and the result clamps to the min tile size (so a corner can't cross past it).
     /// Pure + static → headless-testable (`ShellLayoutTests`).
+    /// The drag that takes `f` to `target` from this corner: the inverse of `resized`, for a resize that
+    /// was limited. Pure.
+    static func delta(from f: CGRect, to target: CGRect, corner c: Corner) -> CGSize {
+        let east = [.ne, .se, .e].contains(c), south = [.sw, .se, .s].contains(c)
+        let dx: CGFloat = (c == .n || c == .s) ? 0 : (east ? target.maxX - f.maxX : target.minX - f.minX)
+        let dy: CGFloat = (c == .e || c == .w) ? 0 : (south ? target.maxY - f.maxY : target.minY - f.minY)
+        return CGSize(width: dx, height: dy)
+    }
+
     static func resized(_ f: CGRect, corner c: Corner, by d: CGSize) -> CGRect {
         let minW = ShellState.minTileSize.width, minH = ShellState.minTileSize.height
         let east = [.ne, .se, .e].contains(c), south = [.sw, .se, .s].contains(c)
@@ -1019,17 +1028,21 @@ struct ShellTile: View {
             .onChanged { v in
                 if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true; shell.resizingTile = true }
                 resizeCorner = corner
-                resizeDelta = v.translation
-                // #196: with ⇧ held the neighbors give way as it grows; without, it covers them, as before.
+                // #196: with ⇧ held the neighbors give way as it grows, and the edge stops where they
+                // would be pushed off the screen; without ⇧ it covers them, as before.
                 if ShellState.resizeMakesRoom(NSEvent.modifierFlags) {
-                    shell.previewMakeRoom(resizing: tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
+                    let limited = shell.limitedResize(tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
+                    resizeDelta = Self.delta(from: frame, to: limited, corner: corner)
+                    shell.previewMakeRoom(resizing: tile.id, from: frame, to: limited)
                 } else {
+                    resizeDelta = v.translation
                     shell.clearMakeRoomPreview()
                 }
             }
             .onEnded { v in
-                let f = Self.resized(frame, corner: corner, by: v.translation)
                 let pushed = ShellState.resizeMakesRoom(NSEvent.modifierFlags)
+                let raw = Self.resized(frame, corner: corner, by: v.translation)
+                let f = pushed ? shell.limitedResize(tile.id, from: frame, to: raw) : raw
                 if !pushed { shell.clearMakeRoomPreview() }
                 shell.endMakeRoom(resizing: tile.id, from: frame, keep: pushed)
                 commit(origin: f.origin, size: f.size)
