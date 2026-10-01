@@ -201,7 +201,9 @@ public final class ShellState: ObservableObject {
     public func restoreBackgroundPort() {
         var map = (UserDefaults.standard.dictionary(forKey: Self.bgMapKey) as? [String: String]) ?? [:]
         if map.isEmpty, let old = UserDefaults.standard.string(forKey: Self.bgKey), !old.isEmpty {
+            // The ports may not be loaded yet at launch, so the home space comes from the stored row too.
             let home = appState.portWindows.panels.first { $0.id == old || $0.udid == old }?.spaceId
+                ?? ((try? appState.db.fetchPortPanels()) ?? []).first { $0.id == old || $0.udid == old }?.spaceId
             if let sid = home ?? appState.currentSpace?.id { map[sid] = old }
         }
         UserDefaults.standard.removeObject(forKey: Self.bgKey)
@@ -212,6 +214,23 @@ public final class ShellState: ObservableObject {
             } else if let html = resolveBackgroundHtml(id: id) {
                 backgroundHtmls[sid] = ClosedBackground(id: id, html: html)
             }
+        }
+        persistBackgrounds()
+        // At launch the ports load a moment after the shell appears: a background that fell back to its
+        // stored HTML becomes the live port once it exists, so a running page is not a second copy.
+        if !backgroundHtmls.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.adoptLoadedBackgrounds() }
+        }
+    }
+
+    /// A closed-port fallback whose port has since loaded: the live port takes over.
+    @MainActor
+    func adoptLoadedBackgrounds() {
+        for (sid, closed) in backgroundHtmls {
+            guard let panel = appState.portWindows.panels.first(where: { $0.id == closed.id || $0.udid == closed.id }) else { continue }
+            appState.portWindows.setPresentation(id: panel.id, to: "background")
+            backgroundPorts[sid] = panel.id
+            backgroundHtmls[sid] = nil
         }
         persistBackgrounds()
     }

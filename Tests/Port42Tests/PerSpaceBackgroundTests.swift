@@ -78,6 +78,26 @@ struct PerSpaceBackgroundTests {
         #expect(UserDefaults.standard.string(forKey: "shell.backgroundPortId") == nil)
     }
 
+    @Test("a background restored before its port has loaded still lands on the port's own space, and goes live when it loads")
+    func restoreBeforeLoad() throws {
+        let x = try world(); defer { clean() }
+        // The port exists only as a stored row, as at launch before the panels are restored.
+        port(x, "late", in: x.b)
+        let made = try #require(x.w.state.portWindows.panels.first { $0.id == "late" })
+        try x.w.state.db.savePortPanel(PersistedPortPanel(from: made))
+        x.w.state.portWindows.panels.removeAll { $0.id == "late" }
+        UserDefaults.standard.set("late", forKey: "shell.backgroundPortId")
+        x.w.state.currentSpace = x.a
+        let fresh = ShellState(appState: x.w.state)
+        fresh.restoreBackgroundPort()
+        #expect(fresh.backgroundHtmls[x.b.id]?.id == "late", "it landed on \(fresh.backgroundHtmls.keys), not the port's own space")
+        #expect(fresh.backgroundHtmls[x.a.id] == nil, "it landed on the space that happened to be current")
+        port(x, "late", in: x.b)
+        fresh.adoptLoadedBackgrounds()
+        #expect(fresh.backgroundPorts[x.b.id] == "late", "the loaded port did not take over")
+        #expect(fresh.backgroundHtmls.isEmpty)
+    }
+
     func call(_ x: World, _ args: [String: Any]) async throws -> BridgeValue {
         try await x.w.state.runBridgeMethod("port.manage", principal: .peer(id: "cli", displayName: "cli"), args: BridgeArgs(args))
     }
