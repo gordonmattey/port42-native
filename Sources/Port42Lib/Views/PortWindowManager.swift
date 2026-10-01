@@ -803,7 +803,7 @@ public final class PortWindowManager: ObservableObject {
         let running = hiddenPanels(in: panels[idx].spaceId).map(\.id).filter { $0 != id }
         panels[idx].isBackground = true
         renumberRail(Self.railInserting(id, into: running, at: slot))
-        if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(false, on: wv) }
+        if let wv = webViews[id] { PortWebViewFactory.setOffscreenTimers(.running, on: wv) }
         panels[idx].bridge.suspendAI()      // backgrounded = off-screen: stop billing the model
         persistPanel(id)
         p42log("[Port42] Port minimized to background: %@", panels[idx].title)
@@ -816,7 +816,7 @@ public final class PortWindowManager: ObservableObject {
         panels[idx].isBackground = false
         panels[idx].railOrder = nil
         renumberRail(hiddenPanels(in: panels[idx].spaceId).map(\.id))
-        if let wv = webViews[id] { PortWebViewFactory.setUnseenTimerThrottling(true, on: wv) }
+        if let wv = webViews[id] { PortWebViewFactory.setOffscreenTimers(.slowed, on: wv) }
         persistPanel(id)
         p42log("[Port42] Port restored from background: %@", panels[idx].title)
         return true
@@ -1259,8 +1259,8 @@ public final class PortWindowManager: ObservableObject {
         }
 
         webViews[panel.id] = webView
-        // A port restored hidden starts with its timers unclamped, as hiding it would have left them.
-        if panel.isBackground { PortWebViewFactory.setUnseenTimerThrottling(false, on: webView) }
+        // Off screen a port's page is slowed, never frozen; a running port's is not slowed either (#244).
+        PortWebViewFactory.setOffscreenTimers(panel.isBackground ? .running : .slowed, on: webView)
     }
 
     /// Clean up a webview and its associated handlers.
@@ -1312,23 +1312,40 @@ enum PortWebViewFactory {
     /// port view and the desktop tile factory load this document, so the CSP and theme can never
     /// drift between presentations (they once lived as two hand-synced copies). `overflow` is the
     /// single deliberate difference: tiles scroll ("auto"), inline ports self-size ("hidden").
-    /// HIDDEN PORTS RUN THEIR TIMERS AT FULL RATE (Phase 3.0 and 3.2, GM 2026-09-26). WebKit clamps a
-    /// page it considers unseen to one timer tick a second (measured: a 100 ms producer published
-    /// 10/s on screen and 1/s off it). That suits a parked chart, whose drawing should stop, and not a
-    /// hidden port, which exists to do background work. So a hidden port's page opts out of the timer
-    /// clamp; animation frames still stop. The switch is WebKit's own preference, set only when the
-    /// running WebKit has it, so a WebKit without it leaves the port throttled rather than crashing.
-    /// Returns whether the preference was there to set.
+    /// What a port's page does while it is not on screen (#244).
+    ///
+    /// WebKit treats a page that is in no window, or in a hidden or covered one, as unseen, and does
+    /// three things to it: clamps its timers, lengthens that clamp the longer it stays unseen, and lets
+    /// its content process be suspended between timer fires. The third froze ports outright: measured
+    /// on Dev8 with the app hidden, a 5 s interval ticked at 5 and 10 s and then not at all until a call
+    /// came in at 150 s, in the shown space, in another space and in a running port alike (a 2 s
+    /// interval stayed awake). The board's 4 s poll and the Launch desk's schedules stopped whenever
+    /// nobody was looking. Port42's switch covered only the clamp, and only for running ports.
+    ///
+    /// - `.slowed`: a tiled or paused port off screen. Its timers are clamped to about one tick a second
+    ///   and the clamp stays there; its process is never suspended. Animation frames stop.
+    /// - `.running`: a running (hidden) port, which exists to do background work: no clamp either.
+    ///
+    /// The switches are WebKit's own preferences, set only where the running WebKit has them, so a
+    /// WebKit without one leaves that behavior as it was rather than crashing. Returns the ones set.
+    public enum OffscreenTimers { case slowed, running }
+
     @discardableResult
-    static func setUnseenTimerThrottling(_ enabled: Bool, on webView: WKWebView) -> Bool {
+    static func setOffscreenTimers(_ mode: OffscreenTimers, on webView: WKWebView) -> [String] {
         let prefs = webView.configuration.preferences
-        var applied = false
-        for name in ["_setHiddenPageDOMTimerThrottlingEnabled:", "_setPageVisibilityBasedProcessSuppressionEnabled:"] {
+        let wanted: [(String, Bool)] = [
+            ("_setHiddenPageDOMTimerThrottlingEnabled:", mode == .slowed),   // the clamp
+            ("_setHiddenPageDOMTimerThrottlingAutoIncreases:", false),       // ...that kept lengthening
+            ("_setPageVisibilityBasedProcessSuppressionEnabled:", false),    // suspension of the process
+            ("_setAppNapEnabled:", false),                                   // App Nap in the page's process
+        ]
+        var applied: [String] = []
+        for (name, value) in wanted {
             let sel = NSSelectorFromString(name)
             guard prefs.responds(to: sel) else { continue }
             typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(prefs.method(for: sel), to: Setter.self)(prefs, sel, enabled)
-            applied = true
+            unsafeBitCast(prefs.method(for: sel), to: Setter.self)(prefs, sel, value)
+            applied.append(name)
         }
         return applied
     }
