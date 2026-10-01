@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Hold space to talk, without making space slow to type.
 ///
@@ -39,6 +40,23 @@ public struct VoiceTrigger {
     /// also the backstop for a release that is never seen, since while capturing the trigger swallows every
     /// key and a lost release would otherwise leave the keyboard dead. Both paths end on this.
     public static let maximumHold: TimeInterval = 120
+
+    /// How often a hold checks that the space bar is still down, and how long it must read up before the
+    /// hold ends. A release the app never saw (the key came up while another window or the system had it,
+    /// or the event tap was switched off under load) left the hold open, and an open hold swallows every
+    /// key: the app could be clicked but not typed in until the limit (Gordon, 2026-09-30, on 1.0.5).
+    public static let releasePollInterval: TimeInterval = 0.25
+    public static let releaseMissedAfter = 2
+
+    /// Whether a hold should end because the key is no longer physically down. Pure.
+    public static func releaseMissed(capturing: Bool, spaceDown: Bool, upReads: Int) -> Bool {
+        capturing && !spaceDown && upReads >= releaseMissedAfter
+    }
+
+    /// The system's own answer: is the space bar down right now, whichever app has the keyboard.
+    public static var spaceIsDown: Bool {
+        CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(spaceKeyCode))
+    }
 
     /// The space bar. `kVK_Space`.
     public static let spaceKeyCode: UInt16 = 49

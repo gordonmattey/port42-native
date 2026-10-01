@@ -183,3 +183,39 @@ struct VoiceLongHoldBench {
         }
     }
 }
+
+/// Gordon, 2026-09-30, on 1.0.5: after a hold the app could be clicked but not typed in, and the other-apps
+/// indicator stayed on screen. A hold whose release was never seen swallows every key; it now ends itself
+/// when the space bar is no longer down.
+@Suite("Voice: a release the app never saw ends the hold")
+struct VoiceMissedReleaseTests {
+    @Test("a hold ends once the space bar reads up twice running, and not before")
+    func endsAfterTwoUpReads() {
+        #expect(!VoiceTrigger.releaseMissed(capturing: true, spaceDown: false, upReads: 1), "one up reading is a blip")
+        #expect(VoiceTrigger.releaseMissed(capturing: true, spaceDown: false, upReads: 2))
+    }
+
+    @Test("a space bar still down, or no hold open, never ends anything")
+    func leavesAHeldKeyAlone() {
+        #expect(!VoiceTrigger.releaseMissed(capturing: true, spaceDown: true, upReads: 9))
+        #expect(!VoiceTrigger.releaseMissed(capturing: false, spaceDown: false, upReads: 9))
+    }
+
+    @Test("the poll is quick enough that a stuck hold lasts well under a second")
+    func quick() {
+        #expect(VoiceTrigger.releasePollInterval * Double(VoiceTrigger.releaseMissedAfter) < 1)
+    }
+}
+
+@Suite("Voice: one Port42 is not another app to a second Port42")
+struct VoiceOtherInstanceTests {
+    @Test("the app and every dev instance count as Port42; other apps do not")
+    func instances() {
+        #expect(VoiceTyper.isPort42(bundleIdentifier: "com.port42.app"))
+        #expect(VoiceTyper.isPort42(bundleIdentifier: "com.port42.dev7"))
+        #expect(VoiceTyper.isPort42(bundleIdentifier: "com.port42.dev11"))
+        #expect(!VoiceTyper.isPort42(bundleIdentifier: "com.apple.Safari"))
+        #expect(!VoiceTyper.isPort42(bundleIdentifier: "com.port42other.app"))
+        #expect(!VoiceTyper.isPort42(bundleIdentifier: nil))
+    }
+}

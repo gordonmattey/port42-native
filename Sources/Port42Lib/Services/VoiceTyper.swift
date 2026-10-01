@@ -66,7 +66,18 @@ public struct VoiceTyper {
 
     /// True when Port42 itself is frontmost, in which case the in-app path owns the hold and the tap must
     /// keep its hands off.
+    ///
+    /// ANY Port42 instance counts (the app, and each dev instance, which have their own bundle ids): with
+    /// other-apps voice on in one and a hold made in another, the first started dictating, drew its icon
+    /// in the corner and took the space bar, as if the other Port42 were a different app (Gordon,
+    /// 2026-09-30: a Dev7 left running, voice in other apps on, and the daily driver was locked).
     public static var port42IsFrontmost: Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+        isPort42(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    }
+
+    /// Whether a bundle id is a Port42 instance. Pure.
+    public static func isPort42(bundleIdentifier id: String?) -> Bool {
+        guard let id else { return false }
+        return id == Bundle.main.bundleIdentifier || id == "com.port42.app" || id.hasPrefix("com.port42.dev")
     }
 }
