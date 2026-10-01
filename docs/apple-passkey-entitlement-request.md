@@ -2,7 +2,7 @@
 
 For Gordon to submit as Account Holder, on Apple's dedicated request form for
 `com.apple.developer.web-browser.public-key-credential` (linked from the entitlement's documentation
-page; the general entitlement request flow does not offer it). Status: draft, 2026-09-29.
+page; the general entitlement request flow does not offer it). Status: SUBMITTED 2026-09-30 by Gordon, request ID 6K9522T3Z8. Waiting on Apple. (The form also asked: is it a browser (yes), does it support WebAuthn (yes), will it integrate with iCloud Keychain passkeys (yes), and a link plus evaluation notes for the browser.)
 
 ## Why
 
