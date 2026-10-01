@@ -38,6 +38,10 @@ struct BridgeTargetScopeTests {
         "companions.delete": "the person, or a card every time naming the companion, never kept (API parity, Phase A)",
         "space.create": "creates only", "space.list": "space names",
         "space.switchTo": "moves the person's view only",
+        "space.update": "read scope: only a space the caller acts in; reversible (API parity, Phase C)",
+        "space.rest": "read scope: only a space the caller acts in; reversible (API parity, Phase C)",
+        "space.wake": "read scope: only a space the caller acts in; reversible (API parity, Phase C)",
+        "space.reorder": "read scope: only a space the caller acts in; reversible (API parity, Phase C)",
         // Open, each with the ticket that closes it.
         "ports.list": "OPEN: APP-10", "port.getHtml": "OPEN: APP-10", "port.getDom": "OPEN: APP-10",
         "port.history": "OPEN: APP-10", "port.console": "OPEN: APP-10", "port.position": "OPEN: APP-10",

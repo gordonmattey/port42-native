@@ -514,13 +514,28 @@ Generated from the live method registry: every entry below is served exactly as 
       Delete a space: its own ports and terminals close, then the space and its chat go. A port adopted into another space stays there. Cannot be undone. The same as Delete in the galaxy.
         space_id (string, required): The space to delete (from space_list).
   space.list()
-      List all spaces the user belongs to
+      List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).
+  space.reorder(space_id, before)
+      Move a space in the galaxy order, as dragging it does: it lands just before the space named in before, or at the end when before is omitted. Returns the order, as space ids.
+        before (string): The space it should come before. Omit to put it last.
+        space_id (string, required): The space to move.
+  space.rest(space_id)
+      Put a space at rest: off the galaxy front, unindexed and silent, nothing lost (Rest in the space settings card). Resting the space the person is in moves them to another working space. A space already at rest is refused.
+        space_id (string, required): The space to rest.
   space.setWorkingDirectory(space_id, path)  [permission: filesystem]
       Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.
         path (required): Absolute directory path. Send null or "" to clear it and fall back to home. Required: omitting it is refused with missing_arg, so a malformed call cannot silently clear the setting.
         space_id (string): Space id (default: current space).
   space.switchTo(space_id)
       Switch the app's current space by id.
+  space.update(space_id, name, accent)
+      Change a space's name or accent color, as the space settings card does. The name is lowercased with spaces as dashes, and may not be one another space holds. The accent is a hex color like #4ECDC4. Returns the space.
+        accent (string): A hex color, #RRGGBB.
+        name (string): The new name.
+        space_id (string, required): The space (from space_list).
+  space.wake(space_id)
+      Wake a resting space: back into the working set, on the galaxy front. It does not switch to it (space_switchTo does). A space not at rest is refused.
+        space_id (string, required): The space to wake.
 
 ### state
 

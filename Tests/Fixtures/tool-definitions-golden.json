@@ -1380,7 +1380,7 @@
     "name" : "space_current"
   },
   {
-    "description" : "List all spaces the user belongs to",
+    "description" : "List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).",
     "input_schema" : {
       "properties" : {
 

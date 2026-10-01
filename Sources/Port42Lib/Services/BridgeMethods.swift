@@ -1246,9 +1246,96 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["space.list"] = BridgeMethod(permission: nil,
-        description: "List all spaces the user belongs to",
+        description: "List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
-        .array(appState.spaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) })
+        .array(appState.spaces.map {
+            var o: [String: BridgeValue] = ["id": .string($0.id), "name": .string($0.name), "resting": .bool($0.isResting)]
+            if let a = $0.accent { o["accent"] = .string(a) }
+            return .object(o)
+        })
+    }
+
+    // API parity, Phase C (docs/plan-api-parity.md): what the galaxy and the space settings card do.
+    // Scope is the space the caller acts in (APP-11); none of these loses anything, so no card.
+    func spaceTarget(_ p: Principal, _ args: BridgeArgs, _ key: String = "space_id") throws -> Space {
+        let id = try args.requireString(key)
+        guard let space = appState.spaces.first(where: { $0.id == id }), appState.canRead(portInSpace: id, by: p) else {
+            throw BridgeError.notFound("space '\(id)'")
+        }
+        return space
+    }
+    func spaceState(_ id: String) -> BridgeValue {
+        guard let s = appState.spaces.first(where: { $0.id == id }) else { return .object([:]) }
+        var o: [String: BridgeValue] = ["id": .string(s.id), "name": .string(s.name), "resting": .bool(s.isResting)]
+        if let a = s.accent { o["accent"] = .string(a) }
+        return .object(o)
+    }
+
+    r["space.update"] = BridgeMethod(permission: nil, paramNames: ["space_id", "name", "accent"], toolExposed: false,
+        description: "Change a space's name or accent color, as the space settings card does. The name is lowercased with spaces as dashes, and may not be one another space holds. The accent is a hex color like #4ECDC4. Returns the space.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "The space (from space_list)."],
+                "name": ["type": "string", "description": "The new name."],
+                "accent": ["type": "string", "description": "A hex color, #RRGGBB."],
+            ],
+            "required": ["space_id"],
+        ]) { p, args in
+        var space = try spaceTarget(p, args)
+        var changed = false
+        if let raw = args.string("name") {
+            let cleaned = AppState.spaceName(raw)
+            guard !cleaned.isEmpty else { throw BridgeError.badArg("a space needs a name") }
+            if appState.spaces.contains(where: { $0.id != space.id && $0.name == cleaned }) {
+                throw BridgeError.badArg("another space is already called '\(cleaned)'")
+            }
+            if cleaned != space.name { space.name = cleaned; changed = true }
+        }
+        if let hex = args.string("accent") {
+            guard hex.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil else {
+                throw BridgeError.badArg("accent is a hex color like #4ECDC4")
+            }
+            if hex.uppercased() != space.accent?.uppercased() { space.accent = hex.uppercased(); changed = true }
+        }
+        guard changed else { throw BridgeError.badArg("nothing to change: pass a new name or accent") }
+        appState.updateSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.rest"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Put a space at rest: off the galaxy front, unindexed and silent, nothing lost (Rest in the space settings card). Resting the space the person is in moves them to another working space. A space already at rest is refused.",
+        inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to rest."]], "required": ["space_id"]]) { p, args in
+        let space = try spaceTarget(p, args)
+        guard !space.isResting else { throw BridgeError.badArg("'\(space.name)' is already at rest") }
+        appState.shell?.restSpace(space) ?? appState.restSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.wake"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Wake a resting space: back into the working set, on the galaxy front. It does not switch to it (space_switchTo does). A space not at rest is refused.",
+        inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to wake."]], "required": ["space_id"]]) { p, args in
+        let space = try spaceTarget(p, args)
+        guard space.isResting else { throw BridgeError.badArg("'\(space.name)' is not at rest") }
+        appState.wakeSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.reorder"] = BridgeMethod(permission: nil, paramNames: ["space_id", "before"], toolExposed: false,
+        description: "Move a space in the galaxy order, as dragging it does: it lands just before the space named in before, or at the end when before is omitted. Returns the order, as space ids.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "The space to move."],
+                "before": ["type": "string", "description": "The space it should come before. Omit to put it last."],
+            ],
+            "required": ["space_id"],
+        ]) { p, args in
+        let space = try spaceTarget(p, args)
+        var target = ""
+        if args.string("before") != nil { target = try spaceTarget(p, args, "before").id }
+        appState.reorderSpaces(moving: space.id, to: target)
+        return .object(["order": .array(appState.spaces.map { .string($0.id) })])
     }
 
     // Tail item 2. Not an LLM tool (companions navigate by talking; switching the visible space is a

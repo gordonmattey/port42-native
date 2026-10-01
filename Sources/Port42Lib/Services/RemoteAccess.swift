@@ -143,6 +143,10 @@ public enum RemoteAccess {
         "sessions.import": .never,
         "space.switchTo": .never,
         "space.setWorkingDirectory": .never,
+        "space.update": .never,
+        "space.rest": .never,
+        "space.wake": .never,
+        "space.reorder": .never,
         "companions.list": .port(param: "port", right: .see),     // the shared port's own space
         "companions.get": .never,
         "companions.create": .never,

@@ -1,6 +1,6 @@
 # Plan: everything the app does, the API does
 
-Status: Phase A done (a786df9, fea03b1, d2cda25; checked live on Dev6 with Gordon clicking the cards). Phase B building, 2026-09-30. Gordon: "API parity" (picked from the top five). Source: the gap review,
+Status: Phase A done (a786df9, fea03b1, d2cda25; checked live on Dev6 with Gordon clicking the cards). Phase B done (c67d3404, checked live on Dev6). Phase C building, 2026-09-30. Gordon: "API parity" (picked from the top five). Source: the gap review,
 `docs/api-gap-review.md` (#132). Found again when echo was recreated with an unfilled `{{USER}}` in his prompt
 and the API could not fix it. Branch `lead/for-1.0.7`.
 
