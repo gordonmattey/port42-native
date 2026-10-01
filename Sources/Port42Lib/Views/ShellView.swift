@@ -1094,6 +1094,15 @@ struct ShellGalaxyView: View {
                     }
                 }.frame(width: 120, height: 120)
                 Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hovered || on ? acc : Port42Theme.textPrimary).tracking(2)
+                // Several displays (#189): a space another window shows says which screen it is on.
+                if let screen = shell.otherDisplay(showing: space.id) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "display").font(.system(size: 10))
+                        Text("on \(screen)").font(Port42Theme.mono(10)).lineLimit(1)
+                    }
+                    .foregroundStyle(acc.opacity(0.85))
+                    .help("This space is open on \(screen). Picking it here swaps the two displays.")
+                }
                 // What is happening there, at a glance (#137): who needs you, who is working on what,
                 // the ports running and paused, and unread chat.
                 SpaceGlanceView(appState: appState, space: space, accent: acc, presence: appState.presence,

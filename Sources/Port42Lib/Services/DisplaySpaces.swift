@@ -163,7 +163,8 @@ public final class DisplaySpaces {
 
     private func open(display: String, spaceId: String) {
         guard let screen = NSScreen.screens.first(where: { $0.displayUUID == display }) else { return }
-        let window = DisplaySpaceWindow(contentRect: screen.frame, styleMask: [.borderless, .closable],
+        // The visible frame, below the menu bar macOS draws on every display (and clear of its Dock).
+        let window = DisplaySpaceWindow(contentRect: screen.visibleFrame, styleMask: [.borderless, .closable],
                                         backing: .buffered, defer: false, screen: screen)
         window.isReleasedWhenClosed = false
         window.backgroundColor = .black
@@ -173,7 +174,7 @@ public final class DisplaySpaces {
                 .environmentObject(appState)
                 .background(Port42Theme.bgPrimary)
                 .preferredColorScheme(.dark))
-        window.setFrame(screen.frame, display: true)
+        window.setFrame(screen.visibleFrame, display: true)
         window.orderFront(nil)
         windows[display] = window
     }

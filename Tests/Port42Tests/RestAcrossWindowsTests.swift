@@ -64,4 +64,20 @@ struct RestAcrossWindowsTests {
                              styleMask: [.borderless, .closable], backing: .buffered, defer: true)
         #expect(!plain.canBecomeKey, "AppKit changed: a plain borderless window can become key now")
     }
+
+    @Test("the galaxy marks a space another display shows, from either window, and never the window's own")
+    func galaxyMarksOtherDisplays() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two"), Space.create(name: "three")]
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        let other = ShellState(appState: state)
+        other.isDisplayWindow = true
+        other.show(spaceId: spaces[1].id)
+        #expect(main.otherDisplay(showing: spaces[1].id) != nil, "the laptop's galaxy does not mark the space on the other display")
+        #expect(other.otherDisplay(showing: spaces[0].id) != nil, "the other display's galaxy does not mark the laptop's space")
+        #expect(main.otherDisplay(showing: spaces[0].id) == nil, "a window marks its own space as elsewhere")
+        #expect(main.otherDisplay(showing: spaces[2].id) == nil, "a space on no display is marked")
+    }
 }
