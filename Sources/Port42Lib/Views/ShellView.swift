@@ -316,6 +316,11 @@ public struct ShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
             shell.showSettings = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .newSpaceRequested)) { _ in
+            // ⌘N and File → New Space: the galaxy's new-space card, from anywhere.
+            appState.createSpace(name: "space \(appState.spaces.count + 1)")
+            withAnimation(.spring(response: 0.45)) { shell.zoom = .space }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
             shell.showQuickSwitcher.toggle()          // ⌘K — migrated from the classic app
         }

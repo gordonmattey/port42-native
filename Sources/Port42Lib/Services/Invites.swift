@@ -250,13 +250,13 @@ extension AppState {
 @MainActor
 func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["invite.create"] = BridgeMethod(permission: nil, paramNames: ["port", "rights", "expiresIn", "requireCode"],
-        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "port": ["type": "string", "description": "The port to share (id / udid / title)."],
                 "rights": ["type": "array", "items": ["type": "string"],
-                           "description": "see, use, edit, wake_agents, fork. Default see, use and wake_agents."] as [String: Any],
+                           "description": "see, use, edit, wake_agents, fork, move. Default see, use and wake_agents."] as [String: Any],
                 "expiresIn": ["type": "integer", "description": "Seconds until the link stops working (default 7 days, at most 30)."],
                 "requireCode": ["type": "boolean", "description": "Require a six-digit code, to send another way."],
             ] as [String: Any],

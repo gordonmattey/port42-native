@@ -31,7 +31,12 @@ struct BridgeCommsTests {
         let w = try makeParityWorld()
         let listed = try await call(w, "space.list", [:])
         guard case let .array(items) = listed else { Issue.record("expected array"); return }
-        #expect(items.contains(.object(["id": .string(w.space.id), "name": .string(w.space.name)])))
+        // Each entry also carries its accent and whether it is resting (API parity, Phase C).
+        let mine = items.compactMap { item -> [String: BridgeValue]? in
+            if case .object(let o) = item, o["id"] == .string(w.space.id) { return o } else { return nil }
+        }.first
+        #expect(mine?["name"] == .string(w.space.name))
+        #expect(mine?["resting"] == .bool(false))
     }
 
     @Test("space.current reports the space and member count")

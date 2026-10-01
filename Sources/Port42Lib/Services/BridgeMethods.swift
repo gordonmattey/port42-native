@@ -381,12 +381,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action", "space_id"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind the desktop, as Set as background in the port menu does; one port at a time), unbackground (back to the ambient backdrop; the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
+                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
                 "space_id": ["type": "string", "description": "showIn and hideFrom: the other space."]
             ],
             "required": ["id", "action"]
@@ -1263,8 +1263,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 
     // API parity, Phase C (docs/plan-api-parity.md): what the galaxy and the space settings card do.
     // Scope is the space the caller acts in (APP-11); none of these loses anything, so no card.
-    func spaceTarget(_ p: Principal, _ args: BridgeArgs, _ key: String = "space_id") throws -> Space {
-        let id = try args.requireString(key)
+    func spaceTarget(_ p: Principal, _ id: String) throws -> Space {
         guard let space = appState.spaces.first(where: { $0.id == id }), appState.canRead(portInSpace: id, by: p) else {
             throw BridgeError.notFound("space '\(id)'")
         }
@@ -1288,7 +1287,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             ],
             "required": ["space_id"],
         ]) { p, args in
-        var space = try spaceTarget(p, args)
+        var space = try spaceTarget(p, try args.requireString("space_id"))
         var changed = false
         if let raw = args.string("name") {
             let cleaned = AppState.spaceName(raw)
@@ -1312,7 +1311,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     r["space.rest"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
         description: "Put a space at rest: off the galaxy front, unindexed and silent, nothing lost (Rest in the space settings card). Resting the space the person is in moves them to another working space. A space already at rest is refused.",
         inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to rest."]], "required": ["space_id"]]) { p, args in
-        let space = try spaceTarget(p, args)
+        let space = try spaceTarget(p, try args.requireString("space_id"))
         guard !space.isResting else { throw BridgeError.badArg("'\(space.name)' is already at rest") }
         appState.shell?.restSpace(space) ?? appState.restSpace(space)
         return spaceState(space.id)
@@ -1321,7 +1320,7 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     r["space.wake"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
         description: "Wake a resting space: back into the working set, on the galaxy front. It does not switch to it (space_switchTo does). A space not at rest is refused.",
         inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to wake."]], "required": ["space_id"]]) { p, args in
-        let space = try spaceTarget(p, args)
+        let space = try spaceTarget(p, try args.requireString("space_id"))
         guard space.isResting else { throw BridgeError.badArg("'\(space.name)' is not at rest") }
         appState.wakeSpace(space)
         return spaceState(space.id)
@@ -1337,9 +1336,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             ],
             "required": ["space_id"],
         ]) { p, args in
-        let space = try spaceTarget(p, args)
+        let space = try spaceTarget(p, try args.requireString("space_id"))
         var target = ""
-        if args.string("before") != nil { target = try spaceTarget(p, args, "before").id }
+        if let before = args.string("before") { target = try spaceTarget(p, before).id }
         appState.reorderSpaces(moving: space.id, to: target)
         return .object(["order": .array(appState.spaces.map { .string($0.id) })])
     }
