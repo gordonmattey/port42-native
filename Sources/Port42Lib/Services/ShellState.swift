@@ -110,10 +110,13 @@ public final class ShellState: ObservableObject {
     // (`SpaceBackgrounds.swift`): with a window per display (#189) each window reads the one for the
     // space it shows, and the API sets them with no window at all.
 
-    /// The name of the screen another window shows a space on, if one does (#189): the galaxy marks it.
+    /// Where another window shows a space, if one does (#189): "on <screen>" for another screen, "in
+    /// another window" on this one. The galaxy marks it.
     public func otherDisplay(showing spaceId: String) -> String? {
         guard let other = appState.shells.first(where: { $0 !== self && $0.spaceId == spaceId }) else { return nil }
-        return other.window?.screen?.localizedName ?? "another display"
+        let theirs = other.window?.screen
+        if let theirs, theirs == window?.screen { return "in another window" }
+        return "on " + (theirs?.localizedName ?? "another display")
     }
 
     /// The companions of the space this window shows (#189). The window in use reads `spaceCompanions`

@@ -1095,13 +1095,13 @@ struct ShellGalaxyView: View {
                 }.frame(width: 120, height: 120)
                 Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hovered || on ? acc : Port42Theme.textPrimary).tracking(2)
                 // Several displays (#189): a space another window shows says which screen it is on.
-                if let screen = shell.otherDisplay(showing: space.id) {
+                if let whereItIs = shell.otherDisplay(showing: space.id) {
                     HStack(spacing: 5) {
                         Image(systemName: "display").font(.system(size: 10))
-                        Text("on \(screen)").font(Port42Theme.mono(10)).lineLimit(1)
+                        Text(whereItIs).font(Port42Theme.mono(10)).lineLimit(1)
                     }
                     .foregroundStyle(acc.opacity(0.85))
-                    .help("This space is open on \(screen). Picking it here swaps the two displays.")
+                    .help("This space is open \(whereItIs). Picking it here swaps the two windows.")
                 }
                 // What is happening there, at a glance (#137): who needs you, who is working on what,
                 // the ports running and paused, and unread chat.
@@ -1336,6 +1336,39 @@ struct ShellSettingsView: View {
 
     // MARK: space
 
+    /// The space card's window rows: open the space in a new window, and show it on (or take it off)
+    /// each other connected display. A space is in one window at a time.
+    @ViewBuilder
+    private func spaceWindowRows(_ space: Space) -> some View {
+        let windows = appState.displaySpaces
+        let otherDisplays = windows.connected().filter { !$0.isMain }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WINDOWS").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+            spaceWindowRow("Open in a new window", icon: "macwindow.badge.plus",
+                           help: "Open this space in a window of its own, on this screen") {
+                windows.openInNewWindow(space.id)
+            }
+            ForEach(otherDisplays) { d in
+                let showing = windows.isShowing(space.id, on: d.id)
+                spaceWindowRow(showing ? "Stop showing on \(d.name)" : "Show on \(d.name)", icon: "display",
+                               help: showing ? "Close this space's window on that display" : "Open this space on that display") {
+                    if showing { windows.stopShowing(space.id, on: d.id) } else { windows.put(space.id, on: d.id) }
+                }
+            }
+        }
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+    }
+
+    private func spaceWindowRow(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button { dismiss(save: true) { action() } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+        }.buttonStyle(.plain).help(help)
+    }
+
     private func spaceCard(_ space: Space) -> some View {
         let acc = shell.accent(for: space)
         return VStack(alignment: .leading, spacing: 18) {
@@ -1401,30 +1434,8 @@ struct ShellSettingsView: View {
                 }
             }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            // Displays (#189): put this space on another connected display, in a window of its own.
-            let otherDisplays = appState.displaySpaces.connected().filter { !$0.isMain }
-            if !otherDisplays.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("DISPLAYS").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
-                    ForEach(otherDisplays) { d in
-                        let showing = appState.displaySpaces.map.space(on: d.id) == space.id
-                        Button {
-                            dismiss(save: true) {
-                                if showing { appState.displaySpaces.clear(d.id) }
-                                else { appState.displaySpaces.put(space.id, on: d.id) }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "display")
-                                Text(showing ? "Stop showing on \(d.name)" : "Show on \(d.name)")
-                            }
-                            .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                        }.buttonStyle(.plain)
-                            .help(showing ? "Close this space's window on that display" : "Open this space on that display")
-                    }
-                }
-                Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            }
+            // Windows (#189, docs/plan-space-windows.md): open this space in a window of its own.
+            spaceWindowRows(space)
             // Rest / Wake (plan-working-set §A): one slot, two states. Any working space may
             // rest — even the last one (GM call: an all-rested galaxy is an empty front).
             if space.isResting {

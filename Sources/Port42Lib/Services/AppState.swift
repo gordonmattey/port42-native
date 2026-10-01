@@ -1816,6 +1816,7 @@ public final class AppState: ObservableObject {
     public func deleteSpace(_ space: Space) {
         let own = portWindows.panels.filter { $0.spaceId == space.id }
         for panel in own { portWindows.close(panel.id) }
+        displaySpaces.forget(space.id)      // its window, if one shows it, closes for good (#189)
         p42log("[Port42] deleted space '%@' (%@), closing %d port(s)", space.name, space.id, own.count)
         do {
             try db.deleteSpace(id: space.id)
