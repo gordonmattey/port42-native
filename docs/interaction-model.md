@@ -22,7 +22,7 @@ takes it further. Change this file when a gesture or key changes.
 |---|---|---|
 | A port's title bar | drag | Moves the port. Dropped on the rail: top is Paused, the middle is Running (in the slot shown), the trash closes it. The rail opens for the whole drag. |
 | A port's edge or corner | drag | Resizes it; it covers what it overlaps. |
-| A port's edge or corner | ⇧ drag | Resizes it; the neighbors it would cover give way, live. Afterwards "Put the layout back" undoes it in one click. Pressing or letting go of ⇧ mid-drag switches. |
+| A port's edge or corner | ⇧ drag | Resizes it; the neighbors it would cover slide out of the way at their own size, and shrink only once they reach the edge of the desktop. Afterwards "Put the layout back" undoes it in one click. Pressing or letting go of ⇧ mid-drag switches. |
 | A port's title bar | magnifier | Zoom in on it. Zoomed in, the arrows zoom back out. |
 | The desktop | pinch in / out | Zoom in toward a port / out toward the galaxy. |
 | The right edge | touch it, or sweep toward it | Opens the rail at once; it shuts the moment the pointer is off it. It also opens for a drag, for a moment after a drop onto it, when a popped-up port goes back, and when a running port newly needs you. |

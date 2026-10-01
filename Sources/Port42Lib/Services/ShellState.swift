@@ -1004,24 +1004,30 @@ public final class ShellState: ObservableObject {
     /// already overlapped the tile is the person's own layout, and is left alone. Pure, so the rule is
     /// testable without a view.
     public static func makeRoom(from old: CGRect, to new: CGRect, others: [String: CGRect],
+                                bounds: CGRect = CGRect(x: -1e6, y: -1e6, width: 2e6, height: 2e6),
                                 minSize: CGSize = makeRoomMin) -> [String: CGRect] {
+        // A neighbor slides out of the way at its own size, keeping its gap, and only shrinks once it
+        // reaches the edge of the desktop (Gordon, 2026-09-30: they collapsed far too soon). At its
+        // smallest it keeps going past the edge rather than overlap.
         var out: [String: CGRect] = [:]
         let eps: CGFloat = 1
         for (id, n) in others where n.intersects(new) && !n.insetBy(dx: eps, dy: eps).intersects(old) {
             var f = n
             if n.minX >= old.maxX - eps {                      // to the right
                 let left = new.maxX + max(0, n.minX - old.maxX)
-                f = CGRect(x: left, y: n.minY, width: max(minSize.width, n.maxX - left), height: n.height)
+                let w = left + n.width > bounds.maxX ? max(minSize.width, bounds.maxX - left) : n.width
+                f = CGRect(x: left, y: n.minY, width: w, height: n.height)
             } else if n.maxX <= old.minX + eps {               // to the left
                 let right = new.minX - max(0, old.minX - n.maxX)
-                let w = max(minSize.width, right - n.minX)
+                let w = right - n.width < bounds.minX ? max(minSize.width, right - bounds.minX) : n.width
                 f = CGRect(x: right - w, y: n.minY, width: w, height: n.height)
             } else if n.minY >= old.maxY - eps {               // below
                 let top = new.maxY + max(0, n.minY - old.maxY)
-                f = CGRect(x: n.minX, y: top, width: n.width, height: max(minSize.height, n.maxY - top))
+                let h = top + n.height > bounds.maxY ? max(minSize.height, bounds.maxY - top) : n.height
+                f = CGRect(x: n.minX, y: top, width: n.width, height: h)
             } else if n.maxY <= old.minY + eps {               // above
                 let bottom = new.minY - max(0, old.minY - n.maxY)
-                let h = max(minSize.height, bottom - n.minY)
+                let h = bottom - n.height < bounds.minY ? max(minSize.height, bottom - bounds.minY) : n.height
                 f = CGRect(x: n.minX, y: bottom - h, width: n.width, height: h)
             }
             if f != n { out[id] = f }
@@ -1043,7 +1049,7 @@ public final class ShellState: ObservableObject {
     public func previewMakeRoom(resizing id: String, from old: CGRect, to new: CGRect) {
         var others = desktopFrames()
         others[id] = nil
-        let preview = Self.makeRoom(from: old, to: new, others: others)
+        let preview = Self.makeRoom(from: old, to: new, others: others, bounds: ShellPlacement.workArea(in: lastDesktopArea))
         if preview != makeRoomPreview { makeRoomPreview = preview }
     }
 

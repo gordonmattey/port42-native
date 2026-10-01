@@ -18,10 +18,13 @@ struct ResizeMakesRoomTests {
     let c = CGRect(x: 0, y: 310, width: 400, height: 300)
     let d = CGRect(x: 410, y: 310, width: 400, height: 300)
 
-    @Test("growing one of a grid of four: the neighbors shrink to fit, keep their order and their gap")
+    /// The desktop for these: a grid of four fills it to its right and bottom edges.
+    let bounds = CGRect(x: 0, y: 0, width: 810, height: 610)
+
+    @Test("growing one of a grid of four: the neighbors slide, then shrink only at the desktop's edge, in order, with their gap")
     func gridOfFour() {
         let grown = CGRect(x: 0, y: 0, width: 600, height: 450)
-        let out = ShellState.makeRoom(from: a, to: grown, others: ["b": b, "c": c, "d": d])
+        let out = ShellState.makeRoom(from: a, to: grown, others: ["b": b, "c": c, "d": d], bounds: bounds)
         #expect(out["b"] == CGRect(x: 610, y: 0, width: 200, height: 300))
         #expect(out["c"] == CGRect(x: 0, y: 460, width: 400, height: 150))
         #expect(out["d"] == CGRect(x: 610, y: 310, width: 200, height: 300))
@@ -29,10 +32,24 @@ struct ResizeMakesRoomTests {
         #expect(out["b"]!.minX > grown.maxX && out["c"]!.minY > grown.maxY, "the order changed")
     }
 
+    @Test("with room to spare a neighbor slides at its own size and does not shrink (Gordon: they collapsed too soon)")
+    func slidesBeforeShrinking() {
+        let wide = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let out = ShellState.makeRoom(from: a, to: CGRect(x: 0, y: 0, width: 600, height: 300), others: ["b": b], bounds: wide)
+        #expect(out["b"] == CGRect(x: 610, y: 0, width: 400, height: 300), "it shrank with room to slide: \(String(describing: out["b"]))")
+        let down = ShellState.makeRoom(from: a, to: CGRect(x: 0, y: 0, width: 400, height: 500), others: ["c": c], bounds: wide)
+        #expect(down["c"] == CGRect(x: 0, y: 510, width: 400, height: 300))
+        // Slid as far as the edge, then only the part past it is taken off.
+        let edge = ShellState.makeRoom(from: a, to: CGRect(x: 0, y: 0, width: 1000, height: 300), others: ["b": b], bounds: wide)
+        #expect(edge["b"] == CGRect(x: 1010, y: 0, width: 400, height: 300))
+        let past = ShellState.makeRoom(from: a, to: CGRect(x: 0, y: 0, width: 1300, height: 300), others: ["b": b], bounds: wide)
+        #expect(past["b"] == CGRect(x: 1310, y: 0, width: 290, height: 300))
+    }
+
     @Test("a neighbor too small to shrink further keeps its size and moves aside")
     func minimumSize() {
         let grown = CGRect(x: 0, y: 0, width: 760, height: 300)
-        let out = ShellState.makeRoom(from: a, to: grown, others: ["b": b])
+        let out = ShellState.makeRoom(from: a, to: grown, others: ["b": b], bounds: bounds)
         #expect(out["b"] == CGRect(x: 770, y: 0, width: ShellState.makeRoomMin.width, height: 300))
     }
 
@@ -70,11 +87,12 @@ struct ResizeMakesRoomTests {
         let grown = CGRect(x: 0, y: 0, width: 600, height: 300)
 
         shell.previewMakeRoom(resizing: built, from: a, to: grown)
-        #expect(shell.makeRoomPreview[team] == CGRect(x: 610, y: 0, width: 200, height: 300), "no live preview")
+        // The desktop (1440 wide) has room, so the neighbor slides at its own size.
+        #expect(shell.makeRoomPreview[team] == CGRect(x: 610, y: 0, width: 400, height: 300), "no live preview")
         shell.endMakeRoom(resizing: built, from: a, keep: true)
         w.state.portWindows.updateTileFrame(id: built, position: grown.origin, size: grown.size, on: w.space.id)
         #expect(shell.makeRoomPreview.isEmpty)
-        #expect(frame(w, team) == CGRect(x: 610, y: 0, width: 200, height: 300), "the new layout was not kept")
+        #expect(frame(w, team) == CGRect(x: 610, y: 0, width: 400, height: 300), "the new layout was not kept")
 
         shell.putLayoutBack()
         #expect(frame(w, team) == b && frame(w, built) == a, "putting it back did not restore the layout")
