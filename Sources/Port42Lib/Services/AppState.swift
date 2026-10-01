@@ -96,6 +96,11 @@ public final class AppState: ObservableObject {
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
 
+    /// Each space's backdrop (per-space backgrounds, `SpaceBackgrounds.swift`): space id → live port id,
+    /// and a closed port's fallback. App state, not a window's, so every window (#189) reads the same.
+    @Published public internal(set) var backgroundPorts: [String: String] = [:]
+    @Published public internal(set) var backgroundHtmls: [String: ClosedBackground] = [:]
+
     /// The windows on other displays and which space each shows (#189).
     public private(set) lazy var displaySpaces = DisplaySpaces(appState: self)
 

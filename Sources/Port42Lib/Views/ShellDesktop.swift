@@ -854,7 +854,7 @@ struct ShellTile: View {
                             // presentation flips to "background", so it drops out of the tile grid and
                             // re-parents full-bleed at Layer 0. The live surface (and any running
                             // shader) keeps running: no dismiss, no reload.
-                            appState.shell?.setBackgroundPort(id: tile.panel?.id ?? tile.id)
+                            shell.setBackgroundPort(id: tile.panel?.id ?? tile.id)   // this window's space (#189)
                             showMore = false
                         })
                 }
