@@ -34,7 +34,7 @@ struct BridgeTargetScopeTests {
         "invite.revoke": "the port's authority or the invite's maker (APP-01)",
         "space.delete": "read scope, and a card every time for anyone but the person (APP-11)",
         "companions.remove": "write scope: only a space the caller acts in (APP-11 rule, #131)",
-        "companions.update": "a companion edits only itself; the person edits any (API parity, Phase A)",
+        "companions.update": "a companion edits itself freely; editing another asks the person every time (API parity, Phase A)",
         "companions.delete": "the person, or a card every time naming the companion, never kept (API parity, Phase A)",
         "space.create": "creates only", "space.list": "space names",
         "space.switchTo": "moves the person's view only",

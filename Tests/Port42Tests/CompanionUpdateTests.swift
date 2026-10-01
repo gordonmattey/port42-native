@@ -49,16 +49,28 @@ struct CompanionUpdateTests {
         #expect(c.runsHidden, "runs")
     }
 
-    @Test("a companion may change itself, and not another companion")
-    func ownSettingsOnly() async throws {
+    @Test("a companion changes itself freely; changing another asks the person, naming it, every time")
+    func ownSettingsFreely() async throws {
         let w = try makeParityWorld()
         let a = try member(w, "alpha"), b = try member(w, "beta")
         _ = try await call(w, "companions.update", asCompanion(w, a), ["companion": "alpha", "prompt": "mine"])
         #expect(try stored(w, a)?.systemPrompt == "mine")
-        await #expect(throws: BridgeError.self) {
-            _ = try await self.call(w, "companions.update", self.asCompanion(w, a), ["companion": "beta", "prompt": "hijacked"])
-        }
-        #expect(try stored(w, b)?.systemPrompt != "hijacked", "a companion rewrote another companion's prompt")
+        #expect(w.state.permissions.current == nil, "a companion was asked about editing itself")
+
+        let ask = Task { @MainActor in try await self.call(w, "companions.update", self.asCompanion(w, a), ["companion": "beta", "prompt": "hijacked"]) }
+        for _ in 0..<400 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current?.permission == .editCompanion, "a companion rewrote another without asking")
+        #expect(w.state.permissions.current?.detail?.contains("beta") == true && w.state.permissions.current?.detail?.contains("prompt") == true)
+        w.state.permissions.resolveCurrent(granted: false)
+        await #expect(throws: BridgeError.self) { _ = try await ask.value }
+        #expect(try stored(w, b)?.systemPrompt != "hijacked", "a refused edit was applied")
+
+        let again = Task { @MainActor in try await self.call(w, "companions.update", self.asCompanion(w, a), ["companion": "beta", "prompt": "agreed"]) }
+        for _ in 0..<400 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current != nil, "the first answer was remembered; an edit asks every time")
+        w.state.permissions.resolveCurrent(granted: true)
+        _ = try await again.value
+        #expect(try stored(w, b)?.systemPrompt == "agreed")
     }
 
     @Test("a name another companion holds is refused, and an update with nothing to change is refused")

@@ -495,7 +495,7 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
 
     r["companions.update"] = BridgeMethod(permission: nil,
         paramNames: ["companion", "name", "prompt", "model", "runs", "command", "args", "cwd", "trigger"],
-        description: "Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion may change only itself; the person may change any. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.",
+        description: "Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion changes itself freely; anyone else asks the person, naming the companion and what changes, every time. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -512,9 +512,15 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
             "required": ["companion"],
         ]) { p, args in
         var c = try target(p, try args.requireString("companion"))
-        // A companion edits only itself; the person edits anyone.
-        guard p.kind == .human || appState.companion(actingAs: p)?.id == c.id else {
-            throw BridgeError.permissionDenied("only the person may change another companion")
+        // A companion edits itself freely. Anyone else asks the person, naming the companion and what is
+        // to change, every time; a yes is never kept, since a new prompt changes how another agent acts.
+        let own = appState.companion(actingAs: p)?.id == c.id
+        if p.kind != .human, !own {
+            let fields = ["name", "prompt", "model", "runs", "command", "args", "cwd", "trigger"].filter { args.any($0) != nil }
+            guard try await appState.ask(.editCompanion, from: p,
+                                         detail: "Change \(c.displayName)'s \(fields.joined(separator: ", "))") else {
+                throw BridgeError.permissionDenied(PortPermission.editCompanion.rawValue)
+            }
         }
         var changed: [String] = []
         if let name = args.string("name")?.trimmingCharacters(in: .whitespacesAndNewlines) {

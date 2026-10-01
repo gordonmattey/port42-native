@@ -21,9 +21,9 @@ Already there: `port.move` takes `space_id` (#126), `companions.remove`, `compan
 
 **A. Companions.** `companions.update` (name, prompt, model, runs, command, args, working directory,
 trigger; not secrets) and `companions.delete`. The app already has `updateCompanion` (a rename refuses a
-name another companion holds) and `deleteCompanion`. Authorization: a companion may update or delete only
-itself or one it made; the person may do any; secrets never. Delete asks the person, as `space.delete` does
-for anyone but them. Tests: each field, the rename clash, the permission, delete closing what it should.
+name another companion holds) and `deleteCompanion`. Authorization: a companion updates itself freely; editing another
+companion, or deleting any, asks the person every time with a card naming it, and a yes is never kept; the
+person may do any; secrets never. Tests: each field, the rename clash, the permission, delete closing what it should.
 
 **B. Ports across spaces.** `port.manage showIn` and `hideFrom` (the adoption the "Spaces…" row uses, #128),
 and `ports.list` reporting where a port is also shown. Under the write scope (APP-11).
@@ -52,5 +52,4 @@ classified in `RemoteAccess` and the target-scope table. Live on a dev instance,
 
 ## Decisions for Gordon
 
-None to start Phase A. Open: does a companion get to rename or edit another companion in its space
-(recommendation: no, only itself and what it made; the person edits anyone)?
+None to start Phase A. Decided with Gordon's echo case: a companion may edit another, but each edit asks the person.
