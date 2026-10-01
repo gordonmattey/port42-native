@@ -486,6 +486,9 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
         guard let c = appState.companions.first(where: { $0.id == ref || $0.displayName.caseInsensitiveCompare(ref) == .orderedSame })
         else { throw BridgeError.notFound("companion '\(ref)'") }
         if p.kind == .human { return c }
+        // A caller in no space of its own (a script or a session on the gateway, as the port42 command)
+        // sees every companion, as it sees every space; the card still asks for a change.
+        if p.spaceId == nil, appState.companion(actingAs: p) == nil { return c }
         let theirs = Set((try? appState.db.spaceIds(ofAgent: c.id)) ?? [])
         let mine = Set([p.spaceId].compactMap { $0 } + ((try? appState.db.spaceIds(ofAgent: appState.companion(actingAs: p)?.id ?? "")) ?? []))
         guard !theirs.isDisjoint(with: mine) || appState.companion(actingAs: p)?.id == c.id

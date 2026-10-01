@@ -100,6 +100,19 @@ struct CompanionUpdateTests {
         }
     }
 
+    @Test("a caller in no space (a script on the gateway) finds any companion, and is still asked before changing one")
+    func gatewayCaller() async throws {
+        let w = try makeParityWorld()
+        let target = try member(w, "target-1")
+        let script = Principal.peer(id: "some-script", displayName: "a script")
+        let run = Task { @MainActor in try await self.call(w, "companions.update", script, ["companion": "target-1", "prompt": "new"]) }
+        for _ in 0..<400 where w.state.permissions.current == nil { await Task.yield() }
+        #expect(w.state.permissions.current?.permission == .editCompanion, "a script changed a companion without asking, or could not find it")
+        w.state.permissions.resolveCurrent(granted: true)
+        _ = try await run.value
+        #expect(try stored(w, target)?.systemPrompt == "new")
+    }
+
     @Test("the person deletes a companion outright; it leaves the roster and the store")
     func personDeletes() async throws {
         let w = try makeParityWorld()
