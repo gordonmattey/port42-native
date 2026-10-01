@@ -102,6 +102,23 @@ one console.
   position, a half-filled form and where a video is up to are each view's own. Sound comes only from
   the display last used, so a playing video is not heard twice.
 
+## Built so far (phase 1a)
+
+- `ShellState.spaceId`: each window shows its own space. The window in use (`appState.shell`, the key
+  shell) shows `currentSpace`; the others hold theirs (`heldSpaceId`). A space is on one window at a
+  time: switching the window in use to a space another window shows swaps the two.
+- `DisplaySpaces` (Services/DisplaySpaces.swift): the display map (display UUID to space, kept in
+  UserDefaults with the other window preferences rather than the database), a borderless window per
+  mapped display showing its own `ShellView`, restored at launch and when a display is plugged back
+  in; an unplugged display's window closes and its space keeps running.
+- Arranging: the space card (hold a space in the galaxy) lists the other connected displays, "Show on
+  <display>" and "Stop showing on <display>". Settings → Displays is still phase 2.
+- Keys, menu commands and pinch act in the window they happen in; hold-to-talk stays with the main
+  window's shell, which owns the one voice session.
+- A port shown by two windows at once is live in the window in use; the other window says "live on
+  the other display" and a click brings it over. The second live view per display (GM's decision 1)
+  is phase 1b, after the terminal spike.
+
 ## Phases
 
 1. **Display map and windows:** the map (display UUID to space, kept in the database), one takeover
