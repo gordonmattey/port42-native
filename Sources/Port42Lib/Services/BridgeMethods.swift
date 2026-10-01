@@ -381,12 +381,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action", "space_id"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
+                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
                 "space_id": ["type": "string", "description": "showIn and hideFrom: the other space."]
             ],
             "required": ["id", "action"]
@@ -422,6 +422,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             appState.portWindows.setPin(id: panel.id, .everywhere)
         case "unpin":
             appState.portWindows.setPin(id: panel.id, .none)
+        case "reload":
+            // The tile menu's refresh: the same page, reloaded in place (the DOM and scripts start over).
+            guard panel.portType == "web", appState.portWindows.webViews[panel.id] != nil else {
+                throw BridgeError.badArg("only a web port with a live page can reload")
+            }
+            appState.portWindows.reloadPort(panel.id)
         case "showIn", "hideFrom":
             // Showing a port in another space is the port menu's Spaces… row (#128): the port stays where it
             // lives and is the same live port in both. Only a space the caller acts in (APP-11), and never
@@ -436,7 +442,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             let also = appState.portWindows.panels.first { $0.id == panel.id }?.adoptedSpaceIds ?? []
             return .object(["ok": .bool(true), "alsoIn": .array(also.map { .string($0) })])
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
@@ -1814,30 +1820,71 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y", "space_id"], writesTarget: "id",
+    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y", "width", "height", "space_id"], writesTarget: "id",
         needsLiveSurface: true,
-        description: "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
+        description: "Move a port's tile to desktop coordinates, resize it, or both. Pass x and y together to move, width and/or height to resize (a missing one keeps its current value; the smallest a tile can be is 150 by 110). Use screen_info to get display bounds first. A resize is the tile's own size, the same on every desktop it is shown on.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
-                "x": ["type": "number", "description": "Horizontal position in desktop points"],
-                "y": ["type": "number", "description": "Vertical position in desktop points"],
+                "x": ["type": "number", "description": "Horizontal position in desktop points (with y)"],
+                "y": ["type": "number", "description": "Vertical position in desktop points (with x)"],
+                "width": ["type": "number", "description": "New width in points."],
+                "height": ["type": "number", "description": "New height in points."],
                 "space_id": ["type": "string", "description": "Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space."]
             ],
-            "required": ["id", "x", "y"]
+            "required": ["id"]
         ]) { _, args in
         let id = try args.requireString("id")
-        guard let x = args.double("x"), let y = args.double("y") else {
-            throw BridgeError.badArg("port.move requires numeric x and y")
+        let x = args.double("x"), y = args.double("y"), w = args.double("width"), h = args.double("height")
+        guard (x == nil) == (y == nil) else { throw BridgeError.badArg("port.move takes x and y together") }
+        guard x != nil || w != nil || h != nil else {
+            throw BridgeError.badArg("port.move needs x and y, or a width or height")
         }
         let target = appState.resolvePortRef(id)?.udid ?? id
         guard let panel = appState.portWindows.findPort(by: target) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         let desktop = try desktopFor(panel, requested: args.string("space_id"), appState: appState)
-        appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
-        return .object(["ok": .bool(true)])
+        if w == nil && h == nil, let x, let y {
+            appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
+            return .object(["ok": .bool(true)])
+        }
+        guard let frame = appState.portWindows.portFrame(by: target, on: desktop) else {
+            throw BridgeError.notFound("port '\(id)' (no positioned tile)")
+        }
+        let min = ShellState.minTileSize
+        let size = CGSize(width: Swift.max(min.width, CGFloat(w ?? Double(frame.width))),
+                          height: Swift.max(min.height, CGFloat(h ?? Double(frame.height))))
+        let at = CGPoint(x: CGFloat(x ?? Double(frame.origin.x)), y: CGFloat(y ?? Double(frame.origin.y)))
+        appState.portWindows.updateTileFrame(id: panel.id, position: at, size: size, on: desktop)
+        return .object(["ok": .bool(true), "width": .double(Double(size.width)), "height": .double(Double(size.height))])
+    }
+
+    // API parity, Phase D: the tile menu's "Fork: a copy". Reads the source under the read scope and
+    // makes the copy in a space the caller acts in; the copy is independent and has no grants.
+    r["port.fork"] = BridgeMethod(permission: nil, paramNames: ["id", "space_id"], toolExposed: false,
+        description: "Fork a web port: an independent copy with no grants of its own, titled '<title> (copy)', as the tile menu's Fork does. It lands in space_id, else the current space. A port someone shared is copied only when they allowed it. Returns {id}.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port to copy (from ports_list)."],
+                "space_id": ["type": "string", "description": "The space for the copy (default: the current space)."],
+            ],
+            "required": ["id"],
+        ]) { p, args in
+        let id = try args.requireString("id")
+        guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id),
+              appState.canRead(portInSpace: panel.spaceId, by: p) else { throw BridgeError.notFound("port '\(id)'") }
+        var into: String? = nil
+        if let sid = args.string("space_id") {
+            guard appState.spaces.contains(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p) else {
+                throw BridgeError.notFound("space '\(sid)'")
+            }
+            into = sid
+        }
+        let copy = try await appState.forkPort(panel.id, into: into)
+        return .object(["id": .string(copy)])
     }
 
     // MARK: Tail item 9 — self-referential port methods

@@ -48,6 +48,7 @@ struct BridgeTargetScopeTests {
         "space.current": "OPEN: APP-10",
         "port.rename": "write scope (APP-11)", "port.move": "write scope (APP-11)",
         "port.manage": "write scope (APP-11)",
+        "port.fork": "read scope on the source, and on the space it lands in (API parity, Phase D)",
         "port.reopen": "OPEN: NAU-05", "port.delete": "OPEN: NAU-05",
         "chat.read": "OPEN: APP-09", "presence.list": "OPEN: APP-09 (a chat's presence, by key)", "chat.post": "OPEN: APP-08",
         "companions.watch": "OPEN: APP-08", "companions.unwatch": "OPEN: APP-08",

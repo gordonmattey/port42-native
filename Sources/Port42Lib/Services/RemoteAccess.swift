@@ -147,6 +147,7 @@ public enum RemoteAccess {
         "space.rest": .never,
         "space.wake": .never,
         "space.reorder": .never,
+        "port.fork": .never,
         "companions.list": .port(param: "port", right: .see),     // the shared port's own space
         "companions.get": .never,
         "companions.create": .never,
