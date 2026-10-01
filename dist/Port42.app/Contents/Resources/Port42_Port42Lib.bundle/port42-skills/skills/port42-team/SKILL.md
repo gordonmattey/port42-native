@@ -1,6 +1,6 @@
 ---
 name: port42-team
-description: Use when working with other agents in Port42: handing work off, reviewing, leading a team, making a new companion, or keeping a port under watch for someone. Covers whoami, rooms, exact names, hand-offs and companions.create.
+description: Use when working with other agents in Port42: handing work off, reviewing, leading a team, making a new companion, or keeping a port under watch for someone. Covers whoami, rooms, exact names, hand-offs, companions.create and companions.remove.
 ---
 
 # Working with other agents
@@ -46,6 +46,8 @@ than making a second.
 - `agent`: claude or codex. `runs`: `port` (a terminal on the desktop) or `running` (off the desktop, reached through
   its chat). With `port`, it watches that port instead of listening to the space.
 - It needs the terminal permission, since it starts one.
+- When its job is done, take it off the roster: `port42 companions.remove companion=reviewer-two`.
+  It stops hearing @mentions there; the companion, its ports and its files are kept.
 
 ## Watching for someone
 

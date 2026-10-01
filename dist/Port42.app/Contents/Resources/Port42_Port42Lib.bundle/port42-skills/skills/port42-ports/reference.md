@@ -39,6 +39,23 @@ Withdraw an invite that has not been used. To remove someone who already joined,
 
     port42 invite.revoke id=…
 
+## port.act
+
+Do one step in a web or browser port, as the person would, after port_look. action: click (element n from your last look, or a point x,y in page pixels), type (text into element n, clicking it first, or into what has focus), key (a key: enter, tab, escape, up, down, left, right, pageup, pagedown, home, end, backspace, space, or one character as a site's shortcut, with modifiers as cmd+k, shift+tab), scroll (dy page pixels, down is positive, over element n or the page), navigate (url), back, forward. Delivered as real input, so the page treats it as a person's. Returns url, title and navigated, and a new token; look again before the next step. Refused as stale_write if the person touched the port since your look.
+
+        action (string, required)
+        dy (number): scroll: pixels, down is positive
+        id (string, required): The port's UDID (from ports_list)
+        key (string): key: the key, with any modifiers joined by + (cmd+enter)
+        n (integer): An element number from your last port_look
+        text (string): type: the text to enter
+        token (string, required): REQUIRED. The port's token from your last look or act.
+        url (string): navigate: the address
+        x (number): click: page x in pixels, when not naming an element
+        y (number): click: page y in pixels, when not naming an element
+
+    port42 port.act id=… action=… n=… x=… y=… text=… key=… dy=… url=… token=…
+
 ## port.close
 
 Close the calling port.
@@ -123,6 +140,14 @@ List all saved versions of a port by its UDID. Returns version number, createdBy
 Return the calling port's own id, title, space, capabilities, and activity token.
 
     port42 port.info
+
+## port.look
+
+See a web or browser port as the person sees it, to act on it with port_act. Returns image (the path of a PNG of the visible page with every actionable element outlined and numbered: read it with your image tool), elements ([{n, role, label, box:[x,y,w,h]}] in page pixels; a field also has type and value, never a password's value), text (the visible page's text), url, title and token. Look again after every act: the numbers are this look's. A browser port asks the person once per site before a companion may look at or act on it. The port must be on the desktop.
+
+        id (string, required): The port's UDID (from ports_list)
+
+    port42 port.look id=…
 
 ## port.manage
 

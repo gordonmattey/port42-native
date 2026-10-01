@@ -572,9 +572,13 @@ BRIDGE API REFERENCE:
     Make an HTTP request with optional secret injection from the host's Keychain.
     url: the request URL
     opts: { method, headers, body, secret }
-    secret: name of a stored secret — the host resolves it and injects the auth header.
+    secret: name of a stored secret — the host resolves it and puts it where the secret says:
+      Bearer (Authorization: Bearer, the default), API Key (x-api-key), Basic, a Header the API
+      names (e.g. xi-api-key for ElevenLabs), or a Query parameter (e.g. key). The person sets the
+      place when adding the secret in Settings → Secrets.
     The secret value never reaches the port — only the response data.
-    Returns: { status, headers, body }
+    Returns: { status, headers, body }, plus hint on a 401 or 403 made with a secret: where Port42
+      sent it and where to change it. Show the hint to the person; it never holds the value.
     Requires REST permission.
 
 RESILIENCE: All bridge APIs are async, and a failed call REJECTS its promise (there is no
@@ -950,6 +954,15 @@ FINDING PORTS:
   IMPORTANT: When presenting port results to the user, always include the id and
   capabilities fields. Do not reformat as a table that drops these columns — the id
   is required for port_push, port_manage, and any follow-up tool calls.
+
+  LINKING TO A PORT:
+    A link to another port takes the person there when clicked: to its space (woken if
+    resting), brought back if it was closed or parked, and focused. Your port stays on its
+    own document. Use the id from ports_list:
+      <a href="port42://space/_/PORT_ID">Open the build log</a>
+    "_" means wherever the port is; port42://space/SPACE_ID/PORT_ID names its space. A port
+    shared from another machine is port42://PEER_ID/PORT_ID and opens only if its invite was
+    accepted here. A title is not an address. Setting location from a script is refused.
 
 SENDING INPUT TO A TERMINAL PORT:
 
