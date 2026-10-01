@@ -17,6 +17,9 @@ public enum PortPermission: String, Hashable {
     case rest          // rest.call — HTTP requests to external APIs
     case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
     case deleteSpace   // space.delete by anyone but the person: asked every time, never kept (APP-11)
+    case deleteCompanion   // companions.delete by anyone but the person: asked every time, never kept
+    case changeSharing     // remote.leave, remote.setWake on: a shared port's tile closed or its host let wake your companions, by anyone but the person: asked every time, never kept
+    case editCompanion     // companions.update of another companion by anyone but the person: asked every time, never kept
 
     // The method-to-permission mapping lives on each method's registry declaration
     // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
@@ -41,6 +44,9 @@ public enum PortPermission: String, Hashable {
         case .rest: return "network"
         case .share: return "person.2.wave.2"
         case .deleteSpace: return "trash"
+        case .deleteCompanion: return "person.fill.xmark"
+        case .editCompanion: return "person.crop.circle.badge.pencil"
+        case .changeSharing: return "person.2.slash"
         }
     }
 
@@ -111,6 +117,21 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Delete a Space",
                 message: "This wants to delete a space: its ports and terminals close, and the space and its chat are gone. This cannot be undone. Allow?"
+            )
+        case .editCompanion:
+            return (
+                title: "Change a Companion",
+                message: "This wants to change another companion's settings: its prompt, name, folder or how it runs. It changes how that companion behaves. Allow?"
+            )
+        case .changeSharing:
+            return (
+                title: "Change Sharing",
+                message: "This wants to change how a port shared with you works here: leave it (its tile closes and the host's grant is theirs to renew), or let the host's chat wake your companions. Allow?"
+            )
+        case .deleteCompanion:
+            return (
+                title: "Delete a Companion",
+                message: "This wants to delete a companion: it leaves every space, its watches and ports close, and it is gone. This cannot be undone. Allow?"
             )
         }
     }

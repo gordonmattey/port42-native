@@ -47,6 +47,7 @@ on the desktop moves.
 | ⌘G | The galaxy, and back to the space. |
 | ⌘K | The switcher. |
 | ⌘I | Imagine. |
+| ⌘N | A new space, and into it. |
 | ⌘` / ⇧⌘` | The next / previous port on this desktop. |
 | ⌘1 to ⌘9 | The Nth space. |
 | Tab | Exposé, on the desktop. |

@@ -221,7 +221,7 @@ extension AppState {
     /// grants of its own, titled as a copy. A port someone shared is copied only when they allowed it
     /// (`fork`); that is their leave, not a lock, since the page is already here.
     @discardableResult
-    public func forkPort(_ id: String) async throws -> String {
+    public func forkPort(_ id: String, into: String? = nil) async throws -> String {
         let html: String, title: String, home: String?
         if let row = mirroredRemote(id) {
             guard row.rights.contains(.fork) else {
@@ -239,7 +239,7 @@ extension AppState {
             html = (try? db.fetchPortHtml(udid: panel.udid)).flatMap { $0 } ?? panel.html
             (title, home) = (panel.title, panel.spaceId)
         }
-        guard let space = currentSpace?.id ?? home else { throw BridgeError(code: .wrongState, message: "no space to fork into") }
+        guard let space = into ?? currentSpace?.id ?? home else { throw BridgeError(code: .wrongState, message: "no space to fork into") }
         let made = createPort(type: "web", title: "\(title) (copy)", html: html, command: nil, cwd: nil,
                               systemPrompt: nil, spaceId: space, createdBy: nil, createdByName: nil)
         guard let newId = made["id"] as? String else {

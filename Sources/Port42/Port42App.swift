@@ -335,13 +335,6 @@ struct Port42App: App {
                     NotificationCenter.default.post(name: .imagineRequested, object: nil)
                 }
                 .keyboardShortcut("i", modifiers: .command)
-
-                Button("Help") {
-                    NotificationCenter.default.post(
-                        name: .helpRequested, object: nil
-                    )
-                }
-                .keyboardShortcut("/", modifiers: .command)
             }
 
             #if DEBUG

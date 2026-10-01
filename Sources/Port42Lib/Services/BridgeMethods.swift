@@ -380,13 +380,14 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         return .object(out)
     }
 
-    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action", "space_id"], writesTarget: "id",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind the desktop, as Set as background in the port menu does; one port at a time), unbackground (back to the ambient backdrop; the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)"]
+                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
+                "space_id": ["type": "string", "description": "showIn and hideFrom: the other space."]
             ],
             "required": ["id", "action"]
         ]) { p, args in
@@ -421,8 +422,27 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             appState.portWindows.setPin(id: panel.id, .everywhere)
         case "unpin":
             appState.portWindows.setPin(id: panel.id, .none)
+        case "reload":
+            // The tile menu's refresh: the same page, reloaded in place (the DOM and scripts start over).
+            guard panel.portType == "web", appState.portWindows.webViews[panel.id] != nil else {
+                throw BridgeError.badArg("only a web port with a live page can reload")
+            }
+            appState.portWindows.reloadPort(panel.id)
+        case "showIn", "hideFrom":
+            // Showing a port in another space is the port menu's Spaces… row (#128): the port stays where it
+            // lives and is the same live port in both. Only a space the caller acts in (APP-11), and never
+            // the port's own space.
+            let sid = try args.requireString("space_id")
+            guard appState.spaces.contains(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p) else {
+                throw BridgeError.notFound("space '\(sid)'")
+            }
+            guard sid != panel.spaceId else { throw BridgeError.badArg("that is the port's own space") }
+            if action == "showIn" { appState.portWindows.adopt(id: panel.id, into: sid) }
+            else { appState.portWindows.unadopt(id: panel.id, from: sid) }
+            let also = appState.portWindows.panels.first { $0.id == panel.id }?.adoptedSpaceIds ?? []
+            return .object(["ok": .bool(true), "alsoIn": .array(also.map { .string($0) })])
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
@@ -1232,9 +1252,95 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["space.list"] = BridgeMethod(permission: nil,
-        description: "List all spaces the user belongs to",
+        description: "List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
-        .array(appState.spaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) })
+        .array(appState.spaces.map {
+            var o: [String: BridgeValue] = ["id": .string($0.id), "name": .string($0.name), "resting": .bool($0.isResting)]
+            if let a = $0.accent { o["accent"] = .string(a) }
+            return .object(o)
+        })
+    }
+
+    // API parity, Phase C (docs/plan-api-parity.md): what the galaxy and the space settings card do.
+    // Scope is the space the caller acts in (APP-11); none of these loses anything, so no card.
+    func spaceTarget(_ p: Principal, _ id: String) throws -> Space {
+        guard let space = appState.spaces.first(where: { $0.id == id }), appState.canRead(portInSpace: id, by: p) else {
+            throw BridgeError.notFound("space '\(id)'")
+        }
+        return space
+    }
+    func spaceState(_ id: String) -> BridgeValue {
+        guard let s = appState.spaces.first(where: { $0.id == id }) else { return .object([:]) }
+        var o: [String: BridgeValue] = ["id": .string(s.id), "name": .string(s.name), "resting": .bool(s.isResting)]
+        if let a = s.accent { o["accent"] = .string(a) }
+        return .object(o)
+    }
+
+    r["space.update"] = BridgeMethod(permission: nil, paramNames: ["space_id", "name", "accent"], toolExposed: false,
+        description: "Change a space's name or accent color, as the space settings card does. The name is lowercased with spaces as dashes, and may not be one another space holds. The accent is a hex color like #4ECDC4. Returns the space.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "The space (from space_list)."],
+                "name": ["type": "string", "description": "The new name."],
+                "accent": ["type": "string", "description": "A hex color, #RRGGBB."],
+            ],
+            "required": ["space_id"],
+        ]) { p, args in
+        var space = try spaceTarget(p, try args.requireString("space_id"))
+        var changed = false
+        if let raw = args.string("name") {
+            let cleaned = AppState.spaceName(raw)
+            guard !cleaned.isEmpty else { throw BridgeError.badArg("a space needs a name") }
+            if appState.spaces.contains(where: { $0.id != space.id && $0.name == cleaned }) {
+                throw BridgeError.badArg("another space is already called '\(cleaned)'")
+            }
+            if cleaned != space.name { space.name = cleaned; changed = true }
+        }
+        if let hex = args.string("accent") {
+            guard hex.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil else {
+                throw BridgeError.badArg("accent is a hex color like #4ECDC4")
+            }
+            if hex.uppercased() != space.accent?.uppercased() { space.accent = hex.uppercased(); changed = true }
+        }
+        guard changed else { throw BridgeError.badArg("nothing to change: pass a new name or accent") }
+        appState.updateSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.rest"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Put a space at rest: off the galaxy front, unindexed and silent, nothing lost (Rest in the space settings card). Resting the space the person is in moves them to another working space. A space already at rest is refused.",
+        inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to rest."]], "required": ["space_id"]]) { p, args in
+        let space = try spaceTarget(p, try args.requireString("space_id"))
+        guard !space.isResting else { throw BridgeError.badArg("'\(space.name)' is already at rest") }
+        appState.shell?.restSpace(space) ?? appState.restSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.wake"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Wake a resting space: back into the working set, on the galaxy front. It does not switch to it (space_switchTo does). A space not at rest is refused.",
+        inputSchema: ["type": "object", "properties": ["space_id": ["type": "string", "description": "The space to wake."]], "required": ["space_id"]]) { p, args in
+        let space = try spaceTarget(p, try args.requireString("space_id"))
+        guard space.isResting else { throw BridgeError.badArg("'\(space.name)' is not at rest") }
+        appState.wakeSpace(space)
+        return spaceState(space.id)
+    }
+
+    r["space.reorder"] = BridgeMethod(permission: nil, paramNames: ["space_id", "before"], toolExposed: false,
+        description: "Move a space in the galaxy order, as dragging it does: it lands just before the space named in before, or at the end when before is omitted. Returns the order, as space ids.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "The space to move."],
+                "before": ["type": "string", "description": "The space it should come before. Omit to put it last."],
+            ],
+            "required": ["space_id"],
+        ]) { p, args in
+        let space = try spaceTarget(p, try args.requireString("space_id"))
+        var target = ""
+        if let before = args.string("before") { target = try spaceTarget(p, before).id }
+        appState.reorderSpaces(moving: space.id, to: target)
+        return .object(["order": .array(appState.spaces.map { .string($0.id) })])
     }
 
     // Tail item 2. Not an LLM tool (companions navigate by talking; switching the visible space is a
@@ -1502,6 +1608,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         for id in mirrors.keys {
             mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil)
         }
+        var alsoIn: [String: [String]] = [:]
+        for panel in appState.portWindows.panels where !panel.adoptedSpaceIds.isEmpty { alsoIn[panel.udid] = panel.adoptedSpaceIds }
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
                    cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
@@ -1525,6 +1633,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             ]
             if remote { entries.append(.object(o)); return }
             if let spaceId { o["spaceId"] = .string(spaceId) }
+            // The other spaces it is shown in (the Spaces… row, port.manage showIn); only those the caller can see.
+            if let also = alsoIn[id]?.filter({ readable($0) }), !also.isEmpty { o["alsoIn"] = .array(also.map { .string($0) }) }
             if let createdBy {
                 o["createdBy"] = .string(createdBy)
                 // The NAME a person reads (audit F7). `createdBy` is an id, and a companion's terminal
@@ -1709,30 +1819,71 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y", "space_id"], writesTarget: "id",
+    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y", "width", "height", "space_id"], writesTarget: "id",
         needsLiveSurface: true,
-        description: "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
+        description: "Move a port's tile to desktop coordinates, resize it, or both. Pass x and y together to move, width and/or height to resize (a missing one keeps its current value; the smallest a tile can be is 150 by 110). Use screen_info to get display bounds first. A resize is the tile's own size, the same on every desktop it is shown on.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
-                "x": ["type": "number", "description": "Horizontal position in desktop points"],
-                "y": ["type": "number", "description": "Vertical position in desktop points"],
+                "x": ["type": "number", "description": "Horizontal position in desktop points (with y)"],
+                "y": ["type": "number", "description": "Vertical position in desktop points (with x)"],
+                "width": ["type": "number", "description": "New width in points."],
+                "height": ["type": "number", "description": "New height in points."],
                 "space_id": ["type": "string", "description": "Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space."]
             ],
-            "required": ["id", "x", "y"]
+            "required": ["id"]
         ]) { _, args in
         let id = try args.requireString("id")
-        guard let x = args.double("x"), let y = args.double("y") else {
-            throw BridgeError.badArg("port.move requires numeric x and y")
+        let x = args.double("x"), y = args.double("y"), w = args.double("width"), h = args.double("height")
+        guard (x == nil) == (y == nil) else { throw BridgeError.badArg("port.move takes x and y together") }
+        guard x != nil || w != nil || h != nil else {
+            throw BridgeError.badArg("port.move needs x and y, or a width or height")
         }
         let target = appState.resolvePortRef(id)?.udid ?? id
         guard let panel = appState.portWindows.findPort(by: target) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         let desktop = try desktopFor(panel, requested: args.string("space_id"), appState: appState)
-        appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
-        return .object(["ok": .bool(true)])
+        if w == nil && h == nil, let x, let y {
+            appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
+            return .object(["ok": .bool(true)])
+        }
+        guard let frame = appState.portWindows.portFrame(by: target, on: desktop) else {
+            throw BridgeError.notFound("port '\(id)' (no positioned tile)")
+        }
+        let min = ShellState.minTileSize
+        let size = CGSize(width: Swift.max(min.width, CGFloat(w ?? Double(frame.width))),
+                          height: Swift.max(min.height, CGFloat(h ?? Double(frame.height))))
+        let at = CGPoint(x: CGFloat(x ?? Double(frame.origin.x)), y: CGFloat(y ?? Double(frame.origin.y)))
+        appState.portWindows.updateTileFrame(id: panel.id, position: at, size: size, on: desktop)
+        return .object(["ok": .bool(true), "width": .double(Double(size.width)), "height": .double(Double(size.height))])
+    }
+
+    // API parity, Phase D: the tile menu's "Fork: a copy". Reads the source under the read scope and
+    // makes the copy in a space the caller acts in; the copy is independent and has no grants.
+    r["port.fork"] = BridgeMethod(permission: nil, paramNames: ["id", "space_id"], toolExposed: false,
+        description: "Fork a web port: an independent copy with no grants of its own, titled '<title> (copy)', as the tile menu's Fork does. It lands in space_id, else the current space. A port someone shared is copied only when they allowed it. Returns {id}.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port to copy (from ports_list)."],
+                "space_id": ["type": "string", "description": "The space for the copy (default: the current space)."],
+            ],
+            "required": ["id"],
+        ]) { p, args in
+        let id = try args.requireString("id")
+        guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id),
+              appState.canRead(portInSpace: panel.spaceId, by: p) else { throw BridgeError.notFound("port '\(id)'") }
+        var into: String? = nil
+        if let sid = args.string("space_id") {
+            guard appState.spaces.contains(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p) else {
+                throw BridgeError.notFound("space '\(sid)'")
+            }
+            into = sid
+        }
+        let copy = try await appState.forkPort(panel.id, into: into)
+        return .object(["id": .string(copy)])
     }
 
     // MARK: Tail item 9 — self-referential port methods

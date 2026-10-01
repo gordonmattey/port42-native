@@ -47,6 +47,9 @@ than making a second.
   its chat). With `port`, it watches that port instead of listening to the space.
 - It needs the terminal permission, since it starts one.
 - When its job is done, take it off the roster: `port42 companions.remove companion=reviewer-two`.
+- To change a companion (yourself freely; another asks the person each time): `port42 companions.update
+  companion=<name> prompt=@brief.txt cwd=<folder>` (also name, model, runs, command, args, trigger). A new prompt or
+  folder applies when its session next starts. `companions.delete` removes one for good and asks the person every time.
   It stops hearing @mentions there; the companion, its ports and its files are kept.
 
 ## Watching for someone

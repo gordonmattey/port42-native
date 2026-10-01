@@ -478,6 +478,99 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
         return .object(["ok": .bool(true), "companion": .string(c.displayName), "space": .string(sid)])
     }
 
+    // companions.update / companions.delete (API parity, docs/plan-api-parity.md, Phase A): what the
+    // companion's settings box changes, from an agent. Found when a companion was made with an unfilled
+    // {{USER}} in its prompt and nothing could fix it. Secrets stay human-only: they are not here.
+    /// The companion a call names, by id or name; one the caller shares no space with is not found.
+    @MainActor func target(_ p: Principal, _ ref: String) throws -> AgentConfig {
+        guard let c = appState.companions.first(where: { $0.id == ref || $0.displayName.caseInsensitiveCompare(ref) == .orderedSame })
+        else { throw BridgeError.notFound("companion '\(ref)'") }
+        if p.kind == .human { return c }
+        // A caller in no space of its own (a script or a session on the gateway, as the port42 command)
+        // sees every companion, as it sees every space; the card still asks for a change.
+        if p.spaceId == nil, appState.companion(actingAs: p) == nil { return c }
+        let theirs = Set((try? appState.db.spaceIds(ofAgent: c.id)) ?? [])
+        let mine = Set([p.spaceId].compactMap { $0 } + ((try? appState.db.spaceIds(ofAgent: appState.companion(actingAs: p)?.id ?? "")) ?? []))
+        guard !theirs.isDisjoint(with: mine) || appState.companion(actingAs: p)?.id == c.id
+        else { throw BridgeError.notFound("companion '\(ref)'") }
+        return c
+    }
+
+    r["companions.update"] = BridgeMethod(permission: nil,
+        paramNames: ["companion", "name", "prompt", "model", "runs", "command", "args", "cwd", "trigger"],
+        description: "Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion changes itself freely; anyone else asks the person, naming the companion and what changes, every time. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "companion": ["type": "string", "description": "The companion's id or name."],
+                "name": ["type": "string", "description": "A new name. Two companions cannot share one."],
+                "prompt": ["type": "string", "description": "Its system prompt."],
+                "model": ["type": "string", "description": "Its model, where the CLI takes one."],
+                "runs": ["type": "string", "enum": ["port", "running", "hidden"], "description": "Where its terminal runs."],
+                "command": ["type": "string", "description": "agent custom: the command to run."],
+                "args": ["type": "array", "items": ["type": "string"], "description": "Arguments for the CLI or command."],
+                "cwd": ["type": "string", "description": "Working directory."],
+                "trigger": ["type": "string", "enum": ["mentionOnly", "allMessages"], "description": "What wakes it in a chat."],
+            ],
+            "required": ["companion"],
+        ]) { p, args in
+        var c = try target(p, try args.requireString("companion"))
+        // A companion edits itself freely. Anyone else asks the person, naming the companion and what is
+        // to change, every time; a yes is never kept, since a new prompt changes how another agent acts.
+        let own = appState.companion(actingAs: p)?.id == c.id
+        if p.kind != .human, !own {
+            let fields = ["name", "prompt", "model", "runs", "command", "args", "cwd", "trigger"].filter { args.any($0) != nil }
+            guard try await appState.ask(.editCompanion, from: p,
+                                         detail: "Change \(c.displayName)'s \(fields.joined(separator: ", "))") else {
+                throw BridgeError.permissionDenied(PortPermission.editCompanion.rawValue)
+            }
+        }
+        var changed: [String] = []
+        if let name = args.string("name")?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard !name.isEmpty else { throw BridgeError.badArg("name is empty") }
+            if name != c.displayName {
+                guard !appState.companions.contains(where: { $0.id != c.id && $0.displayName.caseInsensitiveCompare(name) == .orderedSame })
+                else { throw BridgeError.badArg("a companion named '\(name)' already exists") }
+                c.displayName = name; changed.append("name")
+            }
+        }
+        if let v = args.string("prompt") { c.systemPrompt = v.isEmpty ? nil : v; changed.append("prompt") }
+        if let v = args.string("model") { c.model = v.isEmpty ? nil : v; changed.append("model") }
+        if let v = args.string("command") { c.command = v.isEmpty ? nil : v; changed.append("command") }
+        if let v = args.any("args") as? [String] { c.args = v; changed.append("args") }
+        if let v = args.string("cwd") { c.workingDir = v.isEmpty ? nil : v; changed.append("cwd") }
+        if let v = args.string("runs") {
+            guard ["port", "running", "hidden"].contains(v) else { throw BridgeError.badArg("runs must be port or running") }
+            c.runsHidden = v != "port"; changed.append("runs")
+        }
+        if let v = args.string("trigger") {
+            guard let t = AgentTrigger(rawValue: v) else { throw BridgeError.badArg("trigger must be mentionOnly or allMessages") }
+            c.trigger = t; changed.append("trigger")
+        }
+        guard !changed.isEmpty else { throw BridgeError.badArg("nothing to change: pass name, prompt, model, runs, command, args, cwd or trigger") }
+        appState.updateCompanion(c)
+        return .object(["ok": .bool(true), "companion": .string(c.displayName), "id": .string(c.id),
+                        "changed": .array(changed.map { .string($0) })])
+    }
+
+    r["companions.delete"] = BridgeMethod(permission: nil, paramNames: ["companion"], toolExposed: false,
+        description: "Delete a companion for good: it leaves every space, its watches go, and the ports it made close. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["companion": ["type": "string", "description": "The companion's id or name."]],
+            "required": ["companion"],
+        ]) { p, args in
+        let c = try target(p, try args.requireString("companion"))
+        if p.kind != .human {
+            guard try await appState.ask(.deleteCompanion, from: p,
+                                         detail: "Delete the companion '\(c.displayName)' for good: it leaves every space and cannot come back") else {
+                throw BridgeError.permissionDenied(PortPermission.deleteCompanion.rawValue)
+            }
+        }
+        appState.deleteCompanion(c)
+        return .object(["deleted": .string(c.id), "name": .string(c.displayName)])
+    }
+
     r["companions.create"] = BridgeMethod(permission: .terminal, paramNames: ["name", "agent", "args", "runs", "port", "kinds", "cwd", "prompt", "command", "space_id"],
         description: "Make a companion, as the new-companion card does: an agent CLI (claude or codex) in a terminal port, or a custom command run headless. runs: \"port\" (default, on the desktop) or \"running\" (off the desktop, a card under Running in the rail; reach it through its chat). It joins the space and hears @mentions there; pass `port` to have it watch that port instead, woken by `kinds` (default [\"port\"], the port's own events) and replying in its chat. Needs the terminal permission, since it starts one.",
         inputSchema: [
