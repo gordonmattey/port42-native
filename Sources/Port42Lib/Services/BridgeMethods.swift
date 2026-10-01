@@ -381,13 +381,13 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action", "space_id"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind the desktop, as Set as background in the port menu does; one port at a time), unbackground (back to the ambient backdrop; the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind a space's desktop, as Set as background in the port menu does: pass space_id for which space, else the current one; each space has its own, and a port is the backdrop of one space at a time), unbackground (that space goes back to the ambient backdrop and the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
                 "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
-                "space_id": ["type": "string", "description": "showIn and hideFrom: the other space."]
+                "space_id": ["type": "string", "description": "showIn and hideFrom: the other space. background and unbackground: which space's backdrop."]
             ],
             "required": ["id", "action"]
         ]) { p, args in
@@ -401,9 +401,24 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         case "focus":
             appState.portWindows.bringToFront(panel.id)
         case "background":
-            await appState.shell?.setBackgroundPort(id: panel.udid)
+            // A space's backdrop, behind its desktop. Per space: space_id names which (a space the port is
+            // on), else the current one when the port is on it, else its home. A port is the backdrop of
+            // one space at a time, so setting it here takes it from another; the space's old one becomes a tile.
+            guard let shell = appState.shell else { throw BridgeError.badArg("the desktop is not available") }
+            guard let sid = try desktopFor(panel, requested: args.string("space_id"), appState: appState) else {
+                throw BridgeError.badArg("that port is on no space")
+            }
+            guard panel.portType == "web" else { throw BridgeError.badArg("only a web port can be a background") }
+            shell.setBackgroundPort(id: panel.udid, in: sid)
+            return .object(["ok": .bool(true), "space_id": .string(sid)])
         case "unbackground":
-            await appState.shell?.setBackgroundPort(id: nil)
+            guard let shell = appState.shell else { throw BridgeError.badArg("the desktop is not available") }
+            guard let sid = args.string("space_id") ?? shell.backgroundSpace(of: panel.id),
+                  shell.backgroundPorts[sid] == panel.id else {
+                throw BridgeError.badArg("that port is not a space's background")
+            }
+            shell.setBackgroundPort(id: nil, in: sid)
+            return .object(["ok": .bool(true), "space_id": .string(sid)])
         case "close":
             appState.portWindows.close(panel.id)
         // One word per state (GM, 2026-09-29): hide (it keeps running), pause, show. Older names work.

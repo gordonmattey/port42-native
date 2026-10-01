@@ -106,50 +106,81 @@ public final class ShellState: ObservableObject {
 
     // MARK: - Background-as-port (the chrome-is-ports wedge)
 
-    /// The LIVE port set as the space background — re-parented full-bleed as Layer 0, NOT reloaded.
+    /// The background is PER SPACE (Gordon, 2026-09-30: "it should be per space"): each space has its own
+    /// backdrop, or the ambient dreamscape when it has none. A port is the backdrop of at most one
+    /// space, since its one live surface can be mounted in only one place.
+    ///
+    /// The LIVE port set as a space's background is re-parented full-bleed as Layer 0, NOT reloaded.
     /// Background is a PRESENTATION of the port (like tiled/parked/focus), so moving to or from it is
     /// a position change, never a lifecycle change: the hoisted webview never remounts, so a running
     /// shader / JS state survives. Layer 0 hosts this port's live surface via `hostView(for:)`.
-    @Published public var backgroundPortId: String?
+    @Published public private(set) var backgroundPorts: [String: String] = [:]
 
-    /// Fallback ONLY: the background port was CLOSED, so there is no live surface to re-parent —
-    /// Layer 0 mounts a fresh copy from this stored HTML. A live background always uses `backgroundPortId`.
-    @Published public var backgroundPortHtml: String?
-    private static let bgKey = "shell.backgroundPortId"
+    /// Fallback ONLY: a space's background port was CLOSED, so there is no live surface to re-parent —
+    /// Layer 0 mounts a fresh copy from this stored HTML. A live background always uses `backgroundPorts`.
+    @Published public private(set) var backgroundHtmls: [String: ClosedBackground] = [:]
+    public struct ClosedBackground: Equatable { public let id: String; public let html: String }
 
-    /// True while anything is the background (a live port or the closed-port HTML fallback).
+    private static let bgKey = "shell.backgroundPortId"          // the single global setting, before it was per space
+    private static let bgMapKey = "shell.backgroundPorts"        // space id → port id
+
+    /// The current space's live background port, if it has one.
+    public var backgroundPortId: String? { appState.currentSpace.flatMap { backgroundPorts[$0.id] } }
+    /// The current space's closed-port fallback HTML, if it has one.
+    public var backgroundPortHtml: String? { appState.currentSpace.flatMap { backgroundHtmls[$0.id]?.html } }
+
+    /// True while the current space has a background (a live port or the closed-port HTML fallback).
     public var hasBackgroundPort: Bool { backgroundPortId != nil || backgroundPortHtml != nil }
 
-    /// Set (or clear, with nil) the background port. A live port MOVES to the background presentation
-    /// (re-parent, no reload); a closed port falls back to a fresh HTML mount. The id is remembered so
-    /// it restores next launch.
+    /// The space a port is the background of, if it is one (by panel id or udid).
     @MainActor
-    public func setBackgroundPort(id: String?) {
+    public func backgroundSpace(of port: String) -> String? {
+        let ids = Set([port] + (appState.portWindows.panels.first { $0.id == port || $0.udid == port }.map { [$0.id, $0.udid] } ?? []))
+        return backgroundPorts.first { ids.contains($0.value) }?.key ?? backgroundHtmls.first { ids.contains($0.value.id) }?.key
+    }
+
+    private func persistBackgrounds() {
+        var map = backgroundPorts
+        for (sid, closed) in backgroundHtmls { map[sid] = closed.id }
+        if map.isEmpty { UserDefaults.standard.removeObject(forKey: Self.bgMapKey) }
+        else { UserDefaults.standard.set(map, forKey: Self.bgMapKey) }
+    }
+
+    /// Set (or clear, with nil) a space's background port; `space` defaults to the current space. A live
+    /// port MOVES to the background presentation (re-parent, no reload); a closed port falls back to a
+    /// fresh HTML mount. The ids are remembered so they restore next launch.
+    @MainActor
+    public func setBackgroundPort(id: String?, in space: String? = nil) {
+        guard let sid = space ?? appState.currentSpace?.id else { return }
+        // Whatever this space had as its backdrop goes back to being a tile.
+        if let cur = backgroundPorts[sid],
+           let panel = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur }) {
+            let staying = id.map { $0 == panel.id || $0 == panel.udid } ?? false
+            if !staying { appState.portWindows.setPresentation(id: panel.id, to: "tiled") }
+        }
         guard let id else {
-            // Clear to the ambient dreamscape. A live background port flips back to a tile.
-            if let cur = backgroundPortId,
-               let panel = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur }) {
-                appState.portWindows.setPresentation(id: panel.id, to: "tiled")
-            }
-            backgroundPortId = nil
-            backgroundPortHtml = nil
-            UserDefaults.standard.removeObject(forKey: Self.bgKey)
+            // Clear to the ambient dreamscape.
+            backgroundPorts[sid] = nil
+            backgroundHtmls[sid] = nil
+            persistBackgrounds()
             return
         }
         // Live port → move it to the background presentation (drops from the grid, re-parents at
         // Layer 0). The webview keeps running; nothing is cloned or reloaded.
         if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+            // One surface, one place: taking it from the space it was the backdrop of.
+            if let other = backgroundSpace(of: panel.id), other != sid { backgroundPorts[other] = nil }
             appState.portWindows.setPresentation(id: panel.id, to: "background")
-            backgroundPortId = panel.id
-            backgroundPortHtml = nil
-            UserDefaults.standard.set(id, forKey: Self.bgKey)
+            backgroundPorts[sid] = panel.id
+            backgroundHtmls[sid] = nil
+            persistBackgrounds()
             return
         }
         // Closed port → nothing live to preserve; mount a fresh copy from its stored HTML.
         if let html = resolveBackgroundHtml(id: id) {
-            backgroundPortId = nil
-            backgroundPortHtml = html
-            UserDefaults.standard.set(id, forKey: Self.bgKey)
+            backgroundPorts[sid] = nil
+            backgroundHtmls[sid] = ClosedBackground(id: id, html: html)
+            persistBackgrounds()
         }
     }
 
@@ -163,17 +194,26 @@ public final class ShellState: ObservableObject {
         return (try? appState.db.fetchPortHtml(udid: id)) ?? nil
     }
 
-    /// Restore a background port set in a previous session. A live port (persisted with the background
-    /// presentation) is re-parented; a closed one falls back to stored HTML.
+    /// Restore the backgrounds set in a previous session. A live port (persisted with the background
+    /// presentation) is re-parented; a closed one falls back to stored HTML. The single global setting
+    /// an older version saved becomes the background of the space its port lives in.
     @MainActor
     public func restoreBackgroundPort() {
-        guard let id = UserDefaults.standard.string(forKey: Self.bgKey), !id.isEmpty else { return }
-        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
-            appState.portWindows.setPresentation(id: panel.id, to: "background")   // keep it out of the grid
-            backgroundPortId = panel.id
-        } else {
-            backgroundPortHtml = resolveBackgroundHtml(id: id)
+        var map = (UserDefaults.standard.dictionary(forKey: Self.bgMapKey) as? [String: String]) ?? [:]
+        if map.isEmpty, let old = UserDefaults.standard.string(forKey: Self.bgKey), !old.isEmpty {
+            let home = appState.portWindows.panels.first { $0.id == old || $0.udid == old }?.spaceId
+            if let sid = home ?? appState.currentSpace?.id { map[sid] = old }
         }
+        UserDefaults.standard.removeObject(forKey: Self.bgKey)
+        for (sid, id) in map {
+            if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+                appState.portWindows.setPresentation(id: panel.id, to: "background")   // keep it out of the grid
+                backgroundPorts[sid] = panel.id
+            } else if let html = resolveBackgroundHtml(id: id) {
+                backgroundHtmls[sid] = ClosedBackground(id: id, html: html)
+            }
+        }
+        persistBackgrounds()
     }
 
     /// Clear the background AND pop the port back onto the desktop as a tile — the reverse of "set as
@@ -188,7 +228,7 @@ public final class ShellState: ObservableObject {
             return
         }
         let html = backgroundPortHtml
-        setBackgroundPort(id: nil)                               // ambient dreamscape returns
+        setBackgroundPort(id: nil)                               // this space's ambient dreamscape returns
         guard let html, let sid = appState.currentSpace?.id else { return }
         _ = appState.createPort(type: "web", title: "port", html: html, command: nil, cwd: nil,
                                 systemPrompt: nil, spaceId: sid, createdBy: nil, createdByName: nil)
