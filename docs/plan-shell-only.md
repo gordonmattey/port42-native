@@ -484,6 +484,8 @@ Things that would be cool once the five scenarios hold. Grouped 2026-09-28; buil
   direction, 1 MB/s in the Phase 4 design, never built; ready on sentinel's branch. Held because a
   shared port streaming its screen or camera can pass 1 MB/s: measure the busiest real session end to
   end, set the cap well above it, log when it bites. Relay-only, so it ships with a relay deploy.
+  **Deferred (Gordon, 2026-09-30):** relay1 stays uncapped until abuse or cost shows up. The branch
+  (`squad/relay-rate-102`) is kept, not merged; picking it up again starts with the measurement.
 - **The release script records a version as released only once it is published** (2026-09-28).
   `build.sh --release` writes `.last-release-version` at the start, so a build cut off early (the
   app quit mid-test) made the next run bump to 1.0.2 though 1.0.1 was never published. Write it after
