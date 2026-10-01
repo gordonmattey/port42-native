@@ -50,10 +50,11 @@ port42-native/
       GatewayProcess.swift   # Bundled gateway subprocess lifecycle, relays
       SkillCatalog.swift     # Which skill teaches each method
     Skills/port42-skills/    # The agent skills (generated references; tests enforce freshness)
-    Resources/               # ports-context.txt, llms-preamble.txt, echo-prompt.txt, videos (not in git)
+    Resources/               # ports-context.txt (the template, with {{...}} blocks), llms-preamble.txt, echo-prompt.txt, videos (not in git)
     Theme/Port42Theme.swift  # Colors, fonts (dark theme)
   Tests/Port42Tests/         # Swift Testing (@Test, #expect, @Suite)
   llms.txt                   # Generated API reference
+  ports-context.txt          # Generated: the ports manual as `help ports` serves it, blocks filled (#236)
   dist/
     Port42.app/              # Release app bundle
     Port42.dmg               # Notarized DMG (Git LFS tracked)
@@ -151,7 +152,7 @@ contains it, and its Resolved note names the release.
 **Then tell growth, every release** (GM, 2026-09-28: 1.0.2 shipped and growth did not know). Post in the
 operator space (`port42-app`) to the growth lead (`@growth-architect`; lucky-ibis retired 2026-09-30): the version and build, the release
 link, what changed in a line or two, and whether anything the site mirrors changed (`llms.txt`,
-`ports-context`, the method index). Growth owns the site's Releases entry and its sync; the Download
+`ports-context.txt` at the repo root, never the template in Resources/, the method index). Growth owns the site's Releases entry and its sync; the Download
 buttons follow `releases/latest` on their own. Mark the release shipped on the operator dash
 (`dash:item:dev-release-*`).
 
