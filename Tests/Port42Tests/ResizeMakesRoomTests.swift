@@ -27,7 +27,8 @@ struct ResizeMakesRoomTests {
         let out = ShellState.makeRoom(from: a, to: grown, others: ["b": b, "c": c, "d": d], bounds: bounds)
         #expect(out["b"] == CGRect(x: 608, y: 0, width: 202, height: 300))
         #expect(out["c"] == CGRect(x: 0, y: 458, width: 400, height: 152))
-        #expect(out["d"] == CGRect(x: 608, y: 310, width: 202, height: 300))
+        // The diagonal one goes the way it is overlapped least: down (147 points in) rather than right (197).
+        #expect(out["d"] == CGRect(x: 410, y: 458, width: 400, height: 152))
         for f in out.values { #expect(!f.intersects(grown), "a neighbor is still covered: \(f)") }
         #expect(out["b"]!.minX > grown.maxX && out["c"]!.minY > grown.maxY, "the order changed")
     }
@@ -212,5 +213,37 @@ struct MakeRoomBoundsTests {
         #expect(b.maxY > ShellPlacement.workArea(in: area).maxY)
         #expect(b.maxX == area.width - ShellState.railFoldedWidth - ShellPlacement.tileGap)
         #expect(b.minX == ShellPlacement.tileGap && b.minY == ShellPlacement.tileGap)
+    }
+}
+
+/// Gordon, 2026-09-30: grow right past a port that sits below and to the right, then down into it: it
+/// should go down, not pop to the right.
+@Suite("Make room pushes a diagonal neighbor the way the drag went into it")
+@MainActor
+struct MakeRoomDiagonalTests {
+    let a = CGRect(x: 0, y: 0, width: 400, height: 300)
+    let diag = CGRect(x: 420, y: 320, width: 300, height: 200)       // below and to the right
+    let wide = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+    @Test("right past it, then down into it: it goes down")
+    func rightThenDown() {
+        let grown = CGRect(x: 0, y: 0, width: 600, height: 340)     // well past its left edge, just into its top
+        let out = ShellState.makeRoom(from: a, to: grown, others: ["d": diag], bounds: wide)
+        #expect(out["d"]?.minX == diag.minX, "it was pushed sideways: \(String(describing: out["d"]))")
+        #expect(out["d"]?.minY == grown.maxY + ShellPlacement.tileGap)
+    }
+
+    @Test("down past it, then right into it: it goes right")
+    func downThenRight() {
+        let grown = CGRect(x: 0, y: 0, width: 440, height: 500)
+        let out = ShellState.makeRoom(from: a, to: grown, others: ["d": diag], bounds: wide)
+        #expect(out["d"]?.minY == diag.minY, "it was pushed down: \(String(describing: out["d"]))")
+        #expect(out["d"]?.minX == grown.maxX + ShellPlacement.tileGap)
+    }
+
+    @Test("a neighbor only to the right is still pushed right")
+    func straightRight() {
+        let beside = CGRect(x: 410, y: 0, width: 300, height: 300)
+        #expect(ShellState.pushSide(of: beside, from: a, to: CGRect(x: 0, y: 0, width: 500, height: 600)) == .right)
     }
 }

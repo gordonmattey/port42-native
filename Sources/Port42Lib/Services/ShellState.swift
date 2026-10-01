@@ -1003,36 +1003,51 @@ public final class ShellState: ObservableObject {
     /// neighbor that would get smaller than `minSize` keeps that size and moves aside. A neighbor that
     /// already overlapped the tile is the person's own layout, and is left alone. Pure, so the rule is
     /// testable without a view.
+    /// Which way a resize pushes a neighbor, if at all. A neighbor beyond only one of the original edges is
+    /// pushed that way. One diagonal to the tile (beyond two) is pushed across the edge it overlaps least,
+    /// which is the one the drag just crossed: grow right past it, then down into it, and it goes down
+    /// (Gordon, 2026-09-30: it popped to the right). Pure.
+    public enum PushSide { case right, left, below, above }
+    nonisolated public static func pushSide(of n: CGRect, from old: CGRect, to reach: CGRect) -> PushSide? {
+        let eps: CGFloat = 1
+        var candidates: [(PushSide, CGFloat)] = []
+        if n.minX >= old.maxX - eps { candidates.append((.right, reach.maxX - n.minX)) }
+        if n.maxX <= old.minX + eps { candidates.append((.left, n.maxX - reach.minX)) }
+        if n.minY >= old.maxY - eps { candidates.append((.below, reach.maxY - n.minY)) }
+        if n.maxY <= old.minY + eps { candidates.append((.above, n.maxY - reach.minY)) }
+        return candidates.filter { $0.1 > 0 }.min { $0.1 < $1.1 }?.0
+    }
+
     public static func makeRoom(from old: CGRect, to new: CGRect, others: [String: CGRect],
                                 bounds: CGRect = CGRect(x: -1e6, y: -1e6, width: 2e6, height: 2e6),
                                 minSize: CGSize = makeRoomMin) -> [String: CGRect] {
-        // A neighbor slides out of the way at its own size, keeping its gap, and only shrinks once it
-        // reaches the edge of the desktop (Gordon, 2026-09-30: they collapsed far too soon). At its
-        // smallest it keeps going past the edge rather than overlap.
-        // The gap left between them is the desktop's own (8), however wide it was: the resized port closes
-        // a wide gap first, then pushes (Gordon: "the gap should be minimal, it's giant").
+        // A neighbor slides out of the way at its own size, keeping the desktop's 8-point gap (a wider gap
+        // closes first), and shrinks only once it reaches the edge of the desktop (Gordon, 2026-09-30).
         var out: [String: CGRect] = [:]
         let eps: CGFloat = 1
         let gap = ShellPlacement.tileGap
         let reach = new.insetBy(dx: -(gap - eps), dy: -(gap - eps))
         for (id, n) in others where n.intersects(reach) && !n.insetBy(dx: eps, dy: eps).intersects(old) {
             var f = n
-            if n.minX >= old.maxX - eps {                      // to the right
+            switch pushSide(of: n, from: old, to: reach) {
+            case .right:
                 let left = new.maxX + gap
                 let w = left + n.width > bounds.maxX ? max(minSize.width, bounds.maxX - left) : n.width
                 f = CGRect(x: left, y: n.minY, width: w, height: n.height)
-            } else if n.maxX <= old.minX + eps {               // to the left
+            case .left:
                 let right = new.minX - gap
                 let w = right - n.width < bounds.minX ? max(minSize.width, right - bounds.minX) : n.width
                 f = CGRect(x: right - w, y: n.minY, width: w, height: n.height)
-            } else if n.minY >= old.maxY - eps {               // below
+            case .below:
                 let top = new.maxY + gap
                 let h = top + n.height > bounds.maxY ? max(minSize.height, bounds.maxY - top) : n.height
                 f = CGRect(x: n.minX, y: top, width: n.width, height: h)
-            } else if n.maxY <= old.minY + eps {               // above
+            case .above:
                 let bottom = new.minY - gap
                 let h = bottom - n.height < bounds.minY ? max(minSize.height, bottom - bounds.minY) : n.height
                 f = CGRect(x: n.minX, y: bottom - h, width: n.width, height: h)
+            case nil:
+                break
             }
             if f != n { out[id] = f }
         }
@@ -1046,21 +1061,25 @@ public final class ShellState: ObservableObject {
                                     bounds: CGRect, minSize: CGSize = makeRoomMin) -> CGRect {
         var r = new
         let eps: CGFloat = 1
+        let gap = ShellPlacement.tileGap
         for n in others.values where !n.insetBy(dx: eps, dy: eps).intersects(old) {
-            let sharesRow = n.minY < r.maxY && n.maxY > r.minY
-            let sharesColumn = n.minX < r.maxX && n.maxX > r.minX
-            if n.minX >= old.maxX - eps, sharesRow, r.maxX > n.minX {                 // pushes one to the right
-                let limit = bounds.maxX - minSize.width - ShellPlacement.tileGap
+            let reach = r.insetBy(dx: -(gap - eps), dy: -(gap - eps))
+            guard n.intersects(reach) else { continue }
+            switch pushSide(of: n, from: old, to: reach) {
+            case .right:
+                let limit = bounds.maxX - minSize.width - gap
                 if r.maxX > limit { r.size.width = max(minTileSize.width, limit - r.minX) }
-            } else if n.maxX <= old.minX + eps, sharesRow, r.minX < n.maxX {          // to the left
-                let limit = bounds.minX + minSize.width + ShellPlacement.tileGap
+            case .left:
+                let limit = bounds.minX + minSize.width + gap
                 if r.minX < limit { let right = r.maxX; r.origin.x = limit; r.size.width = max(minTileSize.width, right - limit) }
-            } else if n.minY >= old.maxY - eps, sharesColumn, r.maxY > n.minY {       // below
-                let limit = bounds.maxY - minSize.height - ShellPlacement.tileGap
+            case .below:
+                let limit = bounds.maxY - minSize.height - gap
                 if r.maxY > limit { r.size.height = max(minTileSize.height, limit - r.minY) }
-            } else if n.maxY <= old.minY + eps, sharesColumn, r.minY < n.maxY {       // above
-                let limit = bounds.minY + minSize.height + ShellPlacement.tileGap
+            case .above:
+                let limit = bounds.minY + minSize.height + gap
                 if r.minY < limit { let bottom = r.maxY; r.origin.y = limit; r.size.height = max(minTileSize.height, bottom - limit) }
+            case nil:
+                break
             }
         }
         return r
