@@ -380,13 +380,14 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         return .object(out)
     }
 
-    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action", "space_id"], writesTarget: "id",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)"]
+                "action": ["type": "string", "description": "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom (minimize and dock are older names for hide; park for pause; restore and undock for show)"],
+                "space_id": ["type": "string", "description": "showIn and hideFrom: the other space."]
             ],
             "required": ["id", "action"]
         ]) { p, args in
@@ -421,8 +422,21 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             appState.portWindows.setPin(id: panel.id, .everywhere)
         case "unpin":
             appState.portWindows.setPin(id: panel.id, .none)
+        case "showIn", "hideFrom":
+            // Showing a port in another space is the port menu's Spaces… row (#128): the port stays where it
+            // lives and is the same live port in both. Only a space the caller acts in (APP-11), and never
+            // the port's own space.
+            let sid = try args.requireString("space_id")
+            guard appState.spaces.contains(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p) else {
+                throw BridgeError.notFound("space '\(sid)'")
+            }
+            guard sid != panel.spaceId else { throw BridgeError.badArg("that is the port's own space") }
+            if action == "showIn" { appState.portWindows.adopt(id: panel.id, into: sid) }
+            else { appState.portWindows.unadopt(id: panel.id, from: sid) }
+            let also = appState.portWindows.panels.first { $0.id == panel.id }?.adoptedSpaceIds ?? []
+            return .object(["ok": .bool(true), "alsoIn": .array(also.map { .string($0) })])
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
@@ -1502,6 +1516,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         for id in mirrors.keys {
             mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil)
         }
+        var alsoIn: [String: [String]] = [:]
+        for panel in appState.portWindows.panels where !panel.adoptedSpaceIds.isEmpty { alsoIn[panel.udid] = panel.adoptedSpaceIds }
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
                    cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
@@ -1525,6 +1541,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             ]
             if remote { entries.append(.object(o)); return }
             if let spaceId { o["spaceId"] = .string(spaceId) }
+            // The other spaces it is shown in (the Spaces… row, port.manage showIn); only those the caller can see.
+            if let also = alsoIn[id]?.filter({ readable($0) }), !also.isEmpty { o["alsoIn"] = .array(also.map { .string($0) }) }
             if let createdBy {
                 o["createdBy"] = .string(createdBy)
                 // The NAME a person reads (audit F7). `createdBy` is an id, and a companion's terminal
