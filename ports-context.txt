@@ -458,8 +458,10 @@ BRIDGE API REFERENCE:
     This port's presentation state: { state, visible, w, h, tier, orientation }.
     - state: "focused" | "tiled" | "peek" | "paused" | "running" | "background" — your placement/mode ("paused" is off the desktop and slowed; "running" is off the desktop at full speed, a card in the rail; "background" is the desktop wallpaper).
     - visible: true only when your pixels are actually on screen right now. False when off-desktop
-      (another space is showing), in the galaxy overview, paused, running off the desktop, or behind another
-      port's focus. This is the one authoritative "render now" flag.
+      (your space is not on any display's window), in the galaxy overview, paused, running off the desktop,
+      or behind another port's focus. With a space on each display, the window that shows you decides
+      (the window in use, if two do), so a port on a second display can be visible. This is the one
+      authoritative "render now" flag.
     - w, h: your on-screen content size in points (0 when not visible).
     - tier (when visible): "card" | "compact" | "full". At "card" (narrower than 220 or shorter than 160,
       which is a peek) Port42 draws your state card over you, not your pixels: see port42.state below.

@@ -95,6 +95,34 @@ public final class AppState: ObservableObject {
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
+
+    /// The windows on other displays and which space each shows (#189).
+    public private(set) lazy var displaySpaces = DisplaySpaces(appState: self)
+
+    /// Every open window's shell (#189), the key one included. Weak: a window owns its shell.
+    private var shellRefs: [WeakShell] = []
+    private struct WeakShell { weak var shell: ShellState? }
+    public var shells: [ShellState] { shellRefs.compactMap(\.shell) }
+
+    /// A new window's shell. The first becomes the key shell; later ones show nothing until arranged.
+    func adopt(shell new: ShellState) {
+        shellRefs.removeAll { $0.shell == nil }
+        shellRefs.append(WeakShell(shell: new))
+        if shell == nil { shell = new }
+    }
+
+    /// The person moved to another window: it becomes the key shell, the one it replaces keeps its
+    /// space, and `currentSpace` becomes the space it shows (#189).
+    public func makeKey(_ next: ShellState) {
+        guard shell !== next else { return }
+        shell?.holdSpace()
+        let target = next.heldSpaceId
+        objectWillChange.send()   // views that ask which window is in use redraw (a shared port moves)
+        shell = next
+        if let target, let space = spaces.first(where: { $0.id == target }), target != currentSpace?.id {
+            selectSpace(space)
+        }
+    }
     /// The agent CLI the person chose at first run ("claude", "codex"), which imagine teams run on
     /// (GM, 2026-09-27). Installs from before it was recorded read echo's.
     var preferredCLI: String? {
@@ -1615,7 +1643,16 @@ public final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
         if let current = currentSpace { markSpaceRead(current.id) }
 
+        // A space is on one display at a time (#189): if another window shows the space the key one
+        // is switching to, that window takes the key one's old space. A swap, as the design says.
+        let previous = currentSpace?.id
+        for other in shells where other !== shell && other.heldSpaceId == space.id {
+            other.show(spaceId: previous)
+            displaySpaces.record(other)
+        }
+
         currentSpace = space
+        if let shell, shell.isDisplayWindow { displaySpaces.record(shell) }
         markSpaceRead(space.id)
         if portPanelsRestored && isSetupComplete {
             portWindows.switchToSpace(space.id, spaceName: space.name)
