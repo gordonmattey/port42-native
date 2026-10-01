@@ -31,7 +31,7 @@ public enum SkillCatalog {
             return "port42"
         case "port.publish", "port.subscribe":
             return "port42-compose"
-        case "companions.create", "companions.remove", "companions.watch", "companions.unwatch", "companions.watches", "companions.invoke":
+        case "companions.create", "companions.remove", "companions.update", "companions.delete", "companions.watch", "companions.unwatch", "companions.watches", "companions.invoke":
             return "port42-team"
         case "presentation":
             return "port42-ports"

@@ -310,6 +310,66 @@
     "name" : "companions_unwatch"
   },
   {
+    "description" : "Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion may change only itself; the person may change any. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.",
+    "input_schema" : {
+      "properties" : {
+        "args" : {
+          "description" : "Arguments for the CLI or command.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "command" : {
+          "description" : "agent custom: the command to run.",
+          "type" : "string"
+        },
+        "companion" : {
+          "description" : "The companion's id or name.",
+          "type" : "string"
+        },
+        "cwd" : {
+          "description" : "Working directory.",
+          "type" : "string"
+        },
+        "model" : {
+          "description" : "Its model, where the CLI takes one.",
+          "type" : "string"
+        },
+        "name" : {
+          "description" : "A new name. Two companions cannot share one.",
+          "type" : "string"
+        },
+        "prompt" : {
+          "description" : "Its system prompt.",
+          "type" : "string"
+        },
+        "runs" : {
+          "description" : "Where its terminal runs.",
+          "enum" : [
+            "port",
+            "running",
+            "hidden"
+          ],
+          "type" : "string"
+        },
+        "trigger" : {
+          "description" : "What wakes it in a chat.",
+          "enum" : [
+            "mentionOnly",
+            "allMessages"
+          ],
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "companion"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_update"
+  },
+  {
     "description" : "Watch a port: an event on it of a kind you name wakes you for a turn, and your reply is posted in that port's chat. Default kinds: [\"port\"], the port's own published events (port.publish). Others: \"console\" (a log line or error), \"state\" (an edit), \"chat\" (every post in its chat), or one exact kind such as \"port.alert\". Events that arrive while you are in a turn are held and given to you together when it ends. Watching again changes the watch and resumes it if it paused (a watch pauses after 60 wakes in an hour, and says so in the port's chat). Call it as the companion that should wake, or pass `companion` to set a watch for another.",
     "input_schema" : {
       "properties" : {

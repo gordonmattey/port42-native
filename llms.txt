@@ -220,6 +220,9 @@ Generated from the live method registry: every entry below is served exactly as 
         prompt (string): Its system prompt.
         runs (string): Where its terminal runs: port (a tile on the desktop, the default) or running (off the desktop, a card under Running in the rail; hidden is the older name).
         space_id (string): The space (default: yours, else the current one).
+  companions.delete(companion)
+      Delete a companion for good: it leaves every space, its watches go, and the ports it made close. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.
+        companion (string, required): The companion's id or name.
   companions.get(id)
       Get details about a specific companion by ID, with `spaces`, the spaces it is a member of ([{id, name}]): the spaces whose chats and ports it can read.
         id (string, required): The companion's ID
@@ -235,6 +238,17 @@ Generated from the live method registry: every entry below is served exactly as 
       Stop watching a port. Call it as the watcher, or pass `companion`.
         companion (string): Whose watch, by name or id (default: you).
         port (string, required): The watched port (id, udid or title).
+  companions.update(companion, name, prompt, model, runs, command, args, cwd, trigger)
+      Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion may change only itself; the person may change any. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.
+        args (array): Arguments for the CLI or command.
+        command (string): agent custom: the command to run.
+        companion (string, required): The companion's id or name.
+        cwd (string): Working directory.
+        model (string): Its model, where the CLI takes one.
+        name (string): A new name. Two companions cannot share one.
+        prompt (string): Its system prompt.
+        runs (string): Where its terminal runs.
+        trigger (string): What wakes it in a chat.
   companions.watch(port, kinds, every, companion)
       Watch a port: an event on it of a kind you name wakes you for a turn, and your reply is posted in that port's chat. Default kinds: ["port"], the port's own published events (port.publish). Others: "console" (a log line or error), "state" (an edit), "chat" (every post in its chat), or one exact kind such as "port.alert". Events that arrive while you are in a turn are held and given to you together when it ends. Watching again changes the watch and resumes it if it paused (a watch pauses after 60 wakes in an hour, and says so in the port's chat). Call it as the companion that should wake, or pass `companion` to set a watch for another.
         companion (string): Whose watch, by name or id (default: you).

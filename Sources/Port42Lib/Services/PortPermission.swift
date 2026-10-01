@@ -17,6 +17,7 @@ public enum PortPermission: String, Hashable {
     case rest          // rest.call — HTTP requests to external APIs
     case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
     case deleteSpace   // space.delete by anyone but the person: asked every time, never kept (APP-11)
+    case deleteCompanion   // companions.delete by anyone but the person: asked every time, never kept
 
     // The method-to-permission mapping lives on each method's registry declaration
     // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
@@ -41,6 +42,7 @@ public enum PortPermission: String, Hashable {
         case .rest: return "network"
         case .share: return "person.2.wave.2"
         case .deleteSpace: return "trash"
+        case .deleteCompanion: return "person.fill.xmark"
         }
     }
 
@@ -111,6 +113,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Delete a Space",
                 message: "This wants to delete a space: its ports and terminals close, and the space and its chat are gone. This cannot be undone. Allow?"
+            )
+        case .deleteCompanion:
+            return (
+                title: "Delete a Companion",
+                message: "This wants to delete a companion: it leaves every space, its watches and ports close, and it is gone. This cannot be undone. Allow?"
             )
         }
     }

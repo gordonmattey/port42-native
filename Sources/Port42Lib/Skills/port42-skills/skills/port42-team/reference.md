@@ -23,6 +23,14 @@ Make a companion, as the new-companion card does: an agent CLI (claude or codex)
 
     port42 companions.create name=… agent=… args=… runs=… port=… kinds=… cwd=… prompt=… command=… space_id=…
 
+## companions.delete
+
+Delete a companion for good: it leaves every space, its watches go, and the ports it made close. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.
+
+        companion (string, required): The companion's id or name.
+
+    port42 companions.delete companion=…
+
 ## companions.remove
 
 Take a companion off a space's roster, as its card's "Remove from this space" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.
@@ -40,6 +48,22 @@ Stop watching a port. Call it as the watcher, or pass `companion`.
         port (string, required): The watched port (id, udid or title).
 
     port42 companions.unwatch port=… companion=…
+
+## companions.update
+
+Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion may change only itself; the person may change any. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.
+
+        args (array): Arguments for the CLI or command.
+        command (string): agent custom: the command to run.
+        companion (string, required): The companion's id or name.
+        cwd (string): Working directory.
+        model (string): Its model, where the CLI takes one.
+        name (string): A new name. Two companions cannot share one.
+        prompt (string): Its system prompt.
+        runs (string): Where its terminal runs.
+        trigger (string): What wakes it in a chat.
+
+    port42 companions.update companion=… name=… prompt=… model=… runs=… command=… args=… cwd=… trigger=…
 
 ## companions.watch
 

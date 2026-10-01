@@ -147,6 +147,8 @@ public enum RemoteAccess {
         "companions.get": .never,
         "companions.create": .never,
         "companions.remove": .never,
+        "companions.update": .never,
+        "companions.delete": .never,
         "companions.watch": .never,
         "companions.unwatch": .never,
         "companions.watches": .never,

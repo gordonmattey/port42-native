@@ -143,7 +143,8 @@ struct BridgeSchemaParityTests {
         // + state_set, state_get (a port says what it is doing; docs/plan-port-state-v1.md). = 67.
         // + port_look, port_act (browser use: see a page and act on it, docs/plan-browser-use.md). = 69.
         // + companions_remove (take a companion off a space's roster, #131). = 70.
-        #expect(checked == 70, "expected 70 parity-set methods, checked \(checked)")
+        // + companions_update (edit a companion from an agent, docs/plan-api-parity.md Phase A; delete is not a tool). = 71.
+        #expect(checked == 71, "expected 71 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")
