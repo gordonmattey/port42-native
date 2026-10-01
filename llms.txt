@@ -318,6 +318,18 @@ Generated from the live method registry: every entry below is served exactly as 
   invite.revoke(id)
       Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.
         id (string, required)
+  invite.setRights(port, peer, rights)
+      Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
+        rights (array, required): The full set wanted: use, edit, wake_agents, fork.
+  invite.shared(port)
+      Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.
+        port (string, required): The port (id / udid / title).
+  invite.stop(port, peer)
+      Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
 
 ### notify
 
@@ -460,6 +472,16 @@ Generated from the live method registry: every entry below is served exactly as 
   presence.list(port)
       Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now ("editing ShellView.swift", "running swift test") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind ("editing a file"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.
         port (string, required): Whose chat: a space id, or a port id / udid / title.
+
+### remote
+
+  remote.leave(tile)
+      Leave a port someone shared with you: its tile closes here and this instance forgets it. The host's grant is theirs to remove; a new invite brings it back. Anyone but the person is asked first, every time.
+        tile (string, required): The tile's id (from ports_list: a port with a mirrors entry).
+  remote.setWake(tile, on)
+      Whether a mention in the host's chat of a port shared with you may wake your own companions here. Turning it on by anyone but the person asks first, every time; turning it off never does.
+        on (boolean, required): true to let them wake your companions.
+        tile (string, required): The tile's id (from ports_list).
 
 ### rest
 

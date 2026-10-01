@@ -18,6 +18,7 @@ public enum PortPermission: String, Hashable {
     case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
     case deleteSpace   // space.delete by anyone but the person: asked every time, never kept (APP-11)
     case deleteCompanion   // companions.delete by anyone but the person: asked every time, never kept
+    case changeSharing     // remote.leave, remote.setWake on: a shared port's tile closed or its host let wake your companions, by anyone but the person: asked every time, never kept
     case editCompanion     // companions.update of another companion by anyone but the person: asked every time, never kept
 
     // The method-to-permission mapping lives on each method's registry declaration
@@ -45,6 +46,7 @@ public enum PortPermission: String, Hashable {
         case .deleteSpace: return "trash"
         case .deleteCompanion: return "person.fill.xmark"
         case .editCompanion: return "person.crop.circle.badge.pencil"
+        case .changeSharing: return "person.2.slash"
         }
     }
 
@@ -120,6 +122,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Change a Companion",
                 message: "This wants to change another companion's settings: its prompt, name, folder or how it runs. It changes how that companion behaves. Allow?"
+            )
+        case .changeSharing:
+            return (
+                title: "Change Sharing",
+                message: "This wants to change how a port shared with you works here: leave it (its tile closes and the host's grant is theirs to renew), or let the host's chat wake your companions. Allow?"
             )
         case .deleteCompanion:
             return (

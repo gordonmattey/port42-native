@@ -20,4 +20,13 @@ extension AppState {
         let panel = portWindows.panels.first { $0.udid == invite.portKey || $0.id == invite.portKey }
         return panel?.bridge.portPrincipal.id == p.id
     }
+
+    /// Who may see and change what a port is shared with (API parity, Phase E). Same shape as an invite's
+    /// authority: the person, the port itself, or a caller that made an invite for it.
+    func mayManage(sharingOf portKey: String, by p: Principal) -> Bool {
+        if p.kind == .human { return true }
+        guard p.kind != .remote else { return false }
+        if portWindows.panels.first(where: { $0.udid == portKey || $0.id == portKey })?.bridge.portPrincipal.id == p.id { return true }
+        return ((try? db.allInvites()) ?? []).contains { $0.portKey == portKey && $0.createdBy == p.id }
+    }
 }

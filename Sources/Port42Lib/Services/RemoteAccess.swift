@@ -148,6 +148,11 @@ public enum RemoteAccess {
         "space.wake": .never,
         "space.reorder": .never,
         "port.fork": .never,
+        "invite.shared": .never,
+        "invite.setRights": .never,
+        "invite.stop": .never,
+        "remote.leave": .never,
+        "remote.setWake": .never,
         "companions.list": .port(param: "port", right: .see),     // the shared port's own space
         "companions.get": .never,
         "companions.create": .never,

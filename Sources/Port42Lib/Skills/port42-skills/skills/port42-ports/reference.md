@@ -39,6 +39,33 @@ Withdraw an invite that has not been used. To remove someone who already joined,
 
     port42 invite.revoke id=…
 
+## invite.setRights
+
+Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.
+
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
+        rights (array, required): The full set wanted: use, edit, wake_agents, fork.
+
+    port42 invite.setRights port=… peer=… rights=…
+
+## invite.shared
+
+Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.
+
+        port (string, required): The port (id / udid / title).
+
+    port42 invite.shared port=…
+
+## invite.stop
+
+Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.
+
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
+
+    port42 invite.stop port=… peer=…
+
 ## port.act
 
 Do one step in a web or browser port, as the person would, after port_look. action: click (element n from your last look, or a point x,y in page pixels), type (text into element n, clicking it first, or into what has focus), key (a key: enter, tab, escape, up, down, left, right, pageup, pagedown, home, end, backspace, space, or one character as a site's shortcut, with modifiers as cmd+k, shift+tab), scroll (dy page pixels, down is positive, over element n or the page), navigate (url), back, forward. Delivered as real input, so the page treats it as a person's. Returns url, title and navigated, and a new token; look again before the next step. Refused as stale_write if the person touched the port since your look.
@@ -275,6 +302,23 @@ List active ports. Each port has an id (UDID), title, capabilities array, status
 The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
 
     port42 presentation
+
+## remote.leave
+
+Leave a port someone shared with you: its tile closes here and this instance forgets it. The host's grant is theirs to remove; a new invite brings it back. Anyone but the person is asked first, every time.
+
+        tile (string, required): The tile's id (from ports_list: a port with a mirrors entry).
+
+    port42 remote.leave tile=…
+
+## remote.setWake
+
+Whether a mention in the host's chat of a port shared with you may wake your own companions here. Turning it on by anyone but the person asks first, every time; turning it off never does.
+
+        on (boolean, required): true to let them wake your companions.
+        tile (string, required): The tile's id (from ports_list).
+
+    port42 remote.setWake tile=… on=…
 
 ## state.get
 

@@ -42,7 +42,7 @@ public enum SkillCatalog {
             return "port42-team"
         case "user", "space", "chat", "presence":
             return "port42"
-        case "port", "ports", "storage", "state", "invite":
+        case "port", "ports", "storage", "state", "invite", "remote":
             return "port42-ports"
         case "audio", "automation", "browser", "camera", "clipboard", "fs", "notify", "rest", "screen", "terminal", "ai":
             return "port42-devices"

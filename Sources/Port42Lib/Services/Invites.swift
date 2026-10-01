@@ -335,6 +335,128 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
         appState.refreshSharing()
         return .object(["ok": .bool(true)])
     }
+
+    // API parity, Phase E (docs/plan-api-parity.md): what the share panel does after the invite.
+    // The caller must manage the port (the person, the port itself, or the maker of an invite for it).
+    func sharedPort(_ p: Principal, _ args: BridgeArgs) throws -> String {
+        let raw = try args.requireString("port")
+        guard let key = appState.resolvePortRef(raw)?.key, appState.mayManage(sharingOf: key, by: p) else {
+            throw BridgeError.notFound("port '\(raw)'")
+        }
+        return key
+    }
+    func sharedPeer(_ key: String, _ args: BridgeArgs) throws -> AppState.SharedPort {
+        let peer = try args.requireString("peer")
+        guard let row = appState.sharedPorts().first(where: { $0.portKey == key && ($0.peer == peer || $0.name == peer) }) else {
+            throw BridgeError.notFound("anyone called '\(peer)' with that port shared")
+        }
+        return row
+    }
+
+    r["invite.shared"] = BridgeMethod(permission: nil, paramNames: ["port"],
+        description: "Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.",
+        inputSchema: ["type": "object", "properties": ["port": ["type": "string", "description": "The port (id / udid / title)."]], "required": ["port"]]) { p, args in
+        let key = try sharedPort(p, args)
+        return .array(appState.sharedPorts().filter { $0.portKey == key && !$0.rights.isEmpty }.map { s in
+            .object(["peer": .string(s.peer), "name": .string(s.name), "removed": .bool(s.peerRemoved),
+                     "rights": .array(s.rights.map { .string($0.rawValue) })])
+        })
+    }
+
+    r["invite.setRights"] = BridgeMethod(permission: nil, paramNames: ["port", "peer", "rights"],
+        description: "Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "port": ["type": "string", "description": "The port (id / udid / title)."],
+                "peer": ["type": "string", "description": "The person's peer key or name (from invite_shared)."],
+                "rights": ["type": "array", "items": ["type": "string"], "description": "The full set wanted: use, edit, wake_agents, fork."] as [String: Any],
+            ] as [String: Any],
+            "required": ["port", "peer", "rights"],
+        ]) { p, args in
+        let key = try sharedPort(p, args)
+        let who = try sharedPeer(key, args)
+        var wanted: Set<RemoteRight> = [.see]
+        for raw in (args.array("rights") as? [String]) ?? [] {
+            guard let right = RemoteRight(rawValue: raw), right != .move else {
+                throw BridgeError.badArg("unknown right '\(raw)': use use, edit, wake_agents or fork")
+            }
+            wanted.insert(right)
+        }
+        let held = Set(who.rights)
+        let added = wanted.subtracting(held)
+        guard wanted != held else { throw BridgeError.badArg("nothing to change: they already hold exactly those rights") }
+        if !added.isEmpty, p.kind != .human {
+            let list = RemoteRight.allCases.filter(added.contains)
+            let detail = "Give \(who.name) more on '\(who.title)': " + AppState.shareCardDetail(title: who.title, rights: list, reach: appState.portMachineGrants(key))
+            guard try await appState.ensureShareGrant(AppState.shareObject(port: key, rights: list) + "@" + who.peer,
+                                                      detail: detail, for: p, remember: !added.contains(.edit)) else {
+                throw BridgeError.permissionDenied(PortPermission.share.rawValue)
+            }
+        }
+        appState.grantRemoteRights(wanted, to: who.peer, onPort: key)
+        return .object(["ok": .bool(true), "rights": .array(wanted.map(\.rawValue).sorted().map { .string($0) })])
+    }
+
+    r["invite.stop"] = BridgeMethod(permission: nil, paramNames: ["port", "peer"],
+        description: "Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "port": ["type": "string", "description": "The port (id / udid / title)."],
+                "peer": ["type": "string", "description": "The person's peer key or name (from invite_shared)."],
+            ],
+            "required": ["port", "peer"],
+        ]) { p, args in
+        let key = try sharedPort(p, args)
+        let who = try sharedPeer(key, args)
+        appState.stopSharing(peer: who.peer, port: key)
+        return .object(["ok": .bool(true), "stopped": .string(who.name)])
+    }
+
+    // A tile of someone else's port is the person's here. A caller other than the person asks every time.
+    func mirrorTile(_ p: Principal, _ args: BridgeArgs) throws -> (tile: String, row: DatabaseService.RemotePortRow) {
+        let tile = try args.requireString("tile")
+        guard let row = appState.mirroredRemote(tile),
+              appState.canRead(portInSpace: appState.portWindows.panels.first(where: { $0.id == tile })?.spaceId, by: p) else {
+            throw BridgeError.notFound("a shared-with-you port '\(tile)'")
+        }
+        return (tile, row)
+    }
+
+    r["remote.leave"] = BridgeMethod(permission: nil, paramNames: ["tile"], toolExposed: false,
+        description: "Leave a port someone shared with you: its tile closes here and this instance forgets it. The host's grant is theirs to remove; a new invite brings it back. Anyone but the person is asked first, every time.",
+        inputSchema: ["type": "object", "properties": ["tile": ["type": "string", "description": "The tile's id (from ports_list: a port with a mirrors entry)."]], "required": ["tile"]]) { p, args in
+        let (tile, row) = try mirrorTile(p, args)
+        if p.kind != .human {
+            guard try await appState.ask(.changeSharing, from: p, detail: "Leave '\(row.title)', shared by \(row.hostName): its tile closes and you need a new invite to get it back") else {
+                throw BridgeError.permissionDenied(PortPermission.changeSharing.rawValue)
+            }
+        }
+        appState.leaveRemotePort(tile: tile)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["remote.setWake"] = BridgeMethod(permission: nil, paramNames: ["tile", "on"], toolExposed: false,
+        description: "Whether a mention in the host's chat of a port shared with you may wake your own companions here. Turning it on by anyone but the person asks first, every time; turning it off never does.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "tile": ["type": "string", "description": "The tile's id (from ports_list)."],
+                "on": ["type": "boolean", "description": "true to let them wake your companions."],
+            ],
+            "required": ["tile", "on"],
+        ]) { p, args in
+        let (tile, row) = try mirrorTile(p, args)
+        guard let on = args.bool("on") else { throw BridgeError.badArg("on is true or false") }
+        if on, p.kind != .human, !row.wakes {
+            guard try await appState.ask(.changeSharing, from: p, detail: "Let a mention in \(row.hostName)'s chat of '\(row.title)' wake your companions here") else {
+                throw BridgeError.permissionDenied(PortPermission.changeSharing.rawValue)
+            }
+        }
+        appState.setMirrorWakes(tile: tile, on)
+        return .object(["ok": .bool(true), "wakes": .bool(on)])
+    }
 }
 
 // MARK: - For Settings → Access

@@ -144,7 +144,8 @@ struct BridgeSchemaParityTests {
         // + port_look, port_act (browser use: see a page and act on it, docs/plan-browser-use.md). = 69.
         // + companions_remove (take a companion off a space's roster, #131). = 70.
         // + companions_update (edit a companion from an agent, docs/plan-api-parity.md Phase A; delete is not a tool). = 71.
-        #expect(checked == 71, "expected 71 parity-set methods, checked \(checked)")
+        // + invite_shared, invite_setRights, invite_stop (the share panel after the invite, Phase E). = 74.
+        #expect(checked == 74, "expected 74 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

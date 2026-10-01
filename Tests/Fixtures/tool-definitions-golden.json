@@ -624,6 +624,72 @@
     "name" : "invite_revoke"
   },
   {
+    "description" : "Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.",
+    "input_schema" : {
+      "properties" : {
+        "peer" : {
+          "description" : "The person's peer key or name (from invite_shared).",
+          "type" : "string"
+        },
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        },
+        "rights" : {
+          "description" : "The full set wanted: use, edit, wake_agents, fork.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "required" : [
+        "port",
+        "peer",
+        "rights"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_set_rights"
+  },
+  {
+    "description" : "Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.",
+    "input_schema" : {
+      "properties" : {
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_shared"
+  },
+  {
+    "description" : "Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.",
+    "input_schema" : {
+      "properties" : {
+        "peer" : {
+          "description" : "The person's peer key or name (from invite_shared).",
+          "type" : "string"
+        },
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port",
+        "peer"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_stop"
+  },
+  {
     "description" : "Send a macOS system notification",
     "input_schema" : {
       "properties" : {
