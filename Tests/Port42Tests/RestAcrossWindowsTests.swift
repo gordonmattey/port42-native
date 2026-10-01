@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 @testable import Port42Lib
 
 // Resting a space clears its peeks in every window, not only the one in use (#189 with #132's space.rest:
@@ -51,5 +52,16 @@ struct RestAcrossWindowsTests {
         #expect(main.spaceId == spaces[2].id)
         #expect(other.spaceId == spaces[1].id, "the other display changed space")
         #expect(other.companionsHere.map(\.displayName) == ["ada"], "the other display shows \(other.companionsHere.map(\.displayName)), the main window's crew")
+    }
+
+    @Test("a display's window can become the key window, so a click there makes it the window in use")
+    func displayWindowCanBeKey() {
+        let w = DisplaySpaceWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                   styleMask: [.borderless, .closable], backing: .buffered, defer: true)
+        #expect(w.canBecomeKey, "a borderless display window cannot take the keyboard or become the window in use")
+        #expect(w.canBecomeMain)
+        let plain = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                             styleMask: [.borderless, .closable], backing: .buffered, defer: true)
+        #expect(!plain.canBecomeKey, "AppKit changed: a plain borderless window can become key now")
     }
 }

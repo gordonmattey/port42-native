@@ -163,8 +163,8 @@ public final class DisplaySpaces {
 
     private func open(display: String, spaceId: String) {
         guard let screen = NSScreen.screens.first(where: { $0.displayUUID == display }) else { return }
-        let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless, .closable],
-                              backing: .buffered, defer: false, screen: screen)
+        let window = DisplaySpaceWindow(contentRect: screen.frame, styleMask: [.borderless, .closable],
+                                        backing: .buffered, defer: false, screen: screen)
         window.isReleasedWhenClosed = false
         window.backgroundColor = .black
         window.collectionBehavior = [.fullScreenAuxiliary, .managed]
@@ -182,4 +182,12 @@ public final class DisplaySpaces {
         guard let window else { return nil }
         return appState.shells.first { $0.window === window }
     }
+}
+
+/// A display's window. Borderless, so AppKit would never let it become the key window, and then a click
+/// on that display never made it the window in use: the galaxy's pick, keys and the dock all acted on the
+/// main window's space (Gordon, 2026-10-01). It can become key and main like any window.
+final class DisplaySpaceWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
