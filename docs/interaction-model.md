@@ -61,7 +61,9 @@ gesture above acts in the window it happens in: ⌘K, ⌘I, ⌘N, ⌘G, the ladd
 that display's window only. The window last clicked or typed in is the one in use: switching space from
 anywhere (the switcher, a port link, an agent) changes it, and a new port lands there. Holding Space to
 dictate works in any window. A port shown on two displays at once is live in the window in use; the
-other display says where it is, and a click there brings it over.
+other display says where it is, and a click there brings it over. When a space rests or is deleted, the
+window showing it closes; waking the space opens it in the main window. If the main window showed it while
+another window was in use, the main window takes a working space no window shows, or the galaxy.
 
 ## Open
 
