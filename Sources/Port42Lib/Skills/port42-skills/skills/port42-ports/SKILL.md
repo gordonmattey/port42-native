@@ -85,6 +85,16 @@ It runs with its storage, chat and subscriptions, as a card under Running in the
 port.manage id=<id> action=show token=<token>` brings it back; `hide` or `pause` (slowed) sends it
 off. A running claude or codex terminal is an agent reached through its chat.
 
+## Arrange one
+
+- Move or size it: `port42 port.move id=<id> x:=40 y:=60 width:=800 height:=500 token=<token>`
+  (either pair alone works).
+- Show it in another space too, the same live port: `port42 port.manage id=<id> action=showIn
+  space_id=<other> token=<token>`; `hideFrom` stops; `ports.list` reports where as `alsoIn`.
+- `action=reload` reloads its page in place. `action=background` makes it a space's backdrop (each
+  space has its own; `space_id` names which), `unbackground` puts it back.
+- An independent copy, no grants: `port42 port.fork id=<id>` (into `space_id`, else the current space).
+
 ## Share one
 
 Only when the person asks you to share a port with someone:
@@ -95,6 +105,12 @@ It returns a `link` to send them; it works once, in Port42 or their browser. Rig
 `see`, `use` and `wake_agents`; add `edit` or `fork` in `rights`, and `requireCode:=true` for a
 six-digit `code` sent another way. Tell the person what `discloses` lists: what the port can do on
 this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unused one.
+
+After it is shared: `port42 invite.shared port=<id>` lists who has it and their rights; `port42
+invite.setRights port=<id> peer=<name> rights:='["use","edit"]'` changes them (adding any asks the
+person); `port42 invite.stop port=<id> peer=<name>` removes someone. A port shared with this machine is a
+tile with `mirrors` in `ports.list`: `port42 remote.leave tile=<id>` leaves it, and `port42
+remote.setWake tile=<id> on:=true` lets its host's chat wake your companions (both ask the person).
 
 ## Gotchas (each one broke a real port, silently)
 

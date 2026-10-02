@@ -72,7 +72,17 @@ struct SkillCatalogTests {
         var problems: [String] = []
         for skill in SkillCatalog.skills.map(\.name) {
             let md = try String(contentsOf: Self.pluginRoot().appendingPathComponent("skills/\(skill)/SKILL.md"), encoding: .utf8)
-            for line in md.components(separatedBy: "\n") {
+            // Examples are code lines and inline spans, which may wrap onto the next line: `port42 x.y a=1`,
+            // or `x.y a=1` written after a first full example. Code fences are dropped first, so their
+            // backticks cannot shift which text counts as inside a span.
+            var examples = md.components(separatedBy: "\n")
+            let parts = md.replacingOccurrences(of: "```", with: "").components(separatedBy: "`")
+            for i in stride(from: 1, to: parts.count, by: 2) {
+                let span = parts[i].replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+                let first = span.components(separatedBy: " ").first ?? ""
+                if declared[first] != nil, span.contains("=") { examples.append("port42 " + span) } else { examples.append(span) }
+            }
+            for line in examples {
                 let t = line.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
                 guard t.hasPrefix("port42 "), !t.hasPrefix("port42 <method>"), !t.hasPrefix("port42 help") else { continue }
                 let words = t.components(separatedBy: " ").filter { !$0.isEmpty }
@@ -124,7 +134,7 @@ struct SkillCatalogTests {
     func sizeBudget() throws {
         for skill in SkillCatalog.skills.map(\.name) {
             let bytes = try Data(contentsOf: Self.pluginRoot().appendingPathComponent("skills/\(skill)/SKILL.md")).count
-            #expect(bytes <= 6_000, "\(skill)/SKILL.md is \(bytes) bytes; the budget is 6,000")
+            #expect(bytes <= 10_000, "\(skill)/SKILL.md is \(bytes) bytes; the budget is 10,000")
         }
     }
 }

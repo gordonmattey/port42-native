@@ -69,6 +69,14 @@ return one, so thread it rather than re-reading the port.
 - A token from before someone else's write: refused with `stale_write`. Both errors carry `current`;
   retry once with that value.
 
+## Spaces
+
+`port42 space.list` gives each space's id, name, accent and whether it rests. Only when the person asks,
+since it changes their desktop: `port42 space.update space_id=<id> name=<name> accent=#4ECDC4` renames or
+recolors one; `space.rest space_id=<id>` puts it away (off the galaxy front, silent, nothing lost) and
+`space.wake` brings it back; `space.reorder space_id=<id> before=<id>` moves it in the galaxy (no `before`:
+last). You change only spaces you are in.
+
 ## Errors to know
 
 - `token_required`, `stale_write`: see above.
