@@ -112,7 +112,7 @@ extension AppState {
         // A caller on another machine wakes this machine's companions only when its invite says so:
         // a companion runs with this machine's terminal, and a wake spends this user's model.
         if route, p.kind != .remote || remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
-            routeChat(key: key, entry: entry)
+            routeChat(key: key, entry: entry, fromAnotherInstance: p.kind == .remote)
         }
         return entry
     }
@@ -167,7 +167,9 @@ extension AppState {
     /// A post wakes the companions it addresses (build step 3). Mentions address a companion, and a
     /// terminal port's own companion is addressed by any post in that port's chat, since that chat
     /// is its session. The reply comes back to this chat (`chatReplyTargets`).
-    func routeChat(key: String, entry: PortChatEntry) {
+    /// `fromAnotherInstance`: the post came from another machine. Its mentions wake companions here, but
+    /// never add one to a space (a space's members can act on every port in it).
+    func routeChat(key: String, entry: PortChatEntry, fromAnotherInstance: Bool = false) {
         let panel = portWindows.panels.first { $0.udid == key || $0.id == key }
         let own = panel?.terminalConfig?.companionName
         let spaceId = panel?.spaceId ?? (spaces.contains { $0.id == key } ? key : currentSpace?.id)
@@ -189,7 +191,7 @@ extension AppState {
         var members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
         let mentioned = AgentRouter.findTargetAgents(content: entry.text, agents: companions,
                                                      spaceAgentIds: [], localOwner: currentUser?.displayName)
-        if let space = spaces.first(where: { $0.id == spaceId }) {
+        if !fromAnotherInstance, let space = spaces.first(where: { $0.id == spaceId }) {
             for agent in mentioned where !members.contains(agent.id) {
                 addCompanionToSpace(agent, space: space)
                 members.insert(agent.id)
@@ -210,7 +212,8 @@ extension AppState {
         guard !headless.isEmpty else { return }
         for agent in headless { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
         launchAgents(headless, spaceId: spaceId, spaceAgentIds: members, triggerContent: entry.text,
-                     senderId: entry.fromId, senderName: entry.fromName, replyChat: key)
+                     senderId: entry.fromId, senderName: entry.fromName, replyChat: key,
+                     joinsSpace: !fromAnotherInstance)
     }
 }
 
@@ -251,9 +254,27 @@ public enum ChatRouting {
                              "command-name", "command-message", "local-command-stdout", "user-prompt-submit-hook"]
 
     public static func terminalLine(sender: String, source: String?, text: String) -> String {
-        let who = CompanionName.mention(sender)
-        guard let source, !source.isEmpty else { return "[\(who)]: \(text)\r" }
-        return "[\(who) in \(source)]: \(text)\r"
+        let who = CompanionName.mention(terminalSafe(sender))
+        let body = terminalSafe(text)
+        guard let source, !source.isEmpty else { return "[\(who)]: \(body)\r" }
+        return "[\(who) in \(terminalSafe(source))]: \(body)\r"
+    }
+
+    /// Text typed into a companion's terminal is only text: every control character goes (escape
+    /// sequences, a carriage return that would submit early, a tab that would complete), and line
+    /// breaks stay. The chat's text can come from another machine or a port's page, and a terminal reads
+    /// control characters as keys.
+    public static func terminalSafe(_ s: String) -> String {
+        var out = String.UnicodeScalarView()
+        for u in s.unicodeScalars {
+            switch u.value {
+            case 0x0A: out.append(u)                                   // newline stays
+            case 0x0D, 0x09: out.append(" ")                           // CR and tab become spaces
+            case 0x00...0x1F, 0x7F, 0x80...0x9F: continue              // C0, DEL, C1
+            default: out.append(u)
+            }
+        }
+        return String(out)
     }
 
     /// A port's chat names the port's id as well as its title, so a companion can post there

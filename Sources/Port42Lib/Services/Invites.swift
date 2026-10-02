@@ -691,6 +691,13 @@ extension AppState {
         return (target.peer, target.port, param)
     }
 
+    /// The space of the tile that mirrors a port on another instance here (nil if it has no tile).
+    func mirrorTileSpace(peer: String, port: String) -> String? {
+        let links = (try? db.remotePortTiles()) ?? [:]
+        guard let tile = links.first(where: { $0.value.peerKey == peer && $0.value.portKey == port })?.key else { return nil }
+        return portWindows.panels.first { $0.id == tile }?.spaceId
+    }
+
     /// What a tile shows, as opposed to the port it shows: its page, its console, its code, whether it
     /// is on screen. `port.exec` and `presentation` are never sent to another instance anyway.
     static let windowMethods: Set<String> = ["port.getDom", "port.console", "port.exec", "presentation"]

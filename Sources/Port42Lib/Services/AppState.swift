@@ -1483,10 +1483,12 @@ public final class AppState: ObservableObject {
 
     func launchAgents(
         _ agents: [AgentConfig], spaceId: String, spaceAgentIds: Set<String>,
-        triggerContent: String, senderId: String, senderName: String, replyChat: String
+        triggerContent: String, senderId: String, senderName: String, replyChat: String,
+        joinsSpace: Bool = true
     ) {
         for (index, agent) in agents.enumerated() {
-            if !spaceAgentIds.contains(agent.id) {
+            // A companion woken from another instance's post runs, but does not join the space.
+            if joinsSpace, !spaceAgentIds.contains(agent.id) {
                 if let space = spaces.first(where: { $0.id == spaceId }) {
                     addCompanionToSpace(agent, space: space)
                 }

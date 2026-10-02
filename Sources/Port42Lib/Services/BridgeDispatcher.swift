@@ -37,6 +37,11 @@ extension AppState {
         }
         // A port on ANOTHER instance: the call goes there, as this instance (nautilus Phase 4, 4.6).
         if let target = remoteTarget(canonical, principal: principal, args: args) {
+            // The tile is a port in a space here: a caller reaches it only if it may read that space, as for
+            // any port (APP-10), before anything is sent to the other instance.
+            guard canRead(portInSpace: mirrorTileSpace(peer: target.peer, port: target.port), by: principal) else {
+                throw BridgeError.notFound("port '\(args.string(target.param) ?? target.port)'")
+            }
             return try await forwardRemote(canonical, to: target, args: args, as: principal)
         }
         // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
