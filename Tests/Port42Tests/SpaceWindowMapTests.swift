@@ -77,3 +77,30 @@ struct SpaceWindowMapTests {
         #expect(SpaceWindowMap.load(defaults) == map, "the window map does not survive a relaunch")
     }
 }
+
+@Suite("new window")
+@MainActor
+struct NewWindowSpaceTests {
+    @Test("New Window picks the first working space no window shows, and nothing when every one is shown")
+    func picksAFreeSpace() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two"), Space.create(name: "three")]
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        #expect(state.displaySpaces.spaceForNewWindow() == spaces[1].id, "it did not pick the first space no window shows")
+        let other = ShellState(appState: state)
+        other.isDisplayWindow = true
+        other.show(spaceId: spaces[1].id)
+        #expect(state.displaySpaces.spaceForNewWindow() == spaces[2].id)
+        let third = ShellState(appState: state)
+        third.isDisplayWindow = true
+        third.show(spaceId: spaces[2].id)
+        #expect(state.displaySpaces.spaceForNewWindow() == nil, "every space is shown, so there is nothing to open")
+        let before = state.spaces.count
+        state.displaySpaces.openAnotherWindow()
+        #expect(state.spaces.count == before, "New Window made a space")
+        #expect(state.toastMessage != nil, "New Window said nothing when every space is shown")
+        _ = (main, other, third)
+    }
+}

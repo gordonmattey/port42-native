@@ -195,9 +195,9 @@ public final class DisplaySpaces {
         show(spaceId, on: display, frame: screen.visibleFrame)
     }
 
-    /// Open a space in a new window on the main window's screen, beside it.
+    /// Open a space in a new window on the screen the person is using (the key window's), else the main one.
     public func openInNewWindow(_ spaceId: String) {
-        guard let screen = mainWindowScreen, let display = screen.displayUUID else { return }
+        guard let screen = NSApp.keyWindow?.screen ?? mainWindowScreen, let display = screen.displayUUID else { return }
         let v = screen.visibleFrame
         let frame = CGRect(x: v.minX + v.width * 0.08, y: v.minY + v.height * 0.08,
                            width: v.width * 0.6, height: v.height * 0.7)
@@ -237,6 +237,23 @@ public final class DisplaySpaces {
         guard let record = map.window(showing: spaceId) else { return }
         windows[record.id]?.close()           // willClose forgets it
         map.close(record.id); map.save()
+    }
+
+    /// The space File → New Window opens when a window is already open: the first working space no window
+    /// shows, or nil when every one is shown.
+    public func spaceForNewWindow() -> String? {
+        let shown = Set(appState.shells.compactMap(\.spaceId))
+        return appState.workingSpaces.first { !shown.contains($0.id) }?.id
+    }
+
+    /// File → New Window with a window already open: another Port42 window, on a space no window shows.
+    /// It never makes a space (Gordon); when every space is already in a window it says so.
+    public func openAnotherWindow() {
+        guard let sid = spaceForNewWindow() else {
+            appState.toastMessage = "Every space is already open in a window"
+            return
+        }
+        openInNewWindow(sid)
     }
 
     /// A space was deleted: its window closes and is forgotten.

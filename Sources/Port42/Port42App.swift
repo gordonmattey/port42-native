@@ -386,8 +386,12 @@ struct Port42App: App {
                 }
                 .keyboardShortcut("n", modifiers: .command)
 
-                // Where people look for it (Gordon): the main window back, or opened if it was closed.
-                Button("New Window") { MainWindow.show() }
+                // Where people look for it (Gordon): another Port42 window, on a space no window shows; with
+                // no window open at all, the main window back.
+                Button("New Window") {
+                    if MainWindow.existing?.isVisible == true { appState.displaySpaces.openAnotherWindow() }
+                    else { MainWindow.show() }
+                }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
 
                 Button("Quick Switcher") {
