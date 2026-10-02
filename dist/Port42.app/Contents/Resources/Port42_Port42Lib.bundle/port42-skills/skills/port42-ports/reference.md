@@ -16,12 +16,12 @@ Accept an invite someone sent you: this instance joins their port, which opens h
 
 ## invite.create
 
-Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
+Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
 
         expiresIn (integer): Seconds until the link stops working (default 7 days, at most 30).
         port (string, required): The port to share (id / udid / title).
         requireCode (boolean): Require a six-digit code, to send another way.
-        rights (array): see, use, edit, wake_agents, fork. Default see, use and wake_agents.
+        rights (array): see, use, edit, wake_agents, fork, move. Default see, use and wake_agents.
 
     port42 invite.create port=… rights=… expiresIn=… requireCode=…
 
@@ -38,6 +38,33 @@ Withdraw an invite that has not been used. To remove someone who already joined,
         id (string, required)
 
     port42 invite.revoke id=…
+
+## invite.setRights
+
+Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.
+
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
+        rights (array, required): The full set wanted: use, edit, wake_agents, fork.
+
+    port42 invite.setRights port=… peer=… rights=…
+
+## invite.shared
+
+Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.
+
+        port (string, required): The port (id / udid / title).
+
+    port42 invite.shared port=…
+
+## invite.stop
+
+Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.
+
+        peer (string, required): The person's peer key or name (from invite_shared).
+        port (string, required): The port (id / udid / title).
+
+    port42 invite.stop port=… peer=…
 
 ## port.act
 
@@ -109,6 +136,15 @@ Execute JavaScript on a live port. Use this to call functions, push data, or upd
 
     port42 port.exec id=… js=… token=…
 
+## port.fork
+
+Fork a web port: an independent copy with no grants of its own, titled '<title> (copy)', as the tile menu's Fork does. It lands in space_id, else the current space. A port someone shared is copied only when they allowed it. Returns {id}.
+
+        id (string, required): The port to copy (from ports_list).
+        space_id (string): The space for the copy (default: the current space).
+
+    port42 port.fork id=… space_id=…
+
 ## port.getDom
 
 Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'token' on your next write and it will be refused rather than clobber someone if the port moved in between.
@@ -151,25 +187,28 @@ See a web or browser port as the person sees it, to act on it with port_act. Ret
 
 ## port.manage
 
-Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
+Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind a space's desktop, as Set as background in the port menu does: pass space_id for which space, else the current one; each space has its own, and a port is the backdrop of one space at a time), unbackground (that space goes back to the ambient backdrop and the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.
 
-        action (string, required): One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)
+        action (string, required): One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground (minimize and dock are older names for hide; park for pause; restore and undock for show)
         id (string, required): The port's UDID or title
+        space_id (string): showIn and hideFrom: the other space. background and unbackground: which space's backdrop.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
 
-    port42 port.manage id=… action=… token=…
+    port42 port.manage id=… action=… space_id=… token=…
 
 ## port.move
 
-Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.
+Move a port's tile to desktop coordinates, resize it, or both. Pass x and y together to move, width and/or height to resize (a missing one keeps its current value; the smallest a tile can be is 150 by 110). Use screen_info to get display bounds first. A resize is the tile's own size, the same on every desktop it is shown on.
 
+        height (number): New height in points.
         id (string, required): The port's UDID (from ports_list)
         space_id (string): Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
-        x (number, required): Horizontal position in desktop points
-        y (number, required): Vertical position in desktop points
+        width (number): New width in points.
+        x (number): Horizontal position in desktop points (with y)
+        y (number): Vertical position in desktop points (with x)
 
-    port42 port.move id=… x=… y=… space_id=… token=…
+    port42 port.move id=… x=… y=… width=… height=… space_id=… token=…
 
 ## port.patch
 
@@ -263,6 +302,23 @@ List active ports. Each port has an id (UDID), title, capabilities array, status
 The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
 
     port42 presentation
+
+## remote.leave
+
+Leave a port someone shared with you: its tile closes here and this instance forgets it. The host's grant is theirs to remove; a new invite brings it back. Anyone but the person is asked first, every time.
+
+        tile (string, required): The tile's id (from ports_list: a port with a mirrors entry).
+
+    port42 remote.leave tile=…
+
+## remote.setWake
+
+Whether a mention in the host's chat of a port shared with you may wake your own companions here. Turning it on by anyone but the person asks first, every time; turning it off never does.
+
+        on (boolean, required): true to let them wake your companions.
+        tile (string, required): The tile's id (from ports_list).
+
+    port42 remote.setWake tile=… on=…
 
 ## state.get
 
