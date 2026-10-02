@@ -317,18 +317,21 @@ enum MainWindow {
     }
 }
 
-/// Window → Port42 Window (⌘0): the main window back, from anywhere.
+/// File → New Window (⇧⌘N) and Window → Port42 Window (⌘0): the main window back, from anywhere.
 struct MainWindowCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Window → Port42 Window. File → New Window (in the app's File group) goes through this item.
         CommandGroup(before: .windowList) {
-            Button(MainWindow.menuTitle) {
-                if MainWindow.existing != nil { MainWindow.show() } else { openWindow(id: MainWindow.id) }
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            .keyboardShortcut("0", modifiers: .command)
+            Button(MainWindow.menuTitle) { bringBack() }
+                .keyboardShortcut("0", modifiers: .command)
         }
+    }
+
+    private func bringBack() {
+        if MainWindow.existing != nil { MainWindow.show() } else { openWindow(id: MainWindow.id) }
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -382,6 +385,10 @@ struct Port42App: App {
                     )
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                // Where people look for it (Gordon): the main window back, or opened if it was closed.
+                Button("New Window") { MainWindow.show() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
 
                 Button("Quick Switcher") {
                     NotificationCenter.default.post(
