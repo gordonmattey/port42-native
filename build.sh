@@ -266,19 +266,9 @@ fi
 # weeks: the tests caught them the day they appeared, but nothing forced the suite to run. Gating
 # dev builds too means a break surfaces on the next build instead of at ship time.
 # Skip with SKIP_TESTS=1 when you need the app in your hands right now (and know what you skipped).
+# The gate is the full suite, then the timing pass (#244): scripts/test-gate.sh.
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
-    echo "[build] Tests..."
-    cd "$DIR"
-    TEST_LOG=$(mktemp -t port42-tests)
-    if swift test > "$TEST_LOG" 2>&1; then
-        grep -E "Test run with" "$TEST_LOG" | tail -1
-        rm -f "$TEST_LOG"
-    else
-        echo "[build] TESTS FAILED — build aborted (nothing built, signed or launched)."
-        grep -E "✘ Test |✘ Suite |error:" "$TEST_LOG" | head -20
-        echo "[build] Full log: $TEST_LOG"
-        exit 1
-    fi
+    "$DIR/scripts/test-gate.sh" || exit 1
 fi
 
 # Build Swift + Go
