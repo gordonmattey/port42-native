@@ -81,26 +81,44 @@ struct SpaceWindowMapTests {
 @Suite("new window")
 @MainActor
 struct NewWindowSpaceTests {
-    @Test("New Window picks the first working space no window shows, and nothing when every one is shown")
-    func picksAFreeSpace() throws {
+    /// The laptop's window on space one, and a new window (File → New Window) waiting in its galaxy.
+    func world() throws -> (AppState, ShellState, ShellState, [Space]) {
         let state = AppState(db: try DatabaseService(inMemory: true))
         let spaces = [Space.create(name: "one"), Space.create(name: "two"), Space.create(name: "three")]
         state.spaces = spaces
         state.selectSpace(spaces[0])
         let main = ShellState(appState: state)
-        #expect(state.displaySpaces.spaceForNewWindow() == spaces[1].id, "it did not pick the first space no window shows")
-        let other = ShellState(appState: state)
-        other.isDisplayWindow = true
-        other.show(spaceId: spaces[1].id)
-        #expect(state.displaySpaces.spaceForNewWindow() == spaces[2].id)
-        let third = ShellState(appState: state)
-        third.isDisplayWindow = true
-        third.show(spaceId: spaces[2].id)
-        #expect(state.displaySpaces.spaceForNewWindow() == nil, "every space is shown, so there is nothing to open")
-        let before = state.spaces.count
-        state.displaySpaces.openAnotherWindow()
-        #expect(state.spaces.count == before, "New Window made a space")
-        #expect(state.toastMessage != nil, "New Window said nothing when every space is shown")
-        _ = (main, other, third)
+        let fresh = ShellState(appState: state)
+        fresh.isDisplayWindow = true
+        fresh.show(spaceId: nil); fresh.awaitingSpace = true
+        state.makeKey(fresh)                                    // it opens in front, the window in use
+        return (state, main, fresh, spaces)
+    }
+
+    @Test("a new window waits in its galaxy with no space; the laptop keeps its own")
+    func waits() throws {
+        let (state, main, fresh, s) = try world()
+        #expect(fresh.isKey && fresh.spaceId == nil, "the new window shows a space before one was picked")
+        #expect(main.spaceId == s[0].id, "the laptop lost its space")
+        #expect(state.spaces.count == 3, "a space was made")
+    }
+
+    @Test("picking a free space gives the new window that space")
+    func picksFree() throws {
+        let (state, main, fresh, s) = try world()
+        state.selectSpace(s[1])
+        #expect(fresh.spaceId == s[1].id && !fresh.awaitingSpace)
+        #expect(main.spaceId == s[0].id)
+    }
+
+    @Test("picking the laptop's space moves it to the new window, and the laptop waits in its galaxy")
+    func takesFromAnother() throws {
+        let (state, main, fresh, s) = try world()
+        state.selectSpace(s[0])
+        #expect(fresh.spaceId == s[0].id, "the new window did not take the space")
+        #expect(main.spaceId == nil && main.awaitingSpace && main.zoom == .galaxy, "the laptop still shows the space it gave up")
+        state.makeKey(main)                                     // the person clicks the laptop
+        #expect(main.spaceId == nil, "the laptop shows the space the new window now has: one space in two windows")
+        #expect(fresh.spaceId == s[0].id)
     }
 }

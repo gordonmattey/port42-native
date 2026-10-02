@@ -246,14 +246,15 @@ public final class DisplaySpaces {
         return appState.workingSpaces.first { !shown.contains($0.id) }?.id
     }
 
-    /// File → New Window with a window already open: another Port42 window, on a space no window shows.
-    /// It never makes a space (Gordon); when every space is already in a window it says so.
+    /// File → New Window with a window already open: another Port42 window, in its galaxy with no space
+    /// of its own until the person picks one (Gordon). It never makes a space. It is remembered once it
+    /// has a space; a window left waiting is not reopened at launch.
     public func openAnotherWindow() {
-        guard let sid = spaceForNewWindow() else {
-            appState.toastMessage = "Every space is already open in a window"
-            return
-        }
-        openInNewWindow(sid)
+        guard let screen = NSApp.keyWindow?.screen ?? mainWindowScreen else { return }
+        let v = screen.visibleFrame
+        let frame = CGRect(x: v.minX + v.width * 0.1, y: v.minY + v.height * 0.1, width: v.width * 0.6, height: v.height * 0.7)
+        let window = makeWindow(id: UUID().uuidString, spaceId: nil, frame: frame, screen: screen)
+        window.makeKeyAndOrderFront(nil)
     }
 
     /// A space was deleted: its window closes and is forgotten.
@@ -271,7 +272,14 @@ public final class DisplaySpaces {
     /// Keep the map in step with a space window's space when it changes from inside (the galaxy, ⌘K, a swap).
     func record(_ shell: ShellState) {
         guard shell.isDisplayWindow, let id = windows.first(where: { $0.value === shell.window })?.key else { return }
-        if let sid = shell.spaceId { map.assign(id, to: sid) } else { map.close(id) }
+        if let sid = shell.spaceId {
+            if map.record(id) != nil { map.assign(id, to: sid) }
+            else if let window = windows[id], let display = window.screen?.displayUUID {
+                map.open(sid, on: display, frame: window.frame, id: id)   // a waiting window got its space
+            }
+        } else {
+            map.close(id)          // waiting in its galaxy: not reopened at launch
+        }
         map.save()
     }
 
@@ -307,6 +315,10 @@ public final class DisplaySpaces {
     private func open(_ record: SpaceWindowRecord) {
         guard let screen = NSScreen.screens.first(where: { $0.displayUUID == record.display }) else { return }
         let frame = SpaceWindowMap.clamp(record.frame, into: screen.visibleFrame)
+        _ = makeWindow(id: record.id, spaceId: record.spaceId, frame: frame, screen: screen)
+    }
+
+    private func makeWindow(id: String, spaceId: String?, frame: CGRect, screen: NSScreen) -> NSWindow {
         // The main window's windowed look (ShellMode.restoreWindow): titled with the title hidden and no
         // traffic lights, movable and resizable like any window.
         let window = DisplaySpaceWindow(contentRect: frame,
@@ -322,14 +334,15 @@ public final class DisplaySpaces {
         window.backgroundColor = .black
         window.collectionBehavior = [.managed, .fullScreenAuxiliary]
         window.contentView = NSHostingView(rootView:
-            ShellView(appState: appState, displayWindow: true, spaceId: record.spaceId)
+            ShellView(appState: appState, displayWindow: true, spaceId: spaceId)
                 .environmentObject(appState)
                 .background(Port42Theme.bgPrimary)
                 .preferredColorScheme(.dark))
         window.setFrame(frame, display: true)
         window.orderFront(nil)
-        windows[record.id] = window
-        follow(window, id: record.id)
+        windows[id] = window
+        follow(window, id: id)
+        return window
     }
 
     /// Record a window's moves, resizes and screen changes as they happen, and forget it when it closes.

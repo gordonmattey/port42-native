@@ -1650,11 +1650,14 @@ public final class AppState: ObservableObject {
 
         // A space is on one display at a time (#189): if another window shows the space the key one
         // is switching to, that window takes the key one's old space. A swap, as the design says.
-        let previous = currentSpace?.id
+        // A window still waiting for a space (File → New Window) has none to give back, so the window it
+        // takes the space from waits in its galaxy instead.
+        let previous = shell?.awaitingSpace == true ? nil : currentSpace?.id
         for other in shells where other !== shell && other.heldSpaceId == space.id {
-            other.show(spaceId: previous)
+            if let previous { other.show(spaceId: previous) } else { other.loseSpace() }
             displaySpaces.record(other)
         }
+        shell?.awaitingSpace = false
 
         currentSpace = space
         if let shell, shell.isDisplayWindow { displaySpaces.record(shell) }

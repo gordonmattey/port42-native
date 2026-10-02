@@ -212,16 +212,27 @@ public final class ShellState: ObservableObject {
     public var isKey: Bool { appState.shell === self }
 
     /// The space this window shows.
-    public var spaceId: String? { isKey ? appState.currentSpace?.id : heldSpaceId }
+    public var spaceId: String? { isKey ? (awaitingSpace ? nil : appState.currentSpace?.id) : heldSpaceId }
+
+    /// A window with no space of its own yet, in its galaxy until the person picks one: a window from
+    /// File → New Window, or one whose space another window took (Gordon, 2026-10-01).
+    @Published public var awaitingSpace = false
 
     /// The space this window shows, as a Space.
     public var space: Space? {
-        if isKey { return appState.currentSpace }
+        if isKey { return awaitingSpace ? nil : appState.currentSpace }
         return heldSpaceId.flatMap { id in appState.spaces.first { $0.id == id } }
     }
 
     /// This window is not the one in use any more: keep what it shows.
-    func holdSpace() { heldSpaceId = appState.currentSpace?.id }
+    func holdSpace() { heldSpaceId = awaitingSpace ? nil : appState.currentSpace?.id }
+
+    /// This window's space went to another window: it waits in its galaxy for the person to pick one.
+    func loseSpace() {
+        heldSpaceId = nil
+        awaitingSpace = true
+        zoom = .galaxy
+    }
 
     /// Show a space in this window without making it the key one (arranging, restoring at launch).
     public func show(spaceId: String?) {

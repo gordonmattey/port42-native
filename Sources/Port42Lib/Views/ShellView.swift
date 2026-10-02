@@ -29,7 +29,7 @@ public struct ShellView: View {
         _shell = StateObject(wrappedValue: {
             let shell = ShellState(appState: appState)
             shell.isDisplayWindow = displayWindow
-            if displayWindow { shell.show(spaceId: spaceId) }
+            if displayWindow { shell.show(spaceId: spaceId); shell.awaitingSpace = spaceId == nil }
             return shell
         }())
     }
