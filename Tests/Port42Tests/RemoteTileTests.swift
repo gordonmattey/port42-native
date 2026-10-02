@@ -382,6 +382,8 @@ struct RemoteTileTests {
 
         state.setMirrorWakes(tile: tile, true)
         #expect(state.mirroredRemote(tile)?.wakes == true)
+        // An agent there waking ours is also asked once (two agents, decision 3): the person said yes before.
+        try state.db.saveGrants([.crossWake], grantee: "a", object: AppState.crossWakeObject(companion: c.id, port: key), zone: "")
         await hear("\(CompanionName.mention("wise-tern (Bob)")) your turn")
         #expect(state.chatReplyTargets["wise-tern"] == nil, "another machine's wise-tern woke this one")
         await hear("\(mine) same again", from: "wise-tern (Ada)")

@@ -1010,7 +1010,40 @@ public final class DatabaseService {
             try db.alter(table: "port_panels") { t in t.add(column: "opacity", .double).notNull().defaults(to: 1) }
         }
 
+        migrator.registerMigration("v70-port-members") { db in
+            // Two agents, one port (docs/plan-two-agents-one-port.md, decisions 1 and 2): the companions a port
+            // has, apart from its space's. A mention in a port's chat adds one here; on a tile of someone else's
+            // port only these act on it.
+            try db.create(table: "port_members", ifNotExists: true) { t in
+                t.column("portKey", .text).notNull()
+                t.column("agentId", .text).notNull()
+                t.column("addedAt", .datetime).notNull()
+                t.primaryKey(["portKey", "agentId"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    // MARK: - Port members (two agents, one port)
+
+    public func addPortMember(agentId: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO port_members (portKey, agentId, addedAt) VALUES (?, ?, ?)",
+                           arguments: [portKey, agentId, Date()])
+        }
+    }
+
+    public func removePortMember(agentId: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM port_members WHERE portKey = ? AND agentId = ?", arguments: [portKey, agentId])
+        }
+    }
+
+    public func portMembers(portKey: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT agentId FROM port_members WHERE portKey = ?", arguments: [portKey]))
+        }
     }
 
     // MARK: - Clients (slice-02 half two, D1)

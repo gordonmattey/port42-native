@@ -1332,7 +1332,7 @@ public final class AppState: ObservableObject {
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     func routeMentionsToTerminals(content: String, senderName: String, spaceId: String,
                                   implicitCompanion: AgentConfig? = nil, replyChat: String? = nil,
-                                  source: String? = nil, members: [String] = []) {
+                                  source: String? = nil, members: [String] = [], allowed: Set<String>? = nil) {
         // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
@@ -1351,7 +1351,7 @@ public final class AppState: ObservableObject {
         for key in keys {
             if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal
-            }) {
+            }), allowed?.contains(companion.id) ?? true {
                 deliverToTerminalCompanion(companion, line: line, replyChat: replyChat, spaceId: spaceId)
             }
         }

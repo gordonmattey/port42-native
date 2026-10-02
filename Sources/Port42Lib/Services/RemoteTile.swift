@@ -280,7 +280,16 @@ extension AppState {
         guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else { return }
         let targets = mirroredMentions(entry.text, knownAs: knownAs)
             .filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
-        deliverMirrored(targets, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
+        // The host's agent wakes one of ours only once the person allowed it (decision 3); a yes makes it the tile's member.
+        let byAgent = entry.fromKind == Principal.Kind.companion.rawValue
+        let ready = targets.filter { !byAgent || mayCrossWake($0.id, from: entry.fromId, port: key) }
+        deliverMirrored(ready, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
+        for c in targets where !ready.contains(where: { $0.id == c.id }) {
+            Task { @MainActor [weak self] in
+                guard let self, await self.askCrossWake(c, from: entry.fromId, fromName: entry.fromName, port: key, portTitle: row.title) else { return }
+                self.deliverMirrored([c], tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
+            }
+        }
     }
 
     /// The person's own post in a tile of someone else's port wakes their own companions by plain name.
@@ -289,6 +298,8 @@ extension AppState {
         guard let tile = portWindows.panels.first(where: { $0.udid == key })?.id else { return }
         let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
         let targets = companions.filter { named.contains($0.displayName.lowercased()) }
+        // The person bringing their own companion in by name makes it the tile's member (decision 2).
+        for c in targets { addPortMember(c.id, port: key) }
         deliverMirrored(targets, tile: tile, key: key, text: text, fromName: fromName, fromId: fromId)
     }
 

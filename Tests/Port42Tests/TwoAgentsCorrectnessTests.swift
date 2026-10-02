@@ -117,8 +117,9 @@ struct TwoAgentsCorrectnessTests {
         }
         let entry = list.compactMap { v -> [String: BridgeValue]? in if case .object(let o) = v, o["id"] == .string(tile) { return o }; return nil }.first
         #expect(entry?["token"] == .string("HOST:30"), "the tile's token is not the host's: \(String(describing: entry?["token"]))")
+        let person = Principal.human(id: "u", displayName: "Gordon", spaceId: w.space.id)
         do {
-            _ = try await w.state.runBridgeMethod("port.patch", principal: w.principal,
+            _ = try await w.state.runBridgeMethod("port.patch", principal: person,
                                                   args: BridgeArgs(["id": tile, "search": "a", "replace": "b", "token": "HOST:29"]))
         } catch {}
         #expect(w.state.mirrorHostTokens[tile] == "HOST:31", "a refused write's current was not kept for the tile")
@@ -128,7 +129,8 @@ struct TwoAgentsCorrectnessTests {
     func unreachableHostMessage() async throws {
         let (w, tile) = try tileWorld { _ in #"{"type":"error","code":"host_offline","error":"that instance is not connected to its relay","call_id":"CALLID"}"# }
         do {
-            _ = try await w.state.runBridgeMethod("port.getHtml", principal: w.principal, args: BridgeArgs(["id": tile]))
+            _ = try await w.state.runBridgeMethod("port.getHtml", principal: .human(id: "u", displayName: "Gordon", spaceId: w.space.id),
+                                                  args: BridgeArgs(["id": tile]))
             Issue.record("an unreachable host answered")
         } catch let e as BridgeError {
             #expect(e.code == "host_offline")

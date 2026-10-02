@@ -111,8 +111,10 @@ extension AppState {
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
         // A caller on another machine wakes this machine's companions only when its invite says so:
         // a companion runs with this machine's terminal, and a wake spends this user's model.
-        if route, p.kind != .remote || remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
-            routeChat(key: key, entry: entry, fromAnotherInstance: p.kind == .remote)
+        if route, p.kind != .remote {
+            routeChat(key: key, entry: entry)
+        } else if route, remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
+            routeRemotePost(key: key, entry: entry, from: p)
         }
         return entry
     }
@@ -169,7 +171,9 @@ extension AppState {
     /// is its session. The reply comes back to this chat (`chatReplyTargets`).
     /// `fromAnotherInstance`: the post came from another machine. Its mentions wake companions here, but
     /// never add one to a space (a space's members can act on every port in it).
-    func routeChat(key: String, entry: PortChatEntry, fromAnotherInstance: Bool = false) {
+    /// `allowed`: when set, only these companions (by id) are woken; a post from another instance wakes only
+    /// the mentioned companions the person allowed it to (two agents, decision 3).
+    func routeChat(key: String, entry: PortChatEntry, fromAnotherInstance: Bool = false, allowed: Set<String>? = nil) {
         let panel = portWindows.panels.first { $0.udid == key || $0.id == key }
         let own = panel?.terminalConfig?.companionName
         let spaceId = panel?.spaceId ?? (spaces.contains { $0.id == key } ? key : currentSpace?.id)
@@ -191,11 +195,18 @@ extension AppState {
         var members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
         let mentioned = AgentRouter.findTargetAgents(content: entry.text, agents: companions,
                                                      spaceAgentIds: [], localOwner: currentUser?.displayName)
-        if !fromAnotherInstance, let space = spaces.first(where: { $0.id == spaceId }) {
-            for agent in mentioned where !members.contains(agent.id) {
-                addCompanionToSpace(agent, space: space)
-                members.insert(agent.id)
+        // A mention in a space's chat adds that companion to the space, as it always has. In a port's chat it
+        // gives the companion that port only (two agents, decision 1); from another instance, only if allowed.
+        let isSpaceChat = spaces.contains { $0.id == key }
+        if isSpaceChat {
+            if !fromAnotherInstance, let space = spaces.first(where: { $0.id == spaceId }) {
+                for agent in mentioned where !members.contains(agent.id) {
+                    addCompanionToSpace(agent, space: space)
+                    members.insert(agent.id)
+                }
             }
+        } else {
+            for agent in mentioned where allowed?.contains(agent.id) ?? true { addPortMember(agent.id, port: key) }
         }
         // Everyone in this chat hears a person's or a client's plain post (never a companion's).
         let inChat = senderIsCompanion ? [] : ChatRouting.members(
@@ -203,17 +214,18 @@ extension AppState {
             companions: companions.filter(\.openInTerminal).map(\.displayName))
         routeMentionsToTerminals(content: entry.text, senderName: entry.fromName, spaceId: spaceId,
                                  implicitCompanion: implicit, replyChat: key,
-                                 source: chatSourceLabel(key: key, panel: panel), members: inChat)
+                                 source: chatSourceLabel(key: key, panel: panel), members: inChat, allowed: allowed)
         // Headless companions: the ones mentioned, or every member when a PERSON posts without a
         // mention. A companion's post wakes only whom it names, so two companions cannot loop.
         let headless = ChatRouting.headlessTargets(
             mentioned: mentioned, members: companions.filter { members.contains($0.id) },
             text: entry.text, senderName: entry.fromName, senderIsPerson: entry.fromKind == Principal.Kind.human.rawValue)
+            .filter { allowed?.contains($0.id) ?? true }
         guard !headless.isEmpty else { return }
         for agent in headless { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
         launchAgents(headless, spaceId: spaceId, spaceAgentIds: members, triggerContent: entry.text,
                      senderId: entry.fromId, senderName: entry.fromName, replyChat: key,
-                     joinsSpace: !fromAnotherInstance)
+                     joinsSpace: isSpaceChat && !fromAnotherInstance)
     }
 }
 

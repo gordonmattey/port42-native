@@ -37,9 +37,9 @@ extension AppState {
         }
         // A port on ANOTHER instance: the call goes there, as this instance (nautilus Phase 4, 4.6).
         if let target = remoteTarget(canonical, principal: principal, args: args) {
-            // The tile is a port in a space here: a caller reaches it only if it may read that space, as for
-            // any port (APP-10), before anything is sent to the other instance.
-            guard canRead(portInSpace: mirrorTileSpace(peer: target.peer, port: target.port), by: principal) else {
+            // The tile is a port in a space here: a caller reaches it as any port (APP-10), and a companion only
+            // as one of the tile's members (two agents, decision 2), before anything is sent to the other instance.
+            guard mayUseTile(peer: target.peer, port: target.port, by: principal) else {
                 throw BridgeError.notFound("port '\(args.string(target.param) ?? target.port)'")
             }
             return try await forwardRemote(canonical, to: target, args: args, as: principal)
@@ -230,7 +230,7 @@ extension AppState {
             // can see the port, and a refusal carries it back. Authorization is THIS check and the
             // permission gate; a caller holding a perfectly valid token for a port outside its scope
             // is refused here all the same. Never let a write rely on the token to keep anyone out.
-            guard canRead(portInSpace: portSpaceId(ref), by: principal) else {
+            guard canReach(ref, by: principal) else {     // its space, or one of its members (two agents, decision 1)
                 throw BridgeError.notFound("port '\(raw)'")
             }
             // LIVENESS — before CAS and before the token moves.

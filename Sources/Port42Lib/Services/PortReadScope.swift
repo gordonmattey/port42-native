@@ -99,7 +99,7 @@ extension AppState {
 
     /// Resolve `id` for a READ, refusing a port outside the caller's scope as if it did not exist.
     func requireReadablePort(_ id: String, by principal: Principal) throws -> PortRef {
-        guard let ref = resolvePortRef(id), canRead(portInSpace: portSpaceId(ref), by: principal) else {
+        guard let ref = resolvePortRef(id), canReach(ref, by: principal) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return ref

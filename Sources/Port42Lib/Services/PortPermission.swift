@@ -18,6 +18,7 @@ public enum PortPermission: String, Hashable {
     case share         // invite.create: share one port with someone on another machine (nautilus Phase 4)
     case deleteSpace   // space.delete by anyone but the person: asked every time, never kept (APP-11)
     case deleteCompanion   // companions.delete by anyone but the person: asked every time, never kept
+    case crossWake         // another instance's agent wakes one of yours on a shared port: asked once per (that agent, yours, the port), remembered
     case changeSharing     // remote.leave, remote.setWake on: a shared port's tile closed or its host let wake your companions, by anyone but the person: asked every time, never kept
     case editCompanion     // companions.update of another companion by anyone but the person: asked every time, never kept
 
@@ -47,6 +48,7 @@ public enum PortPermission: String, Hashable {
         case .deleteCompanion: return "person.fill.xmark"
         case .editCompanion: return "person.crop.circle.badge.pencil"
         case .changeSharing: return "person.2.slash"
+        case .crossWake: return "person.2.wave.2"
         }
     }
 
@@ -122,6 +124,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Change a Companion",
                 message: "This wants to change another companion's settings: its prompt, name, folder or how it runs. It changes how that companion behaves. Allow?"
+            )
+        case .crossWake:
+            return (
+                title: "An Agent From Another Machine",
+                message: "An agent on another machine wants to wake one of your companions on a shared port. It runs here, in your terminal, on your model. Allow?"
             )
         case .changeSharing:
             return (

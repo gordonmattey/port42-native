@@ -34,9 +34,11 @@ struct TwoAgentsHardeningTests {
         let members = try w.state.db.getAgentsForSpace(spaceId: w.space.id).map(\.id)
         #expect(!members.contains(alba.id), "another instance's mention added a companion to the space")
 
+        // A local mention in a port's chat gives the companion that port, not the space (two agents, decision 1).
         _ = try w.state.postToChat(key: key, text: "@alba please look", from: w.principal)
-        #expect(try w.state.db.getAgentsForSpace(spaceId: w.space.id).map(\.id).contains(alba.id),
-                "a local mention no longer adds the companion, as it always has")
+        #expect(!(try w.state.db.getAgentsForSpace(spaceId: w.space.id).map(\.id).contains(alba.id)),
+                "a mention in a port's chat added the companion to the whole space")
+        #expect(w.state.isPortMember(alba.id, port: key), "a mention in a port's chat did not give the companion the port")
     }
 
     static let me = "25njqamcweflpvkl73j4szahhihoc4xt3ktcgjnpaingr5yhkena"
