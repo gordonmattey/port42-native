@@ -105,7 +105,7 @@ invite granted it a right on the port it names.
 ./build.sh --run        # Debug build and launch
 ```
 
-**Every build runs `swift test` first and aborts on a red suite** (~15s). A break surfaces on the
+**Every build runs the test gate first (`scripts/test-gate.sh`: the full suite, then the timing pass) and aborts on a red one** (~15s). A break surfaces on the
 next build instead of at ship time. `SKIP_TESTS=1 ./build.sh --run` when you need the app now.
 
 > **IMPORTANT: always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
@@ -127,8 +127,9 @@ unless `PORT42_DEV_OWNER` names its holder. Dev8 and Dev9 exist too (4250, 4251)
 ```
 
 This single command handles the full pipeline:
-0. **Test gate** (every build, dev included): `swift test` must pass or the build aborts before
-   anything is compiled, signed or launched. Override: `SKIP_TESTS=1 ./build.sh …`.
+0. **Test gate** (every build, dev included): `scripts/test-gate.sh` runs `swift test`, then the timing
+   pass (`PORT42_TIMING_TESTS=1 swift test --filter` its timing suites); both must pass or the build aborts
+   before anything is compiled, signed or launched. Override: `SKIP_TESTS=1 ./build.sh …`.
 1. Swift release build with `-DRELEASE` flag
 2. Go gateway build
 3. Developer ID signing with hardened runtime + timestamp
@@ -206,6 +207,8 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 - `makeParityWorld()` for an AppState with a user, a space and a companion; `AppUser.createLocal(displayName:)` for a user
 - `DatabaseService(inMemory: true)` for isolated DB tests
 - Run tests with `swift test` or filter with `swift test --filter SuiteName`
+- A test that measures wall-clock time skips itself unless `PORT42_TIMING_TESTS=1`, and joins
+  `TIMING_FILTER` in `scripts/test-gate.sh` so the gate runs it alone (#244)
 
 ## Development Rules
 
