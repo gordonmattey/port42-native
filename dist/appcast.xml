@@ -3,6 +3,15 @@
     <channel>
         <title>Port42</title>
         <item>
+            <title>1.0.7</title>
+            <pubDate>Thu, 01 Oct 2026 21:14:20 -0700</pubDate>
+            <sparkle:version>2563</sparkle:version>
+            <sparkle:shortVersionString>1.0.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v1.0.7/Port42.dmg" length="56785250" type="application/octet-stream" sparkle:edSignature="CniT7/4JyIiWp9UDc7HyqgDDsVr16IJHXakv0Ni2tfdBUWXOfLeSO+4pWG4gKzj3sAviCBIXCHpR0kg5XyGXDw=="/>
+        </item>
+        <item>
             <title>1.0.6</title>
             <pubDate>Wed, 30 Sep 2026 20:43:15 -0700</pubDate>
             <sparkle:version>2529</sparkle:version>
@@ -19,15 +28,6 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v1.0.5/Port42.dmg" length="56501588" type="application/octet-stream" sparkle:edSignature="dU6kFwGhycAWcONZJHMsCX9Ct/V45aNT4tzMfBbJghFoS7pzrrS6+nGRIlqFyzrEsck5hKog+SKrDGc+nbkuAQ=="/>
-        </item>
-        <item>
-            <title>1.0.4</title>
-            <pubDate>Tue, 29 Sep 2026 17:58:34 -0700</pubDate>
-            <sparkle:version>2494</sparkle:version>
-            <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v1.0.4/Port42.dmg" length="56405333" type="application/octet-stream" sparkle:edSignature="2ieTxxBZP9sbn+2CYrYlUKD7FRBUezoQxJLebBEpLVXRQHsIQeyVHlOqVO7Y2hP8/A8yUNkAfk7YwGEE8piPCg=="/>
         </item>
         <item>
             <title>0.5.50</title>
