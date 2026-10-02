@@ -1862,8 +1862,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
             return .object(["ok": .bool(true)])
         }
-        guard let frame = appState.portWindows.portFrame(by: target, on: desktop) else {
-            throw BridgeError.notFound("port '\(id)' (no positioned tile)")
+        // A port not yet placed on that desktop (its space was never shown) has no frame: with a position
+        // given it is placed there; without one there is nothing to keep, so say where to start.
+        let placed = appState.portWindows.portFrame(by: target, on: desktop)
+        guard let frame = placed ?? (x != nil ? CGRect(x: x!, y: y!, width: Double(panel.size.width), height: Double(panel.size.height)) : nil) else {
+            throw BridgeError.badArg("port '\(id)' is not placed on that desktop yet: pass x and y with the size")
         }
         let min = ShellState.minTileSize
         let size = CGSize(width: Swift.max(min.width, CGFloat(w ?? Double(frame.width))),

@@ -81,4 +81,15 @@ struct PortTileApiTests {
         do { _ = try await call(w, "port.fork", ["id": id], as: caller) } catch {}
         #expect(w.state.portWindows.panels.count == before, "a companion copied a port from a space it does not act in")
     }
+
+    @Test("port.move places a port that was never placed when given a position and a size, and says what to pass without one")
+    func placesAnUnplacedPort() async throws {
+        let w = try makeParityWorld()
+        let id = try port(w)
+        #expect(w.state.portWindows.portFrame(by: id, on: w.space.id) == nil, "the fixture port is already placed")
+        await #expect(throws: BridgeError.self) { _ = try await self.call(w, "port.move", ["id": id, "width": 500.0, "token": self.token(w, id)]) }
+        _ = try await call(w, "port.move", ["id": id, "x": 60.0, "y": 60.0, "width": 400.0, "height": 300.0, "token": token(w, id)])
+        let f = try #require(w.state.portWindows.portFrame(by: id, on: w.space.id))
+        #expect(f == CGRect(x: 60, y: 60, width: 400, height: 300), "placed at \(f)")
+    }
 }
