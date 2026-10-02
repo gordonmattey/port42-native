@@ -1,6 +1,6 @@
 # Plan: space windows (#189, changed from "one space per display")
 
-Status: building on `rc/1.0.7`, 2026-10-01. Gordon, testing #189 on two displays: the second display's
+Status: built on `rc/1.0.7` and checked by Gordon on two displays, 2026-10-01. Gordon, testing #189 on two displays: the second display's
 window could not be moved ("whats the downside?"), and agreed: the window is the unit, not the display,
 so several spaces can be open on one screen.
 
@@ -22,13 +22,20 @@ so several spaces can be open on one screen.
 2. Opening: the space card's "Show on <display>" opens a window on that display (the window that already
    shows the space moves there; the main window, if it shows it, takes a free space as today). New:
    "Open in a new window", on the main window's screen.
-3. Closing: ⌘W, or the card's "Stop showing on <display>", closes the window and forgets it. A display
+3. Closing: ⌘W, or the card's "Close this window" (any screen) or "Stop showing on <display>", closes the
+   window and forgets it. A display
    unplugged closes its windows but keeps them, so they return when it is plugged back in.
 4. Moving and resizing are recorded as they happen (window move, resize and screen-change notifications).
 5. The galaxy marker says "on <screen>" for a space in a window on another screen, and "in another window"
    for one on the same screen.
 6. Restore at launch: every remembered window on a connected screen opens with its frame, kept inside that
    screen's visible frame.
+
+7. File → New Window (⇧⌘N): with a window open, a new window opens in its galaxy with no space of its own
+   until the person picks one; it never makes a space. Picking a space another window shows moves it here,
+   and that window waits in its galaxy. With no window open, it brings the main window back (as do the Dock
+   icon, Window → Port42 Window ⌘0, and a launch that restores none). A galaxy pick acts on the window it
+   is made in.
 
 ## Not in this
 
