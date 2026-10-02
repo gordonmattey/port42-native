@@ -121,4 +121,20 @@ struct NewWindowSpaceTests {
         #expect(main.spaceId == nil, "the laptop shows the space the new window now has: one space in two windows")
         #expect(fresh.spaceId == s[0].id)
     }
+
+    @Test("a galaxy pick in a window that is not the key one still opens the space in that window")
+    func pickActsOnItsOwnWindow() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two")]
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        let fresh = ShellState(appState: state)
+        fresh.isDisplayWindow = true
+        fresh.show(spaceId: nil); fresh.awaitingSpace = true
+        #expect(main.isKey && !fresh.isKey)                    // macOS never told us the new window is key
+        fresh.jumpToSpace(index: 1)
+        #expect(fresh.spaceId == spaces[1].id, "the pick did not open in the window it was made in")
+        #expect(main.spaceId == spaces[0].id, "the pick switched the laptop's window")
+    }
 }

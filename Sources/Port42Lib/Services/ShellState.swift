@@ -256,6 +256,8 @@ public final class ShellState: ObservableObject {
                                                              object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if let self { self.appState.makeKey(self) } }
         }
+        // Already key before this shell learned its window (a new window opened in front): it is the one in use.
+        if window.isKeyWindow { appState.makeKey(self) }
     }
 
     /// Whether an event is this shell's to handle. With one window, every event is, as before. With
@@ -871,6 +873,9 @@ public final class ShellState: ObservableObject {
     public func jumpToSpace(index: Int) {
         let working = appState.workingSpaces
         guard working.indices.contains(index) else { return }
+        // The pick is this window's, whichever window macOS last made key (#189: a new window can be in
+        // front before it is the window in use, and the pick then switched the laptop's space).
+        if !isKey { appState.makeKey(self) }
         appState.selectSpace(working[index])
         selectedPortId = nil
         galaxyHover = nil
