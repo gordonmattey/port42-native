@@ -190,6 +190,8 @@ extension AppState {
 
     func mirrorEvent(tile: String, row: DatabaseService.RemotePortRow, _ event: Any) {
         guard let o = event as? [String: Any], let kind = o["kind"] as? String else { return }
+        // Every event from the host carries its token: the one this tile's writes are checked against.
+        if let token = o[PortActivity.tokenKey] as? String { mirrorHostTokens[tile] = token }
         switch kind {
         case PortEventKind.state.wire:
             Task { @MainActor in await self.refreshMirror(tile: tile, row: row) }
@@ -352,7 +354,38 @@ extension AppState {
     func refreshMirror(tile: String, row: DatabaseService.RemotePortRow) async -> Bool {
         guard let html = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
                                                     args: ["id": row.portKey]) as? String else { return false }
-        _ = await portWindows.updatePort(idOrTitle: tile, html: html)
+        _ = await portWindows.updatePort(idOrTitle: tile, html: html, skipVersionSnapshot: true)
+        // The host's token for its port, so this tile's reads hand out the one its writes are checked against.
+        if let list = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "ports.list", args: [:]) as? [[String: Any]],
+           let token = list.first(where: { $0["id"] as? String == row.portKey })?["token"] as? String {
+            mirrorHostTokens[tile] = token
+        }
+        await refreshMirrorHistory(tile: tile, row: row)
         return true
+    }
+
+    /// The host's history of its port, for this tile's history picker: one history, both sides.
+    func refreshMirrorHistory(tile: String, row: DatabaseService.RemotePortRow) async {
+        guard let list = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.history",
+                                                    args: ["id": row.portKey]) as? [[String: Any]] else { return }
+        let iso = ISO8601DateFormatter()
+        mirrorHistory[tile] = list.compactMap { v in
+            guard let n = v["version"] as? Int else { return nil }
+            return PortVersionSummary(id: Int64(n), portUdid: row.portKey, version: n, createdBy: v["createdBy"] as? String,
+                                      createdAt: (v["createdAt"] as? String).flatMap(iso.date(from:)) ?? Date(),
+                                      metaVersion: nil, saveCount: nil)
+        }.sorted { $0.version > $1.version }
+    }
+}
+
+extension AppState {
+    /// The person restores a version of someone else's port from its tile: the host restores it (edit needed).
+    func restoreMirroredVersion(tile: String, version: Int) async throws {
+        guard let user = currentUser else { throw BridgeError.badArg("no signed-in person") }
+        var args: [String: Any] = ["id": tile, "version": version]
+        if let token = mirrorHostTokens[tile] { args[PortActivity.expectParam] = token }
+        _ = try await runBridgeMethod("port.restore", principal: .human(id: user.id, displayName: user.displayName,
+                                                                       spaceId: currentSpace?.id),
+                                      args: BridgeArgs(args))
     }
 }

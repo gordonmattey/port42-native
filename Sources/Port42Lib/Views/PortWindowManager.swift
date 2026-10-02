@@ -460,7 +460,10 @@ public final class PortWindowManager: ObservableObject {
         do {
             let record = PersistedPortPanel(from: panel)
             try db.savePortPanel(record)
-            try db.savePortVersion(portUdid: panel.udid, html: panel.html, createdBy: panel.createdBy)
+            // A tile of someone else's port keeps no versions: its history is the host's (one history).
+            if appState?.mirroredRemote(id) == nil {
+                try db.savePortVersion(portUdid: panel.udid, html: panel.html, createdBy: panel.createdBy)
+            }
         } catch {
             p42log("[Port42] Failed to persist port panel: %@", error.localizedDescription)
         }
@@ -960,7 +963,7 @@ public final class PortWindowManager: ObservableObject {
     /// depending on its author having remembered.
     @discardableResult
     public func updatePort(idOrTitle: String, html: String,
-                           skipVersionSnapshot: Bool = false) async -> PortLiveUpdate.Outcome? {
+                           skipVersionSnapshot: Bool = false, by author: String? = nil) async -> PortLiveUpdate.Outcome? {
         guard let idx = panels.firstIndex(where: { $0.udid == idOrTitle }) ??
               panels.firstIndex(where: {
                   let l = idOrTitle.lowercased()
@@ -1000,7 +1003,8 @@ public final class PortWindowManager: ObservableObject {
             record.title = newTitle
             try? db.savePortPanel(record)
             if !skipVersionSnapshot {
-                try? db.savePortVersion(portUdid: panels[idx].udid, html: html, createdBy: panels[idx].createdBy)
+                // The version names who made it (two agents on one port), else the port's maker.
+                try? db.savePortVersion(portUdid: panels[idx].udid, html: html, createdBy: author ?? panels[idx].createdBy)
             }
         }
 

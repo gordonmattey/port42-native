@@ -96,6 +96,16 @@ public final class AppState: ObservableObject {
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
 
+    /// The host's last token for each tile of someone else's port, by tile id: a tile's reads hand it out,
+    /// since its writes are checked on the host (two agents on one port, finding 1).
+    var mirrorHostTokens: [String: String] = [:]
+    /// The counter at each port's last code write (update, patch, restore, rename): a code write is refused
+    /// only when another code write happened after its token, not for other activity (Gordon, decision 4).
+    var codeWriteSeq: [String: Int] = [:]
+    /// The host's version history for each tile of someone else's port, by tile id: one history, shown on
+    /// both sides (Gordon, decision 7). Refreshed with the tile.
+    @Published var mirrorHistory: [String: [PortVersionSummary]] = [:]
+
     /// Each space's backdrop (per-space backgrounds, `SpaceBackgrounds.swift`): space id → live port id,
     /// and a closed port's fallback. App state, not a window's, so every window (#189) reads the same.
     @Published public internal(set) var backgroundPorts: [String: String] = [:]

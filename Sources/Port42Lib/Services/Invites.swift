@@ -727,9 +727,24 @@ extension AppState {
         }
         var forwarded = args.dictionary
         forwarded[target.param] = target.port
-        let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
-                                            actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
-        return BridgeValue.fromJSONObject(out)
+        let tile = ((try? db.remotePortTiles()) ?? [:]).first { $0.value.peerKey == target.peer && $0.value.portKey == target.port }?.key
+        do {
+            let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
+                                                actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
+            // Every answer from the host carries its token: keep it for this tile's reads.
+            if let tile, let token = (out as? [String: Any])?["token"] as? String { mirrorHostTokens[tile] = token }
+            return BridgeValue.fromJSONObject(out)
+        } catch let e as BridgeError {
+            if let tile, let current = e.details["current"] { mirrorHostTokens[tile] = current }
+            // A host with nothing left to share leaves its relays, so "not connected" is also what stopping
+            // sharing looks like from here: say both (two agents, finding 5).
+            if e.code == BridgeErrorCode.hostOffline.rawValue {
+                throw BridgeError(code: .hostOffline,
+                                  message: "\(row.hostName)'s Port42 is not reachable: it is offline, or it no longer shares this port with you",
+                                  details: e.details)
+            }
+            throw e
+        }
     }
 }
 

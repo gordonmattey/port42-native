@@ -76,6 +76,7 @@ extension AppState {
         // no point recording a driver or moving a port's token for a call about to be denied.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
                                             needsLiveSurface: method.needsLiveSurface,
+                                            replacesCode: method.replacesState,
                                             args: args, principal: principal)
 
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
@@ -215,7 +216,7 @@ extension AppState {
     /// RETURNS the port's key, or nil for a read. **Not the token** — the caller reads that after
     /// the body has run, because a write's own effects land during the body. See `tokenAfter(_:)`.
     @discardableResult
-    func applyWriteSideEffects(writesTarget: String?, needsLiveSurface: Bool = false,
+    func applyWriteSideEffects(writesTarget: String?, needsLiveSurface: Bool = false, replacesCode: Bool = false,
                                args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
            let ref = resolvePortRef(raw), let key = PortRef.key(ref) {
@@ -260,7 +261,8 @@ extension AppState {
             // mandatory for the one surface that cannot tolerate a splice.
             if let expected = args.string(PortActivity.expectParam) {
                 let current = portInput.token(for: key)
-                guard expected == current else {
+                guard expected == current || (replacesCode && Self.noCodeWriteSince(expected, current: current,
+                                                                                      lastCode: codeWriteSeq[key])) else {
                     // The error CARRIES `current`. Without it a caller only learns that it lost,
                     // not what to compose against — so the retry would be a guess, and a naive
                     // caller could never converge. With it: write → conflict → write, once.
@@ -316,9 +318,18 @@ extension AppState {
                 actorName: Self.chatAuthor(principal).name,
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
+            if replacesCode { codeWriteSeq[key] = portInput.seq(for: key) }
             return key
         }
         return nil
+    }
+
+    /// A code write composed against `expected` still lands when the port has only had other activity since
+    /// (card adds, chat, storage): no code write happened after it (Gordon, decision 4). Same epoch only.
+    nonisolated static func noCodeWriteSince(_ expected: String, current: String, lastCode: Int?) -> Bool {
+        let e = expected.split(separator: ":"), c = current.split(separator: ":")
+        guard e.count == 2, c.count == 2, e[0] == c[0], let seq = Int(e[1]), let now = Int(c[1]), seq <= now else { return false }
+        return seq >= (lastCode ?? 0)
     }
 
     /// The port's token AFTER a write's body has run — the value the caller gets back.
@@ -612,6 +623,7 @@ extension AppState {
         // with its own rules; a write is a write whichever registry serves it.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
                                             needsLiveSurface: method.needsLiveSurface,
+                                            replacesCode: method.replacesState,
                                             args: args, principal: principal)
 
         let value = try await method.run(principal, args, yield)

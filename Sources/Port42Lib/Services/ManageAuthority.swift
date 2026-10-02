@@ -22,11 +22,14 @@ extension AppState {
     }
 
     /// Who may see and change what a port is shared with (API parity, Phase E). Same shape as an invite's
-    /// authority: the person, the port itself, or a caller that made an invite for it.
+    /// authority: the person, the port itself, its maker, or a caller that made an invite for it.
     func mayManage(sharingOf portKey: String, by p: Principal) -> Bool {
         if p.kind == .human { return true }
         guard p.kind != .remote else { return false }
-        if portWindows.panels.first(where: { $0.udid == portKey || $0.id == portKey })?.bridge.portPrincipal.id == p.id { return true }
+        let panel = portWindows.panels.first { $0.udid == portKey || $0.id == portKey }
+        if panel?.bridge.portPrincipal.id == p.id { return true }
+        // The port's maker manages who it is shared with, whoever made the invite (two agents, finding 6).
+        if let maker = panel?.createdBy, maker == p.id { return true }
         return ((try? db.allInvites()) ?? []).contains { $0.portKey == portKey && $0.createdBy == p.id }
     }
 }

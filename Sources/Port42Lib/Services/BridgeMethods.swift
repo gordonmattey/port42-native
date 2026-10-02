@@ -376,7 +376,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // leave a gap in which the port could move, and hand back a token that was never true of
         // the html beside it.
         var out: [String: BridgeValue] = ["html": .string(html)]
-        if let key = ref.key { out["token"] = .string(appState.portInput.token(for: key)) }
+        if let key = ref.key {
+            // A tile of someone else's port answers with the host's token, the one its writes are checked against.
+            out["token"] = .string(appState.mirrorHostTokens[ref.id ?? key] ?? appState.portInput.token(for: key))
+        }
         return .object(out)
     }
 
@@ -1606,6 +1609,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // the same instant — a listing whose rows were read at different moments would hand out
         // tokens that were never all true together.
         let activity = appState.portInput.activitySnapshot
+        let hostTokens = appState.mirrorHostTokens   // a tile's token is the host's (taken with the snapshot)
         // Who each creator id is, resolved once here on the main actor: registered clients first,
         // then companions by id.
         var creatorNames: [String: String] = [:]
@@ -1642,7 +1646,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 // it just read and pass it back as `expect`. Surfaced on the DISCOVERY call because
                 // that is where a caller already learns the id — a token you have to make a second
                 // call for is a token nobody uses.
-                "token": .string(activity.token(for: id)),
+                "token": .string(hostTokens[id] ?? activity.token(for: id)),
             ]
             if remote { entries.append(.object(o)); return }
             if let spaceId { o["spaceId"] = .string(spaceId) }
@@ -1744,7 +1748,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         try appState.requireRewritableCode(target)   // NAU-05
         try appState.requireCodeAuthority(over: target, by: p)   // APP-07
         appState.recordCodeWrite(to: target, by: p, replacesAll: true)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
@@ -1775,7 +1780,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
         appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
@@ -1800,7 +1806,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
         appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])

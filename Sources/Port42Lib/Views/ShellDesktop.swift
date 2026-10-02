@@ -456,12 +456,23 @@ struct ShellTile: View {
     /// action builds the popover with the OLD empty list, which is why the first open showed nothing.
     @ViewBuilder
     private var versionPicker: some View {
-        PortVersionsPopover(accent: shell.accent,
-                            fetchGrouped: { appState.portWindows.fetchVersionSummaries(tile.id) },
-                            fetchAllSaves: { appState.portWindows.fetchSaveList(tile.id) }) { version in
-            appState.portWindows.restoreVersion(tile.id, version: version)
+        // A tile of someone else's port shows the host's history and restores there (one history).
+        let mirrored = appState.mirroredRemote(tile.id) != nil
+        return PortVersionsPopover(accent: shell.accent,
+                            fetchGrouped: { mirrored ? (appState.mirrorHistory[tile.id] ?? []) : appState.portWindows.fetchVersionSummaries(tile.id) },
+                            fetchAllSaves: { mirrored ? (appState.mirrorHistory[tile.id] ?? []) : appState.portWindows.fetchSaveList(tile.id) }) { version in
             showVersions = false
-            appState.toastMessage = "Restored version \(version)"
+            if mirrored {
+                Task { @MainActor in
+                    do {
+                        try await appState.restoreMirroredVersion(tile: tile.id, version: version)
+                        appState.toastMessage = "Restored version \(version)"
+                    } catch { appState.toastMessage = "Could not restore: \(error.localizedDescription)" }
+                }
+            } else {
+                appState.portWindows.restoreVersion(tile.id, version: version)
+                appState.toastMessage = "Restored version \(version)"
+            }
         }
     }
 
