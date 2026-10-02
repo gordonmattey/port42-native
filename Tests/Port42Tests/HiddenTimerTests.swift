@@ -22,7 +22,9 @@ struct HiddenTimerTests {
         return ((await js(wv, "return window.n") as? Int) ?? 0) - a
     }
 
-    @Test("an unseen port is clamped; hidden, it runs at its own rate; shown, the clamp is back")
+    @Test("an unseen port is clamped; hidden, it runs at its own rate; shown, the clamp is back",
+          .enabled(if: ProcessInfo.processInfo.environment["PORT42_TIMING_TESTS"] == "1",
+                   "a timing test: it measures wall-clock ticks, so it runs in the timing pass (scripts/test-gate.sh), not the full suite"))
     @MainActor
     func hiddenUnclamped() async throws {
         let state = AppState(db: try DatabaseService(inMemory: true))
