@@ -108,9 +108,9 @@ Each "needs you" item has up to three actions:
 
 ## Starting data
 
-- **Dev deliberate:** the "Next up" group of the later list (`plan-shell-only.md`): sessions surviving a
-  restart, pairing and scoped tokens, Codex tools, the relay rate cap, and so on. The rest of the
-  later list stays in the doc until one is picked up.
+- **Dev deliberate:** every open item of the later list (`plan-shell-only.md`), each as a `dev-*` item
+  (Gordon, 2026-10-02: the dash is the whole list, not only "Next up"). A new later-list item goes on the
+  dash when it is written down.
 - **Dev autopilot:** the squad's 1.0.2 batch, from `port42-issues`.
 - **Dev waiting on GM today:** nothing. The relay rate cap (#122) is deferred (Gordon, 2026-09-30).
 - **Growth** (lucky-ibis, 2026-09-28). Autopilot lanes: content (the Drafts desk in `port42-growth`),
