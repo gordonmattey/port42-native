@@ -104,6 +104,29 @@ loads. If publishers become dormant until needed (the not-started state in `docs
 persisted retained set is what lets a reader see the last summary of a port that has not started. That is a
 later step and a small table.
 
+### Kind names are discovered, not hardcoded
+
+Gordon's question on the card: should agents negotiate the topics a port publishes, or discover and select them, rather
+than having the names fixed in advance? Discover and select, yes. `summary` and `content` above are a convention
+authors may follow, not names the platform knows.
+
+- **Observed topics.** The bus records, per topic, the kinds it has seen: name, count, last time and last size. A reader
+  calls `port.topics(id)` and gets that list. It works for every port that already publishes, with no change to the
+  publisher.
+- **Declared topics.** A port may declare what it offers: `port.declare({ kinds: [{ kind, description, size, retain }] })`,
+  where `size` is `small` or `large` so a reader can tell a summary from a body before choosing. `ports.list` carries the
+  declared kinds, so an agent browsing ports sees what each one offers. A kind seen but not declared is listed as
+  undeclared.
+- **Selection.** A reader passes the kinds it chose in `opts.kinds`. A kind the publisher has never published is not an
+  error: the subscription simply sees nothing yet, and the reply to `port.subscribe` lists the kinds currently known
+  so a typo is visible.
+- **Negotiation, in the sense of asking for a kind the port does not offer,** is a command back to the publisher
+  (**use**, section 5), for example a request kind it documents. The platform does not mediate it.
+- **Who may list.** `port.topics` needs the same **see** right as subscribing. The kind names are visible to anyone
+  who may subscribe, so a publisher that must hide a kind's existence should not publish it on the topic.
+- **Drift.** A declared kind that is never published and a published kind that is never declared both show in the
+  listing, so a reader can tell a stale description from a live feed.
+
 ### The payload cap
 
 `port.publish` refuses an event whose payload encodes larger than a limit, with a message that says to publish
@@ -170,7 +193,8 @@ design does not add one.
 ## Work items (to file once Gordon passes this)
 
 1. **Feature, dev lead:** kinds, replay and retained last-per-kind on `port.subscribe` and `port.publish`, the
-   `at` field, the payload cap, and the same arguments through the remote subscribe.
+   `at` field, the payload cap, the same arguments through the remote subscribe, and discovery of kinds
+   (`port.topics`, `port.declare`, and the declared kinds on `ports.list`).
 2. **Issue, throttle:** escape a published event once for all subscribers, not once per subscriber
    (`PortBridge.pushToken`, `NotifyBus.publish`).
 3. **Issue, scribe:** the publisher and reader pattern (summary and content) in the ports manual, generated from
