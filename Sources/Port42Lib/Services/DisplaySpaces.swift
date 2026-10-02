@@ -245,6 +245,23 @@ public final class DisplaySpaces {
         map.release(spaceId); map.save()
     }
 
+    /// A space went to rest (#248): it is put away, as a deleted one is. A space window showing it closes
+    /// and is forgotten (waking the space opens it in the main window), and the main window, when another
+    /// window is the one in use and the main one shows it, takes a working space no window shows, or the
+    /// galaxy. Run after the window in use has landed, so a swap that just handed another window the
+    /// rested space is undone too.
+    public func spaceRested(_ spaceId: String) {
+        forget(spaceId)
+        for shell in appState.shells where !shell.isKey && !shell.isDisplayWindow && shell.spaceId == spaceId {
+            if let next = freeSpace(excluding: spaceId) {
+                shell.show(spaceId: next)
+            } else {
+                shell.show(spaceId: nil)
+                shell.zoom = .galaxy
+            }
+        }
+    }
+
     /// A working space no window shows, if there is one.
     private func freeSpace(excluding: String) -> String? {
         let shown = Set(appState.shells.compactMap(\.spaceId)).union([excluding])

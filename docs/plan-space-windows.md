@@ -24,6 +24,9 @@ so several spaces can be open on one screen.
    "Open in a new window", on the main window's screen.
 3. Closing: ⌘W, or the card's "Stop showing on <display>", closes the window and forgets it. A display
    unplugged closes its windows but keeps them, so they return when it is plugged back in.
+3a. A space that is deleted or rests is put away (#248): its window closes and is forgotten. A woken space
+   opens in the main window. If the main window shows a space that rests while another window is in use,
+   it takes a working space no window shows, or the galaxy.
 4. Moving and resizing are recorded as they happen (window move, resize and screen-change notifications).
 5. The galaxy marker says "on <screen>" for a space in a window on another screen, and "in another window"
    for one on the same screen.

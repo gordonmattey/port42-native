@@ -1787,6 +1787,7 @@ public final class AppState: ObservableObject {
         if let landingId, let landing = spaces.first(where: { $0.id == landingId }) {
             selectSpace(landing)
         }
+        displaySpaces.spaceRested(space.id)   // #248: no other window keeps showing it
     }
 
     /// Wake a rested space: back into the working set (galaxy front, indexes, peeks).

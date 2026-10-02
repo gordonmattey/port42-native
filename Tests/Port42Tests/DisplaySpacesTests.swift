@@ -100,6 +100,33 @@ struct DisplaySpacesTests {
         #expect(!main.isVisible(p3) && main.presentationSnapshot()["p3"]?.visible == false)
     }
 
+    /// The two-window world with its spaces in the database, as real ones are (rest reloads them).
+    func savedWorld() throws -> (AppState, ShellState, ShellState, [Space]) {
+        let w = try world()
+        for sp in w.3 { try w.0.db.saveSpace(sp) }
+        w.0.spaces = try w.0.db.getRegularSpaces()
+        return w
+    }
+
+    @Test("#248: a space that rests while the main window shows it, with another window in use, leaves the main window")
+    func restedLeavesMainWindow() throws {
+        let (state, main, other, s) = try savedWorld()   // main on s0, other on s1, s2 free
+        state.makeKey(other)                              // the person is in the other window
+        state.restSpace(s[0])
+        #expect(main.spaceId == s[2].id, "the main window kept showing a rested space")
+        #expect(other.spaceId == s[1].id)
+    }
+
+    @Test("#248: a space window showing a space that rests closes and is forgotten")
+    func restedClosesItsSpaceWindow() throws {
+        let (state, main, _, s) = try savedWorld()
+        state.displaySpaces.openInNewWindow(s[2].id)
+        try #require(state.displaySpaces.map.window(showing: s[2].id) != nil, "no space window opened to test with")
+        state.restSpace(s[2])
+        #expect(state.displaySpaces.map.window(showing: s[2].id) == nil, "the window for a rested space was kept")
+        #expect(main.spaceId == s[0].id)
+    }
+
     @Test("with one window, every event is its own, as before")
     func singleWindowUnchanged() throws {
         let state = AppState(db: try DatabaseService(inMemory: true))
