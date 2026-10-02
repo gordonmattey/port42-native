@@ -80,4 +80,25 @@ struct RestAcrossWindowsTests {
         #expect(main.otherDisplay(showing: spaces[0].id) == nil, "a window marks its own space as elsewhere")
         #expect(main.otherDisplay(showing: spaces[2].id) == nil, "a space on no display is marked")
     }
+
+    @Test("the laptop gives up a space that rests with none free: it waits in its galaxy, and never shows another window's space")
+    func restWithNoFreeSpace() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two")]
+        for s in spaces { try state.db.saveSpace(s) }
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        let other = ShellState(appState: state)
+        other.isDisplayWindow = true
+        other.show(spaceId: spaces[1].id)
+        state.makeKey(other)                                 // the person is on the other display
+        #expect(main.spaceId == spaces[0].id && other.spaceId == spaces[1].id)
+
+        state.restSpace(spaces[0])                           // the laptop's space rests; no working space is free
+        #expect(main.spaceId == nil && main.awaitingSpace && main.zoom == .galaxy, "the laptop still shows a rested space")
+        state.makeKey(main)                                  // the person clicks the laptop
+        #expect(main.spaceId == nil, "the laptop shows the other display's space: one space in two windows")
+        #expect(other.spaceId == spaces[1].id)
+    }
 }

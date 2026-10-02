@@ -274,8 +274,7 @@ public final class DisplaySpaces {
             if let next = freeSpace(excluding: spaceId) {
                 shell.show(spaceId: next)
             } else {
-                shell.show(spaceId: nil)
-                shell.zoom = .galaxy
+                shell.loseSpace()     // waits in its galaxy, so it never shows the space another window has
             }
         }
     }
