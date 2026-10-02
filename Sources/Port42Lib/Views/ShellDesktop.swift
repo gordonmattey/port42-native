@@ -25,7 +25,7 @@ struct ShellChrome: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(shell.accent)
-                    Text(appState.currentSpace?.name ?? "—").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textPrimary)
+                    Text(shell.space?.name ?? "—").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textPrimary)
                 }
                 .padding(.horizontal, 11).padding(.vertical, 4)
                 .background(shell.accent.opacity(shell.zoom == .galaxy ? 0.2 : 0.12), in: Capsule())
@@ -35,7 +35,7 @@ struct ShellChrome: View {
             .buttonStyle(.plain).help("All spaces (⌘G)")
 
             // The space's own chat: a space is a port, so it carries the same companion bar.
-            if let sid = appState.currentSpace?.id {
+            if let sid = shell.spaceId {
                 chromeRow {
                     PortChatBar(chats: appState.chats, key: sid, me: appState.currentUser?.id,
                                 accent: shell.accent, open: shell.spaceChatOpen) {
@@ -156,7 +156,7 @@ struct ShellDesktopView: View {
     /// chip's location on restore instead of sliding in from the screen edge.
     @Namespace private var restoreNS
 
-    private var sid: String? { appState.currentSpace?.id }
+    private var sid: String? { shell.spaceId }
 
     /// The tiled ports on this desktop — `ShellState.desktopTilePanels`, the ONE predicate
     /// shared with placement and ShellView's focus branch (Phase 0: no drift possible).
@@ -301,7 +301,7 @@ struct ShellDesktopView: View {
                 // reach — without this they are unreachable, since nothing re-clamps at render.
                 shell.clampTilesIntoView(area: s)
             }
-            .onChange(of: appState.currentSpace?.id) { old, new in
+            .onChange(of: shell.spaceId) { old, new in
                 ArrangeLog.note("desktop.spaceChanged",
                                 "from=\(ShellState.shortId(old ?? "-")) to=\(ShellState.shortId(new ?? "-"))")
                 shell.clearOpenDMs()                                                       // peeks are per-desktop
@@ -445,7 +445,7 @@ struct ShellTile: View {
 
     /// This tile lives in another space and is shown here: its menu offers taking it off this desktop.
     private var shownHereFromElsewhere: Bool {
-        guard let p = tile.panel, let cur = appState.currentSpace?.id else { return false }
+        guard let p = tile.panel, let cur = shell.spaceId else { return false }
         return p.spaceId != cur && p.adoptedSpaceIds.contains(cur)
     }
 
@@ -474,7 +474,7 @@ struct ShellTile: View {
     private var isMoving: Bool { moveDelta != .zero || resizeCorner != nil }
     private var isPeeking: Bool { peekFrame != nil && !isFocused }
     private var isSelected: Bool { shell.selectedTileId == tile.id }
-    private var sid: String? { appState.currentSpace?.id }
+    private var sid: String? { shell.spaceId }
     private var headerH: CGFloat { isPeeking ? peekHeaderH : titleBarH }
 
     /// The accent of the space a peek CAME FROM (its home) — the edge signals origin.
@@ -854,7 +854,7 @@ struct ShellTile: View {
                             // presentation flips to "background", so it drops out of the tile grid and
                             // re-parents full-bleed at Layer 0. The live surface (and any running
                             // shader) keeps running: no dismiss, no reload.
-                            appState.shell?.setBackgroundPort(id: tile.panel?.id ?? tile.id)
+                            shell.setBackgroundPort(id: tile.panel?.id ?? tile.id)   // this window's space (#189)
                             showMore = false
                         })
                 }
@@ -873,7 +873,7 @@ struct ShellTile: View {
                         case .show(let sid): appState.portWindows.adopt(id: id, into: sid)
                         case .stopShowing(let sid): appState.portWindows.unadopt(id: id, from: sid)
                         case .removeHere:
-                            if let cur = appState.currentSpace?.id { appState.portWindows.unadopt(id: id, from: cur) }
+                            if let cur = shell.spaceId { appState.portWindows.unadopt(id: id, from: cur) }
                         case .machine: shell.shareMove = true; shell.shareTarget = tile.panel?.udid
                         }
                     }
@@ -1127,7 +1127,7 @@ struct ShellParkRail: View {
     /// Ports put away in the rail. Only `parked` — the shell has NO floating presentation
     /// (Phase 2): a port here is tiled, parked, or peeking. One click restores a chip to a tile.
     private var railPanels: [PortPanel] {
-        guard let sid = appState.currentSpace?.id else { return [] }
+        guard let sid = shell.spaceId else { return [] }
         return appState.portWindows.railIds(in: sid).compactMap { id in
             appState.portWindows.panels.first { $0.id == id }
         }
@@ -1153,7 +1153,7 @@ struct ShellParkRail: View {
     /// The running ports that need you, rechecked every two seconds: a new one opens the rail for a moment.
     private var alertWatcher: some View {
         TimelineView(.periodic(from: .now, by: 2)) { _ in
-            let ids = Set(appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+            let ids = Set(appState.portWindows.hiddenPanels(in: shell.spaceId)
                 .filter { appState.portCard($0).needsAttention }.map(\.id))
             Color.clear
                 .onAppear { shell.noteRunningAlerts(ids) }
@@ -1178,7 +1178,7 @@ struct ShellParkRail: View {
     /// problem. Rechecked on the cards' own cadence.
     private var foldedEdge: some View {
         TimelineView(.periodic(from: .now, by: 5)) { _ in
-            let cards = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id).map { appState.portCard($0) }
+            let cards = appState.portWindows.hiddenPanels(in: shell.spaceId).map { appState.portCard($0) }
             VStack {
                 if let status = ShellState.railEdgeStatus(cards) {
                     Circle().fill(RailPortCard.color(status)).frame(width: 6, height: 6)
@@ -1259,7 +1259,7 @@ struct ShellParkRail: View {
     /// its card is all the person sees of it (docs/plan-port-state-v1.md). Click one to show it. The
     /// area is also the drop zone that hides a tile.
     private func hiddenCards(active: Bool) -> some View {
-        let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+        let hidden = appState.portWindows.hiddenPanels(in: shell.spaceId)
         return VStack(spacing: 0) {
             Text("Running (\(hidden.count))")
                 .font(active ? Port42Theme.monoBold(10) : Port42Theme.mono(10))
@@ -1311,7 +1311,20 @@ struct ShellTileBody: View {
     let tile: ShellTileModel
 
     var body: some View {
-        if let panel = tile.panel, panel.portType == "browser",
+        if let panel = tile.panel, !shell.hostsLive(panel.id) {
+            // #189: live in another window for now; a click here makes this the window in use, and
+            // the port comes over.
+            ZStack {
+                Color.black
+                VStack(spacing: 6) {
+                    Image(systemName: "display.2").font(.system(size: 20)).foregroundStyle(shell.accent)
+                    Text("live on the other display").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                    Text("click to bring it here").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { shell.window?.makeKeyAndOrderFront(nil) }
+        } else if let panel = tile.panel, panel.portType == "browser",
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
             ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
                              probeId: panel.id,
@@ -1499,7 +1512,7 @@ struct ShellDock: View {
     var body: some View {
         HStack(spacing: 14) {
             HStack(spacing: 10) {                                   // — COMPANIONS —
-                ForEach(appState.spaceCompanions) { companionChip($0) }
+                ForEach(shell.companionsHere) { companionChip($0) }   // this window's space (#189)
                 addCompanionButton
             }
             dockAligned { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40) }
@@ -1576,7 +1589,7 @@ struct ShellDock: View {
     /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
     /// surface, re-parents like any tile); "" startup means it just drops into an interactive shell.
     private func spawnTerminal() {
-        guard let space = appState.currentSpace else { return }
+        guard let space = shell.space else { return }
         // Open in the space working directory (docs/plan-companion-cwd.md), else home.
         let cwd = TerminalCwd.resolve(override: nil, spaceDir: space.workingDirectory)
         // Give the terminal a friendly codename up front. If the user runs `claude` in it, it
@@ -1593,7 +1606,7 @@ struct ShellDock: View {
 
     /// Dock "Browser" → an embedded WebKit browser tile (address bar + real navigation) at a start page.
     private func spawnBrowser() {
-        guard let sid = appState.currentSpace?.id else { return }
+        guard let sid = shell.spaceId else { return }
         // Current-space birth → a tile, not a peek (gated in handlePortCreated).
         _ = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
                                                        createdBy: nil, title: "browser")

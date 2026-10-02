@@ -18,10 +18,20 @@ public struct ShellView: View {
     /// AppState's own objectWillChange.
     @ObservedObject private var permissions: PermissionCoordinator
 
-    public init(appState: AppState) {
+    /// A window of its own on another display (#189), not the app's main window: it does not own the
+    /// voice session or the main window's takeover, and it opens on the space it is given.
+    private let displayWindow: Bool
+
+    public init(appState: AppState, displayWindow: Bool = false, spaceId: String? = nil) {
         self.appState = appState
         self.permissions = appState.permissions
-        _shell = StateObject(wrappedValue: ShellState(appState: appState))
+        self.displayWindow = displayWindow
+        _shell = StateObject(wrappedValue: {
+            let shell = ShellState(appState: appState)
+            shell.isDisplayWindow = displayWindow
+            if displayWindow { shell.show(spaceId: spaceId); shell.awaitingSpace = spaceId == nil }
+            return shell
+        }())
     }
 
     @State private var monitors: [Any] = []
@@ -95,11 +105,15 @@ public struct ShellView: View {
                 ShellPortHost(view: v,
                               bridge: appState.portWindows.panels.first(where: { $0.id == bgId })?.bridge,
                               probeId: bgId)
+                    // Each space has its own backdrop: a new identity per port, or the host keeps showing the
+                    // first space's surface (its container is built once and never swaps the view).
+                    .id(bgId)
                     .ignoresSafeArea()
             } else if let bgHtml = shell.backgroundPortHtml {
                 // Fallback: the background port was CLOSED — nothing live to re-parent, so mount a
                 // fresh copy from its stored HTML.
                 ShellBackgroundPort(html: bgHtml, appState: appState)
+                    .id(shell.spaceId)
                     .ignoresSafeArea()
             } else if ShellBackground.isDisabledForMeasurement {
                 // A/B for the scroll-jitter + beachball investigation (summer2026-todo.md). Measured
@@ -219,7 +233,7 @@ public struct ShellView: View {
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
             // The space's chat, dropped down from the top bar under the space name.
-            if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = appState.currentSpace?.id {
+            if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = shell.spaceId {
                 GeometryReader { geo in
                     // Drop-down size, or zoomed to a full view like a focused port.
                     // Or the size the person dragged it to (GM, 2026-09-26).
@@ -310,24 +324,34 @@ public struct ShellView: View {
         // VoiceOver and by tools that read window titles. Set on every update of the shell, so a
         // zoom, a focus change, or a rename of the space or port shows at once.
         .background(WindowRefAccessor { w in
+            shell.attach(window: w)
             let title = shell.windowTitle
             if let w, w.title != title { w.title = title }
         })
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
+            guard shell.isKey else { return }   // #189: the menu command is the window in use's
             shell.showSettings = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .newSpaceRequested)) { _ in
+            guard shell.isKey else { return }   // #189: the menu command is the window in use's
+            // ⌘N and File → New Space: the galaxy's new-space card, from anywhere.
+            appState.createSpace(name: "space \(appState.spaces.count + 1)")
+            withAnimation(.spring(response: 0.45)) { shell.zoom = .space }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
+            guard shell.isKey else { return }   // #189: the menu command is the window in use's
             shell.showQuickSwitcher.toggle()          // ⌘K — migrated from the classic app
         }
         .onReceive(NotificationCenter.default.publisher(for: .imagineRequested)) { _ in
+            guard shell.isKey else { return }   // #189: the menu command is the window in use's
             shell.showImagine.toggle()
         }
         // The switcher changed the space → land on the desktop rung (galaxy/focus would
         // otherwise linger over the new space). Scoped to switcher closes, so a space
         // change from galaxy management (e.g. delete) never yanks the ladder.
         .onChange(of: shell.showQuickSwitcher) { _, showing in
-            if showing { switcherSpaceId = appState.currentSpace?.id }
-            else if switcherSpaceId != appState.currentSpace?.id {
+            if showing { switcherSpaceId = shell.spaceId }
+            else if switcherSpaceId != shell.spaceId {
                 withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
             }
         }
@@ -363,12 +387,15 @@ public struct ShellView: View {
         .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.exitFocusIfGone() }
         .onAppear {
             installInputMonitors()
-            applyTakeoverToWindow()
-            shell.restoreBackgroundPort()            // a background port set last session
+            if !displayWindow {
+                applyTakeoverToWindow()
+                shell.restoreBackgroundPort()        // a background port set last session
+                appState.displaySpaces.restore()     // #189: spaces back on their displays
+            }
             // On unlock (TransitionRoot swaps LockScreenView → ShellView) land in the LAST space —
             // `AppState.unlock()` has already restored it as currentSpace. Galaxy if there's no
             // space yet (fresh setup) or every space rests (show the shelf, not a rested inside).
-            shell.zoom = ShellState.initialZoom(hasCurrentSpace: appState.currentSpace != nil,
+            shell.zoom = ShellState.initialZoom(hasCurrentSpace: shell.space != nil,
                                                 allRested: appState.workingSpaces.isEmpty,
                                                 onboarding: appState.isOnboarding,
                                                 chatUdid: onboardingChatUdid)
@@ -697,16 +724,18 @@ public struct ShellView: View {
 
     private func installInputMonitors() {
         guard monitors.isEmpty else { return }
-        installVoiceSession()
+        if !displayWindow { installVoiceSession() }
 
         // Trackpad pinch — one rung per gesture (the latch lives in ShellState).
         let magnify = NSEvent.addLocalMonitorForEvents(matching: .magnify) { e in
+            guard shell.owns(e) else { return e }   // #189: this window's events only
             shell.pinch(delta: e.magnification, began: e.phase == .began)
             return nil   // consume so webviews don't also zoom
         }
 
         // Cursor position → the ambient background parallax (don't consume; hover etc. still work).
         let move = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { e in
+            guard shell.owns(e) else { return e }   // #189: this window's events only
             if let cv = e.window?.contentView, cv.bounds.width > 0, cv.bounds.height > 0 {
                 let lp = e.locationInWindow
                 shell.mouse = CGPoint(x: lp.x / cv.bounds.width, y: 1 - lp.y / cv.bounds.height)
@@ -725,15 +754,19 @@ public struct ShellView: View {
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             // Hold-to-talk is decided BEFORE the chord and editor-yield paths below, because the
             // feature exists to work while a field or a port has the keyboard. It passes every key
-            // through unless a hold is actually in progress, so typing is untouched.
-            switch voice.keyDown(keyCode: e.keyCode,
-                                 hasModifiers: !e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-                                 isRepeat: e.isARepeat, now: e.timestamp) {
-            case .consume: return nil
-            case .passThrough:
-                if voice.isPending { armVoiceThreshold() }
-            default: break
+            // through unless a hold is actually in progress, so typing is untouched. There is one
+            // voice session, so the main window's shell handles it whichever window has the keyboard.
+            if !displayWindow {
+                switch voice.keyDown(keyCode: e.keyCode,
+                                     hasModifiers: !e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                                     isRepeat: e.isARepeat, now: e.timestamp) {
+                case .consume: return nil
+                case .passThrough:
+                    if voice.isPending { armVoiceThreshold() }
+                default: break
+                }
             }
+            guard shell.owns(e) else { return e }   // #189: this window's events only
 
             // Shell-global chords bypass the editor yield: ⌘`/⇧⌘` cycle, ⌘1…9 jump, ⌘K
             // switcher. Consumed here, so the menu's ⌘K can't double-fire.
@@ -793,6 +826,7 @@ public struct ShellView: View {
         }
 
         let keyUps = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { e in
+            guard !displayWindow else { return e }   // #189: voice is the main window's (above)
             voiceTimer?.invalidate(); voiceTimer = nil
             if voice.keyUp(keyCode: e.keyCode, now: e.timestamp) == .endCapture { endVoice() }
             return e
@@ -1033,7 +1067,7 @@ struct ShellGalaxyView: View {
 
     @ViewBuilder
     private func world(_ space: Space, index: Int) -> some View {
-        let on = space.id == appState.currentSpace?.id   // the current space — a quiet, persistent marker
+        let on = space.id == shell.spaceId   // the current space — a quiet, persistent marker
         let hovered = shell.galaxyHover == index          // the mouse — a loud, transient highlight
         let acc = shell.accent(for: space)          // this world's own theme
         // Not a Button: a hold opens settings and must NOT also fire the tap (which zoomed into the
@@ -1060,6 +1094,15 @@ struct ShellGalaxyView: View {
                     }
                 }.frame(width: 120, height: 120)
                 Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hovered || on ? acc : Port42Theme.textPrimary).tracking(2)
+                // Several displays (#189): a space another window shows says which screen it is on.
+                if let whereItIs = shell.otherDisplay(showing: space.id) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "display").font(.system(size: 10))
+                        Text(whereItIs).font(Port42Theme.mono(10)).lineLimit(1)
+                    }
+                    .foregroundStyle(acc.opacity(0.85))
+                    .help("This space is open \(whereItIs). Picking it here swaps the two windows.")
+                }
                 // What is happening there, at a glance (#137): who needs you, who is working on what,
                 // the ports running and paused, and unread chat.
                 SpaceGlanceView(appState: appState, space: space, accent: acc, presence: appState.presence,
@@ -1264,7 +1307,7 @@ struct ShellSettingsView: View {
             ), accent: col)
 
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            Button { dismiss(save: false) { if let s = appState.currentSpace { appState.removeCompanionFromSpace(c, space: s) } } } label: {
+            Button { dismiss(save: false) { if let s = shell.space { appState.removeCompanionFromSpace(c, space: s) } } } label: {
                 HStack(spacing: 6) { Image(systemName: "rectangle.portrait.and.arrow.right"); Text("Remove from this space") }
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
             }.buttonStyle(.plain)
@@ -1292,6 +1335,46 @@ struct ShellSettingsView: View {
     }
 
     // MARK: space
+
+    /// The space card's window rows: open the space in a new window, and show it on (or take it off)
+    /// each other connected display. A space is in one window at a time.
+    @ViewBuilder
+    private func spaceWindowRows(_ space: Space) -> some View {
+        let windows = appState.displaySpaces
+        let otherDisplays = windows.connected().filter { !$0.isMain }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WINDOWS").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+            if windows.hasWindow(space.id) {
+                spaceWindowRow("Close this window", icon: "xmark.rectangle",
+                               help: "Close this space's window. The space keeps running (⌘W does the same)") {
+                    windows.closeWindow(of: space.id)
+                }
+            } else {
+                spaceWindowRow("Open in a new window", icon: "macwindow.badge.plus",
+                               help: "Open this space in a window of its own, on this screen") {
+                    windows.openInNewWindow(space.id)
+                }
+            }
+            ForEach(otherDisplays) { d in
+                let showing = windows.isShowing(space.id, on: d.id)
+                spaceWindowRow(showing ? "Stop showing on \(d.name)" : "Show on \(d.name)", icon: "display",
+                               help: showing ? "Close this space's window on that display" : "Open this space on that display") {
+                    if showing { windows.stopShowing(space.id, on: d.id) } else { windows.put(space.id, on: d.id) }
+                }
+            }
+        }
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+    }
+
+    private func spaceWindowRow(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button { dismiss(save: true) { action() } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+        }.buttonStyle(.plain).help(help)
+    }
 
     private func spaceCard(_ space: Space) -> some View {
         let acc = shell.accent(for: space)
@@ -1358,6 +1441,8 @@ struct ShellSettingsView: View {
                 }
             }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            // Windows (#189, docs/plan-space-windows.md): open this space in a window of its own.
+            spaceWindowRows(space)
             // Rest / Wake (plan-working-set §A): one slot, two states. Any working space may
             // rest — even the last one (GM call: an all-rested galaxy is an empty front).
             if space.isResting {
@@ -1503,12 +1588,12 @@ struct ShellNewCompanionView: View {
         return isCLI || !command.trimmingCharacters(in: .whitespaces).isEmpty
     }
     private var rosterNotHere: [AgentConfig] {
-        let here = Set(appState.spaceCompanions.map(\.id))
+        let here = Set(shell.companionsHere.map(\.id))
         return appState.companions.filter { !here.contains($0.id) }
     }
     /// The ports of this space a companion can watch.
     private var watchablePorts: [PortPanel] {
-        appState.portWindows.panels.filter { $0.spaceId == appState.currentSpace?.id }
+        appState.portWindows.panels.filter { $0.spaceId == shell.spaceId }
     }
     /// What each watch choice means, in the words a person uses.
     private static let kindChoices: [(kind: String, label: String)] = [
@@ -1700,7 +1785,7 @@ struct ShellNewCompanionView: View {
         let c = Self.makeCompanion(owner: user.id, name: effectiveName, cli: cliChoice, command: command,
                                    argsText: argsText, workingDir: workingDir, prompt: promptText,
                                    hidden: runs == "running", secrets: [])
-        guard let sid = appState.currentSpace?.id else { return }
+        guard let sid = shell.spaceId else { return }
         // The same path `companions.create` takes, so what the harness proves is what this does.
         do {
             try appState.createCompanion(c, spaceId: sid, watchPort: listensTo == "a port" ? watchedPort : nil,
@@ -1731,7 +1816,7 @@ struct ShellNewCompanionView: View {
     }
 
     private func addExisting(_ c: AgentConfig) {
-        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
+        if let s = shell.space { appState.addCompanionToSpace(c, space: s) }
         dismiss()
     }
     private func dismiss() {

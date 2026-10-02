@@ -265,6 +265,10 @@ public final class GatewayDoor: NSObject, ObservableObject {
             if let peer = envelope.selfPeer, !peer.isEmpty { onSelfPeer?(peer) }
         case "call":
             handleCall(envelope)
+        case "cancel":
+            // The caller gave up, by the gateway's timeout or by leaving (#247): stop its call, which
+            // withdraws any card it waits on, so a late Allow acts for nobody.
+            if let id = envelope.callId { inflight[Self.inflightKey(envelope.senderId, id)]?.cancel() }
         case "relay_state":
             if let relay = envelope.relays?.first { onRelayState?(relay, envelope.code == "registered") }
         case "error":
@@ -274,36 +278,52 @@ public final class GatewayDoor: NSObject, ObservableObject {
         }
     }
 
+    /// The calls the gateway has handed us that have not answered yet, by caller and call id (#247).
+    private var inflight: [String: Task<Void, Never>] = [:]
+    static func inflightKey(_ sender: String?, _ callId: String) -> String { "\(sender ?? "")|\(callId)" }
+
     private func handleCall(_ envelope: DoorEnvelope) {
         guard let callId = envelope.callId, let method = envelope.method,
               let senderId = envelope.senderId else { return }
-        Task { @MainActor in
-            // A streaming method emits through here, as `stream` frames on the same call_id, but only
-            // when the gateway said the caller's door can carry them.
-            var emit: (@MainActor (Any) -> Void)?
-            if envelope.streamable == true {
-                emit = { [weak self] event in
-                    self?.send(Self.frame("stream", callId: callId, to: senderId, content: Self.jsonContent(from: event)))
-                }
-            }
-            let result: Any
-            if let peer = envelope.remotePeer, !peer.isEmpty {
-                let claim = RemoteClaim(peer: peer, attestation: envelope.remoteAttest ?? "",
-                                        actor: RemoteActor(wireId: envelope.actor?.id, name: envelope.actor?.name,
-                                                           kind: envelope.actor?.kind))
-                if let handler = onRemoteCallReceived {
-                    result = await handler(claim, method, envelope.argsAsAny, emit)
-                } else {
-                    result = ["error": "this instance takes no remote callers",
-                              "code": BridgeErrorCode.notGranted.wire]
-                }
-            } else if let handler = onCallReceived {
-                result = await handler(senderId, callId, method, envelope.argsAsAny, envelope.credential, emit)
-            } else {
-                result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire]
-            }
-            send(Self.response(callId: callId, to: senderId, content: Self.jsonContent(from: result)))
+        let key = Self.inflightKey(senderId, callId)
+        // While a call waits on a person, the gateway is told so it keeps the call open (#247).
+        let pending: @Sendable @MainActor () -> Void = { [weak self] in
+            self?.send(Self.frame("pending", callId: callId, to: senderId, content: ""))
         }
+        inflight[key] = Task { @MainActor in
+            defer { self.inflight[key] = nil }
+            await PermissionCoordinator.$awaitingPerson.withValue(pending) {
+                await self.runCall(envelope, callId: callId, method: method, senderId: senderId)
+            }
+        }
+    }
+
+    private func runCall(_ envelope: DoorEnvelope, callId: String, method: String, senderId: String) async {
+        // A streaming method emits through here, as `stream` frames on the same call_id, but only
+        // when the gateway said the caller's door can carry them.
+        var emit: (@MainActor (Any) -> Void)?
+        if envelope.streamable == true {
+            emit = { [weak self] event in
+                self?.send(Self.frame("stream", callId: callId, to: senderId, content: Self.jsonContent(from: event)))
+            }
+        }
+        let result: Any
+        if let peer = envelope.remotePeer, !peer.isEmpty {
+            let claim = RemoteClaim(peer: peer, attestation: envelope.remoteAttest ?? "",
+                                    actor: RemoteActor(wireId: envelope.actor?.id, name: envelope.actor?.name,
+                                                       kind: envelope.actor?.kind))
+            if let handler = onRemoteCallReceived {
+                result = await handler(claim, method, envelope.argsAsAny, emit)
+            } else {
+                result = ["error": "this instance takes no remote callers",
+                          "code": BridgeErrorCode.notGranted.wire]
+            }
+        } else if let handler = onCallReceived {
+            result = await handler(senderId, callId, method, envelope.argsAsAny, envelope.credential, emit)
+        } else {
+            result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire]
+        }
+        send(Self.response(callId: callId, to: senderId, content: Self.jsonContent(from: result)))
     }
 
     // MARK: - Calling another instance (nautilus Phase 4, 4.6)

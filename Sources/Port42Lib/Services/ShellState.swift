@@ -105,76 +105,46 @@ public final class ShellState: ObservableObject {
     @Published public var mouse: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     // MARK: - Background-as-port (the chrome-is-ports wedge)
+    //
+    // Each space has its own backdrop (Gordon, 2026-09-30). The backdrops are app state, kept on AppState
+    // (`SpaceBackgrounds.swift`): with a window per display (#189) each window reads the one for the
+    // space it shows, and the API sets them with no window at all.
 
-    /// The LIVE port set as the space background — re-parented full-bleed as Layer 0, NOT reloaded.
-    /// Background is a PRESENTATION of the port (like tiled/parked/focus), so moving to or from it is
-    /// a position change, never a lifecycle change: the hoisted webview never remounts, so a running
-    /// shader / JS state survives. Layer 0 hosts this port's live surface via `hostView(for:)`.
-    @Published public var backgroundPortId: String?
+    /// Where another window shows a space, if one does (#189): "on <screen>" for another screen, "in
+    /// another window" on this one. The galaxy marks it.
+    public func otherDisplay(showing spaceId: String) -> String? {
+        guard let other = appState.shells.first(where: { $0 !== self && $0.spaceId == spaceId }) else { return nil }
+        let theirs = other.window?.screen
+        if let theirs, theirs == window?.screen { return "in another window" }
+        return "on " + (theirs?.localizedName ?? "another display")
+    }
 
-    /// Fallback ONLY: the background port was CLOSED, so there is no live surface to re-parent —
-    /// Layer 0 mounts a fresh copy from this stored HTML. A live background always uses `backgroundPortId`.
-    @Published public var backgroundPortHtml: String?
-    private static let bgKey = "shell.backgroundPortId"
+    /// The companions of the space this window shows (#189). The window in use reads `spaceCompanions`
+    /// (from the database); another display's window reads the membership map an observer keeps current,
+    /// since `spaceCompanions` follows the window in use.
+    public var companionsHere: [AgentConfig] {
+        if isKey { return appState.spaceCompanions }
+        guard let sid = spaceId, let ids = appState.spaceAgentIds[sid] else { return [] }
+        return appState.companions.filter { ids.contains($0.id) }
+    }
 
-    /// True while anything is the background (a live port or the closed-port HTML fallback).
+    /// This window's space's live background port, if it has one.
+    public var backgroundPortId: String? { spaceId.flatMap { appState.backgroundPorts[$0] } }
+    /// This window's space's closed-port fallback HTML, if it has one.
+    public var backgroundPortHtml: String? { spaceId.flatMap { appState.backgroundHtmls[$0]?.html } }
+    /// True while this window's space has a background.
     public var hasBackgroundPort: Bool { backgroundPortId != nil || backgroundPortHtml != nil }
 
-    /// Set (or clear, with nil) the background port. A live port MOVES to the background presentation
-    /// (re-parent, no reload); a closed port falls back to a fresh HTML mount. The id is remembered so
-    /// it restores next launch.
+    /// Set (or clear, with nil) a space's background; `space` defaults to the space this window shows.
     @MainActor
-    public func setBackgroundPort(id: String?) {
-        guard let id else {
-            // Clear to the ambient dreamscape. A live background port flips back to a tile.
-            if let cur = backgroundPortId,
-               let panel = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur }) {
-                appState.portWindows.setPresentation(id: panel.id, to: "tiled")
-            }
-            backgroundPortId = nil
-            backgroundPortHtml = nil
-            UserDefaults.standard.removeObject(forKey: Self.bgKey)
-            return
-        }
-        // Live port → move it to the background presentation (drops from the grid, re-parents at
-        // Layer 0). The webview keeps running; nothing is cloned or reloaded.
-        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
-            appState.portWindows.setPresentation(id: panel.id, to: "background")
-            backgroundPortId = panel.id
-            backgroundPortHtml = nil
-            UserDefaults.standard.set(id, forKey: Self.bgKey)
-            return
-        }
-        // Closed port → nothing live to preserve; mount a fresh copy from its stored HTML.
-        if let html = resolveBackgroundHtml(id: id) {
-            backgroundPortId = nil
-            backgroundPortHtml = html
-            UserDefaults.standard.set(id, forKey: Self.bgKey)
-        }
+    public func setBackgroundPort(id: String?, in space: String? = nil) {
+        guard let sid = space ?? spaceId else { return }
+        appState.setBackgroundPort(id: id, in: sid)
     }
 
-    /// Resolve a port's current HTML: live panel first, then the version store (so a closed port can
-    /// still be a background).
+    /// Restore the backgrounds set in a previous session (once, from the main window).
     @MainActor
-    private func resolveBackgroundHtml(id: String) -> String? {
-        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
-            return panel.html
-        }
-        return (try? appState.db.fetchPortHtml(udid: id)) ?? nil
-    }
-
-    /// Restore a background port set in a previous session. A live port (persisted with the background
-    /// presentation) is re-parented; a closed one falls back to stored HTML.
-    @MainActor
-    public func restoreBackgroundPort() {
-        guard let id = UserDefaults.standard.string(forKey: Self.bgKey), !id.isEmpty else { return }
-        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
-            appState.portWindows.setPresentation(id: panel.id, to: "background")   // keep it out of the grid
-            backgroundPortId = panel.id
-        } else {
-            backgroundPortHtml = resolveBackgroundHtml(id: id)
-        }
-    }
+    public func restoreBackgroundPort() { appState.restoreBackgrounds() }
 
     /// Clear the background AND pop the port back onto the desktop as a tile — the reverse of "set as
     /// background". A live background flips straight back to a frontmost tile (no reload); a closed-port
@@ -188,8 +158,8 @@ public final class ShellState: ObservableObject {
             return
         }
         let html = backgroundPortHtml
-        setBackgroundPort(id: nil)                               // ambient dreamscape returns
-        guard let html, let sid = appState.currentSpace?.id else { return }
+        setBackgroundPort(id: nil)                               // this space's ambient dreamscape returns
+        guard let html, let sid = self.spaceId else { return }
         _ = appState.createPort(type: "web", title: "port", html: html, command: nil, cwd: nil,
                                 systemPrompt: nil, spaceId: sid, createdBy: nil, createdByName: nil)
     }
@@ -226,9 +196,84 @@ public final class ShellState: ObservableObject {
         if visible != windowVisible { windowVisible = visible }
     }
 
+    // MARK: - The space this window shows (#189)
+    //
+    // A shell is one window, and with spaces on several displays each window shows its own space. The
+    // window the person is using (the key shell, `appState.shell`) shows `appState.currentSpace`, so
+    // every path that switches space (the galaxy, ⌘K, a port link, `space.switchTo`) moves the window
+    // in front of them, and every "default space" (a new port, an agent that names none) is the space
+    // on that display (GM, 2026-09-29). Any other window keeps the space it had. With one window this
+    // is exactly the old behavior: that window is always the key shell.
+
+    /// The space this window keeps while another window is the key one.
+    @Published public private(set) var heldSpaceId: String?
+
+    /// Whether this is the window the person is using.
+    public var isKey: Bool { appState.shell === self }
+
+    /// The space this window shows.
+    public var spaceId: String? { isKey ? (awaitingSpace ? nil : appState.currentSpace?.id) : heldSpaceId }
+
+    /// A window with no space of its own yet, in its galaxy until the person picks one: a window from
+    /// File → New Window, or one whose space another window took (Gordon, 2026-10-01).
+    @Published public var awaitingSpace = false
+
+    /// The space this window shows, as a Space.
+    public var space: Space? {
+        if isKey { return awaitingSpace ? nil : appState.currentSpace }
+        return heldSpaceId.flatMap { id in appState.spaces.first { $0.id == id } }
+    }
+
+    /// This window is not the one in use any more: keep what it shows.
+    func holdSpace() { heldSpaceId = awaitingSpace ? nil : appState.currentSpace?.id }
+
+    /// This window's space went to another window: it waits in its galaxy for the person to pick one.
+    func loseSpace() {
+        heldSpaceId = nil
+        awaitingSpace = true
+        zoom = .galaxy
+    }
+
+    /// Show a space in this window without making it the key one (arranging, restoring at launch).
+    public func show(spaceId: String?) {
+        if isKey, let id = spaceId, let s = appState.spaces.first(where: { $0.id == id }) { appState.selectSpace(s) }
+        else { heldSpaceId = spaceId }
+    }
+
+    /// Whether this shell is a window of its own on another display, not the main window.
+    public var isDisplayWindow = false
+
+    /// The window this shell draws in, once it has one.
+    public private(set) weak var window: NSWindow?
+    private var keyObserver: NSObjectProtocol?
+
+    /// Learn this shell's window, and become the key shell whenever it becomes the key window.
+    func attach(window: NSWindow?) {
+        guard let window, window !== self.window else { return }
+        self.window = window
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification,
+                                                             object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if let self { self.appState.makeKey(self) } }
+        }
+        // Already key before this shell learned its window (a new window opened in front): it is the one in use.
+        if window.isKeyWindow { appState.makeKey(self) }
+    }
+
+    /// Whether an event is this shell's to handle. With one window, every event is, as before. With
+    /// several, an event in a shell's window is that shell's, and one in any other window (a panel,
+    /// a sheet) is the key shell's. Every window installs the same monitors, so this keeps a shortcut
+    /// from acting in two windows at once.
+    public func owns(_ event: NSEvent) -> Bool {
+        let all = appState.shells
+        guard all.count > 1 else { return true }
+        if let w = event.window, all.contains(where: { $0.window === w }) { return w === window }
+        return isKey
+    }
+
     public init(appState: AppState) {
         self.appState = appState
-        appState.shell = self          // back-ref so the bridge can reach shell-level state
+        appState.adopt(shell: self)    // back-ref so the bridge can reach shell-level state
         #if DEBUG
         Self.debugCurrent = self
         #endif
@@ -253,7 +298,8 @@ public final class ShellState: ObservableObject {
             $zoom.map { _ in () }.eraseToAnyPublisher(),                       // focus / galaxy / space
             $peekingPorts.map { _ in () }.eraseToAnyPublisher(),              // peek in / out
             appState.portWindows.$panels.map { _ in () }.eraseToAnyPublisher(), // park/bg/adopt/move/new/close/size
-            appState.$currentSpace.map { _ in () }.eraseToAnyPublisher()      // desktop switch
+            appState.$currentSpace.map { _ in () }.eraseToAnyPublisher(),     // desktop switch
+            $heldSpaceId.map { _ in () }.eraseToAnyPublisher()                // this window's space (#189)
         ]
         presentationSink = Publishers.MergeMany(inputs)
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
@@ -276,7 +322,7 @@ public final class ShellState: ObservableObject {
     /// Is this port adopted onto the CURRENT desktop? Phase 3: adoption lives on the panel
     /// (`adoptedSpaceIds`, persisted) — not a session set — so it survives switch + restart.
     private func isAdoptedHere(_ id: String) -> Bool {
-        guard let sid = appState.currentSpace?.id else { return false }
+        guard let sid = self.spaceId else { return false }
         return appState.portWindows.panels.first { $0.id == id }?.adoptedSpaceIds.contains(sid) ?? false
     }
 
@@ -304,7 +350,7 @@ public final class ShellState: ObservableObject {
         // Your space → a tile, not a peek. A fresh panel is born at z=0 (the bottom of the paint
         // order), so stamp it frontmost + select it here — the ONE choke point every creator funnels
         // through (portCreated) — so a launched terminal/browser/AI-made port lands on top, not under.
-        guard sid != appState.currentSpace?.id else { bringToFront(id); return }
+        guard sid != self.spaceId else { bringToFront(id); return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), title: title))
         startPeekCountdown(id, Self.unseenPeekLifetime)
@@ -325,7 +371,7 @@ public final class ShellState: ObservableObject {
     /// exception — an unanswered permission prompt re-notifies — so the dedup is load-bearing.
     func handleNeedsAttention(id: String, spaceId: String?, title: String, reason: String = "") {
         guard let sid = spaceId, !isRested(sid) else { return }
-        guard sid != appState.currentSpace?.id else { return }
+        guard sid != self.spaceId else { return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid),
                                      title: Self.attentionTitle(companion: title, reason: reason)))
@@ -362,8 +408,14 @@ public final class ShellState: ObservableObject {
     public func restSpace(_ space: Space) {
         appState.restSpace(space)
         guard appState.spaces.first(where: { $0.id == space.id })?.isResting == true else { return }
-        for p in peekingPorts where p.spaceId == space.id { peekRemaining[p.id] = nil }
-        peekingPorts.removeAll { $0.spaceId == space.id }
+        // Every window's peeks, not only this one's (#189: a window per display, each with its own strip).
+        for shell in appState.shells { shell.dropPeeks(of: space.id) }
+    }
+
+    /// Clear this window's peeks raised from one space (it went to rest).
+    func dropPeeks(of spaceId: String) {
+        for p in peekingPorts where p.spaceId == spaceId { peekRemaining[p.id] = nil }
+        peekingPorts.removeAll { $0.spaceId == spaceId }
     }
 
     /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't
@@ -398,7 +450,7 @@ public final class ShellState: ObservableObject {
         peekingPorts.removeAll { $0.id == peek.id }
         peekRemaining[peek.id] = nil
         peekTotal[peek.id] = nil
-        if let sid = appState.currentSpace?.id {                     // adoption is persisted (Phase 3)
+        if let sid = self.spaceId {                     // adoption is persisted (Phase 3)
             appState.portWindows.adopt(id: peek.id, into: sid)
         }
         bringToFront(peek.id)
@@ -471,7 +523,7 @@ public final class ShellState: ObservableObject {
 
     /// The current space's accent (falls back to the base accent).
     public var accent: Color {
-        guard let s = appState.currentSpace else { return Self.palette[0] }
+        guard let s = space else { return Self.palette[0] }
         return accent(for: s)
     }
 
@@ -566,11 +618,23 @@ public final class ShellState: ObservableObject {
     /// foreign ports. The desktop renders this set, placement places into it, and ShellView's
     /// focus branch checks membership — one filter, so they can never drift apart (Phase 0).
     public var desktopTilePanels: [PortPanel] {
-        guard let sid = appState.currentSpace?.id else { return [] }
+        guard let sid = self.spaceId else { return [] }
         return appState.portWindows.panels.filter { p in
             p.presentation == "tiled" && !p.isBackground
                 && (p.spaceId == sid || p.adoptedSpaceIds.contains(sid) || p.pinnedEverywhere)
         }
+    }
+
+    /// Whether this window draws a port's live view (#189). A port's live view is one AppKit view, so
+    /// when two windows show the same port (pinned everywhere, or adopted into two spaces that are
+    /// both on screen) one of them has it: the window in use if it shows the port, else the first
+    /// window that does. The other shows where it is live. GM wants it live on every display; a
+    /// second live view per window is the next step (docs/design-display-spaces.md).
+    public func hostsLive(_ portId: String) -> Bool {
+        let showing = appState.shells.filter { $0.desktopTilePanels.contains { $0.id == portId } }
+        guard showing.count > 1, showing.contains(where: { $0 === self }) else { return true }
+        if let key = showing.first(where: \.isKey) { return key === self }
+        return showing.first === self
     }
 
     /// Paint order for the desktop's tiles (GM, 2026-09-27): pinned tiles above unpinned ones, each
@@ -627,9 +691,26 @@ public final class ShellState: ObservableObject {
     public func presentation(forPortId key: String) -> PortPresentation? {
         guard let panel = appState.portWindows.panels.first(where: { $0.udid == key || $0.messageId == key })
         else { return nil }
-        let item = contextItems.first { $0.id == panel.id }
-        return Self.presentation(for: panel, zoom: zoom, item: item, area: lastDesktopArea)
+        let owner = presentationOwner(panel.id)
+        let item = owner.contextItems.first { $0.id == panel.id }
+        return Self.presentation(for: panel, zoom: owner.zoom, item: item, area: owner.lastDesktopArea)
     }
+
+    /// The window whose view of a port is the port's presentation (#189). With several windows, each
+    /// knows only its own desktop, so asking the window in use about a port on another display said
+    /// "not visible" and that port could be suspended while on screen (Scribe, seq 1032). A port's
+    /// presentation is the one from the window that shows it, the window in use first; a port no
+    /// window shows is answered by this one. With one window, it is always this one.
+    func presentationOwner(_ portId: String) -> ShellState {
+        let all = appState.shells
+        guard all.count > 1 else { return self }
+        let showing = all.filter { $0.isDesktopUnit(portId) }
+        return showing.first(where: \.isKey) ?? showing.first ?? self
+    }
+
+    /// The one window that pushes presentation events, so two windows never send a port opposite
+    /// answers (#189): the first window, which is the main one.
+    var presentationDriver: ShellState { appState.shells.first ?? self }
 
     /// The last presentation pushed to each port, keyed by `panel.id` — the diff baseline for
     /// `syncPresentation` (Step 3). Reason-nil (the mapping never sets reason) so the diff compares only
@@ -640,11 +721,17 @@ public final class ShellState: ObservableObject {
     /// (Ghostty) and SwiftUI chat ports carry no rAF and no JS listener, so they are excluded — as they
     /// are from the desktop's web-unit predicate. Reads live shell/app state; mutates nothing observed.
     func presentationSnapshot() -> [String: PortPresentation] {
-        let itemById = Dictionary(contextItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // Each window's own desktop, once; a port is presented by the window that shows it (#189).
+        let windows = appState.shells.count > 1 ? appState.shells : [self]
+        let items = windows.map { w in Dictionary(w.contextItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
+        let keyIndex = windows.firstIndex(where: \.isKey)
         var out: [String: PortPresentation] = [:]
         for panel in appState.portWindows.panels where panel.portType == "web" {
-            out[panel.id] = Self.presentation(for: panel, zoom: zoom,
-                                              item: itemById[panel.id], area: lastDesktopArea)
+            let showing = items.indices.filter { items[$0][panel.id] != nil }
+            let i = showing.first(where: { $0 == keyIndex }) ?? showing.first ?? windows.firstIndex(where: { $0 === self }) ?? 0
+            let owner = windows[i]
+            out[panel.id] = Self.presentation(for: panel, zoom: owner.zoom,
+                                              item: items[i][panel.id], area: owner.lastDesktopArea)
         }
         return out
     }
@@ -653,8 +740,9 @@ public final class ShellState: ObservableObject {
     /// presentation `visible` axis. The ONE computation shared by the AI-suspend gate (0.3, re-keyed)
     /// and the heartbeat skip — not visible = not spending, not woken.
     func isVisible(_ panel: PortPanel) -> Bool {
-        let item = contextItems.first { $0.id == panel.id }
-        return Self.presentation(for: panel, zoom: zoom, item: item, area: lastDesktopArea).visible
+        let owner = presentationOwner(panel.id)
+        let item = owner.contextItems.first { $0.id == panel.id }
+        return Self.presentation(for: panel, zoom: owner.zoom, item: item, area: owner.lastDesktopArea).visible
     }
 
     /// THE one emit funnel (Step 3): snapshot → pure diff → push the changed ports → store the snapshot.
@@ -662,6 +750,9 @@ public final class ShellState: ObservableObject {
     /// never feed back into its own trigger (invariant #3). Driven solely by the debounced pipeline in
     /// `init`; never call it per-transition (that is the fragility the teardown work removed).
     func syncPresentation() {
+        // One window pushes for every port (#189); a change in another window's desktop asks it to.
+        let driver = presentationDriver
+        guard driver === self else { driver.syncPresentation(); return }
         let next = presentationSnapshot()
         for delta in Self.presentationDeltas(prev: lastPresentation, next: next) {
             appState.portWindows.panels.first(where: { $0.id == delta.id })?
@@ -698,7 +789,7 @@ public final class ShellState: ObservableObject {
 
     /// Non-background port udids on the current space, in panel order.
     public var currentSpacePortIds: [String] {
-        guard let sid = appState.currentSpace?.id else { return [] }
+        guard let sid = self.spaceId else { return [] }
         return appState.portWindows.panels
             .filter { $0.spaceId == sid && !$0.isBackground }
             .map { $0.udid }
@@ -734,7 +825,7 @@ public final class ShellState: ObservableObject {
         case .galaxy:
             // Hover indexes the WORKING SET (the galaxy front renders workingSpaces only).
             if let h = galaxyHover, appState.workingSpaces.indices.contains(h),
-               appState.workingSpaces[h].id != appState.currentSpace?.id {
+               appState.workingSpaces[h].id != self.spaceId {
                 jumpToSpace(index: h)             // hover-dive: enter the hovered space
             } else {
                 zoom = .space
@@ -782,6 +873,9 @@ public final class ShellState: ObservableObject {
     public func jumpToSpace(index: Int) {
         let working = appState.workingSpaces
         guard working.indices.contains(index) else { return }
+        // The pick is this window's, whichever window macOS last made key (#189: a new window can be in
+        // front before it is the window in use, and the pick then switched the laptop's space).
+        if !isKey { appState.makeKey(self) }
         appState.selectSpace(working[index])
         selectedPortId = nil
         galaxyHover = nil
@@ -1102,7 +1196,7 @@ public final class ShellState: ObservableObject {
 
     /// The frames of the tiles on the desktop now, as the desktop draws them.
     public func desktopFrames() -> [String: CGRect] {
-        let sid = appState.currentSpace?.id
+        let sid = self.spaceId
         var out: [String: CGRect] = [:]
         for (i, p) in desktopTilePanels.enumerated() {
             out[p.id] = ShellPlacement.resolvedTileFrame(position: p.position(on: sid), size: p.size, fallbackIndex: i)
@@ -1125,7 +1219,7 @@ public final class ShellState: ObservableObject {
         let changes = makeRoomPreview
         makeRoomPreview = [:]
         guard keep, !changes.isEmpty else { return }
-        let sid = appState.currentSpace?.id
+        let sid = self.spaceId
         let before = desktopFrames()
         var originals: [String: CGRect] = [id: old]
         for nid in changes.keys { originals[nid] = before[nid] }
@@ -1193,7 +1287,7 @@ public final class ShellState: ObservableObject {
             focused = appState.portWindows.panels.first { $0.id == id || $0.udid == id }?.title
         }
         return Self.windowTitle(locked: appState.showDreamscape || !appState.isSetupComplete,
-                                space: appState.currentSpace?.name, zoom: zoom, focusedTitle: focused)
+                                space: space?.name, zoom: zoom, focusedTitle: focused)
     }
 
     /// What VoiceOver says for a port's tile: its name and what kind of port it is, and whether it
@@ -1481,7 +1575,7 @@ public final class ShellState: ObservableObject {
     /// launches/reveals its terminal port; a headless one is reached in the space's chat.
     public func activateCompanion(_ companion: AgentConfig) {
         if companion.openInTerminal {
-            guard let sid = appState.currentSpace?.id else { return }
+            guard let sid = self.spaceId else { return }
             // Spawn/restore the terminal if needed, then bring it to the front so clicking the dock
             // avatar always switches to the companion's window (not a no-op when already live).
             appState.ensureTerminalLive(companion: companion, spaceId: sid)
@@ -1505,7 +1599,7 @@ public final class ShellState: ObservableObject {
     /// Dismiss a tile via its ✕. A surfaced foreign chat/port is DETACHED (removed from this desktop,
     /// but lives on in its home space); a native tile of THIS space is actually closed.
     public func dismissTile(_ panel: PortPanel) {
-        if let cur = appState.currentSpace?.id, panel.adoptedSpaceIds.contains(cur) {
+        if let cur = self.spaceId, panel.adoptedSpaceIds.contains(cur) {
             appState.portWindows.unadopt(id: panel.id, from: cur)   // adopted foreign port → detach (persisted)
 
             return
@@ -1521,7 +1615,7 @@ public final class ShellState: ObservableObject {
 
     /// How tall the rail's open Paused cards are right now, in the current space.
     public var pausedCardsHeight: CGFloat {
-        Self.pausedCardsHeight(open: pausedOpen, count: appState.portWindows.railIds(in: appState.currentSpace?.id).count)
+        Self.pausedCardsHeight(open: pausedOpen, count: appState.portWindows.railIds(in: self.spaceId).count)
     }
 
     /// A running port popped up from the rail for a look (#191), and the Running slot it came from.
@@ -1565,7 +1659,7 @@ public final class ShellState: ObservableObject {
     /// if it has no spot, and frontmost. Its view was running all along, so it only remounts.
     public func showHidden(_ id: String) {
         guard let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return }
-        if let sid = panel.spaceId, sid != appState.currentSpace?.id,
+        if let sid = panel.spaceId, sid != self.spaceId,
            let space = appState.spaces.first(where: { $0.id == sid }) {
             appState.selectSpace(space)
         }
@@ -1588,7 +1682,7 @@ public final class ShellState: ObservableObject {
     /// There is no re-grid at all: ⌘L went in nautilus Phase 2. Tiles are walked in z order so `place` sees the
     /// frontmost tile last, which is what its cascade fallback stacks on.
     public func placeUnpositioned(area: CGSize) {
-        guard let desktop = appState.currentSpace?.id else { return }
+        guard let desktop = self.spaceId else { return }
         let panels = desktopTilePanels.sorted { $0.z < $1.z }
         // Occupied = every tile placed ON THIS DESKTOP, plus the peek column, which is drawn OVER the
         // tiles at a fixed left-edge slot. Without the peeks a newborn lands under one.
@@ -1613,7 +1707,7 @@ public final class ShellState: ObservableObject {
     /// removes the accidental re-grids that used to rescue it by luck, so this is the replacement:
     /// it moves ONLY what is off-screen, and never the rest.
     public func clampTilesIntoView(area: CGSize) {
-        guard let desktop = appState.currentSpace?.id else { return }
+        guard let desktop = self.spaceId else { return }
         let bounds = ShellPlacement.workArea(in: area)
         for p in desktopTilePanels {
             guard let pos = p.position(on: desktop) else { continue }

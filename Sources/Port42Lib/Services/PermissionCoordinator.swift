@@ -51,7 +51,8 @@ public final class PermissionRequest: Identifiable, ObservableObject {
     /// What exactly is asked for, when the permission alone does not say: the named secret a caller
     /// wants to use (`rest.call`). Part of the coalescing key, so two different secrets are two cards.
     public let detail: String?
-    fileprivate var continuations: [CheckedContinuation<PermissionOutcome, Never>] = []
+    /// Each awaiter has an id, so one that gives up can leave without answering the others (#247).
+    fileprivate var continuations: [(id: UUID, resume: CheckedContinuation<PermissionOutcome, Never>)] = []
 
     /// How many awaiters ride this request. Continuations stay private; the count is observable so
     /// a caller (or a test settling on registration) can see coalescing without touching them.
@@ -68,7 +69,7 @@ public final class PermissionRequest: Identifiable, ObservableObject {
     fileprivate func resolve(_ outcome: PermissionOutcome) {
         let waiting = continuations
         continuations.removeAll()
-        for c in waiting { c.resume(returning: outcome) }
+        for c in waiting { c.resume.resume(returning: outcome) }
     }
 
     /// The macOS consent dialogs that follow OUR card, named before they appear. Found live
@@ -125,22 +126,56 @@ public final class PermissionCoordinator: ObservableObject {
         await decide(permission, from: principal, detail: detail) == .granted
     }
 
+    /// Called, from the task that is about to wait, when an ask will wait on a person. The gateway
+    /// door sets it per call, to tell the gateway to keep the call open while the card is up (#247).
+    @TaskLocal public static var awaitingPerson: (@Sendable @MainActor () -> Void)?
+
     /// `request`, keeping how it ended, so a lock can reach the caller as its own error (APP-16).
+    ///
+    /// **A caller that gives up takes its ask with it** (#247). Cancelling the waiting task resumes
+    /// it as `.cancelled` and withdraws its place on the card; a card nobody else waits on goes. A
+    /// late click then answers nobody, so it cannot act for a caller that is gone (a gateway call that
+    /// timed out used to have its companions.delete applied when the person clicked Allow later).
     public func decide(_ permission: PortPermission, from principal: Principal,
                        detail: String? = nil) async -> PermissionOutcome {
         guard canPrompt() else { return .locked }
-        return await withCheckedContinuation { continuation in
-            if let existing = find(permission, principal, detail) {
-                existing.continuations.append(continuation)
-                return
+        if Task.isCancelled { return .cancelled }
+        Self.awaitingPerson?()
+        let awaiter = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let existing = find(permission, principal, detail) {
+                    existing.continuations.append((awaiter, continuation))
+                    return
+                }
+                let req = PermissionRequest(permission: permission, principal: principal, detail: detail)
+                req.continuations.append((awaiter, continuation))
+                if current == nil {
+                    current = req
+                } else {
+                    queued.append(req)
+                }
             }
-            let req = PermissionRequest(permission: permission, principal: principal, detail: detail)
-            req.continuations.append(continuation)
-            if current == nil {
-                current = req
-            } else {
-                queued.append(req)
-            }
+        } onCancel: {
+            // Hops to the main actor, where the continuation above was registered synchronously, so
+            // the withdrawal always finds it.
+            Task { @MainActor [weak self] in self?.withdraw(awaiter) }
+        }
+    }
+
+    /// One awaiter gives up: it is answered `.cancelled`, and its card goes if nobody else waits on it.
+    private func withdraw(_ awaiter: UUID) {
+        let all = (current.map { [$0] } ?? []) + queued
+        guard let req = all.first(where: { $0.continuations.contains { $0.id == awaiter } }),
+              let i = req.continuations.firstIndex(where: { $0.id == awaiter }) else { return }
+        let gone = req.continuations.remove(at: i)
+        gone.resume.resume(returning: .cancelled)
+        guard req.continuations.isEmpty else { return }
+        if current === req {
+            current = nil
+            advance()
+        } else {
+            queued.removeAll { $0 === req }
         }
     }
 

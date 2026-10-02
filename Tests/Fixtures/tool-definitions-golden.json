@@ -310,6 +310,66 @@
     "name" : "companions_unwatch"
   },
   {
+    "description" : "Change a companion's settings, as its settings box does: name, system prompt, model, where it runs (port or running), command and args, working directory, and trigger (mentionOnly or allMessages). Pass only what changes. A companion changes itself freely; anyone else asks the person, naming the companion and what changes, every time. Its secrets are not changeable here. A new prompt, command or folder reaches a running session when it next starts; a new name takes effect at once. companion is its id or name.",
+    "input_schema" : {
+      "properties" : {
+        "args" : {
+          "description" : "Arguments for the CLI or command.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "command" : {
+          "description" : "agent custom: the command to run.",
+          "type" : "string"
+        },
+        "companion" : {
+          "description" : "The companion's id or name.",
+          "type" : "string"
+        },
+        "cwd" : {
+          "description" : "Working directory.",
+          "type" : "string"
+        },
+        "model" : {
+          "description" : "Its model, where the CLI takes one.",
+          "type" : "string"
+        },
+        "name" : {
+          "description" : "A new name. Two companions cannot share one.",
+          "type" : "string"
+        },
+        "prompt" : {
+          "description" : "Its system prompt.",
+          "type" : "string"
+        },
+        "runs" : {
+          "description" : "Where its terminal runs.",
+          "enum" : [
+            "port",
+            "running",
+            "hidden"
+          ],
+          "type" : "string"
+        },
+        "trigger" : {
+          "description" : "What wakes it in a chat.",
+          "enum" : [
+            "mentionOnly",
+            "allMessages"
+          ],
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "companion"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_update"
+  },
+  {
     "description" : "Watch a port: an event on it of a kind you name wakes you for a turn, and your reply is posted in that port's chat. Default kinds: [\"port\"], the port's own published events (port.publish). Others: \"console\" (a log line or error), \"state\" (an edit), \"chat\" (every post in its chat), or one exact kind such as \"port.alert\". Events that arrive while you are in a turn are held and given to you together when it ends. Watching again changes the watch and resumes it if it paused (a watch pauses after 60 wakes in an hour, and says so in the port's chat). Call it as the companion that should wake, or pass `companion` to set a watch for another.",
     "input_schema" : {
       "properties" : {
@@ -508,7 +568,7 @@
     "name" : "invite_accept"
   },
   {
-    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+    "description" : "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
     "input_schema" : {
       "properties" : {
         "expiresIn" : {
@@ -524,7 +584,7 @@
           "type" : "boolean"
         },
         "rights" : {
-          "description" : "see, use, edit, wake_agents, fork. Default see, use and wake_agents.",
+          "description" : "see, use, edit, wake_agents, fork, move. Default see, use and wake_agents.",
           "items" : {
             "type" : "string"
           },
@@ -562,6 +622,72 @@
       "type" : "object"
     },
     "name" : "invite_revoke"
+  },
+  {
+    "description" : "Change what one person a port is shared with may do: rights is the full set wanted, of use, edit, wake_agents, fork (see always stays; to remove someone use invite_stop). Taking rights away needs no card. Adding any asks the person first, every time for edit, as sharing does. Returns the rights now held.",
+    "input_schema" : {
+      "properties" : {
+        "peer" : {
+          "description" : "The person's peer key or name (from invite_shared).",
+          "type" : "string"
+        },
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        },
+        "rights" : {
+          "description" : "The full set wanted: use, edit, wake_agents, fork.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "required" : [
+        "port",
+        "peer",
+        "rights"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_set_rights"
+  },
+  {
+    "description" : "Who a port is shared with now: each person's peer key, name and rights. A person who joined through an invite; invite_list shows the links.",
+    "input_schema" : {
+      "properties" : {
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_shared"
+  },
+  {
+    "description" : "Stop sharing a port with one person: their access goes, and the links they came in on are withdrawn. The port stays shared with anyone else. Taking access away needs no card.",
+    "input_schema" : {
+      "properties" : {
+        "peer" : {
+          "description" : "The person's peer key or name (from invite_shared).",
+          "type" : "string"
+        },
+        "port" : {
+          "description" : "The port (id \/ udid \/ title).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port",
+        "peer"
+      ],
+      "type" : "object"
+    },
+    "name" : "invite_stop"
   },
   {
     "description" : "Send a macOS system notification",
@@ -859,15 +985,19 @@
     "name" : "port_look"
   },
   {
-    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
+    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop, still running at full speed, with its chat and subscriptions, shown as a card under Running in the rail), pause (off the desktop, slowed, listed under Paused in the rail; a terminal keeps running), show (bring a running or paused port back onto its desktop), pin (keep it above the other ports in its space), pinEverywhere (show it in every space, above the other ports, at one position), unpin, showIn (show it in another space too, as the port menu's Spaces… row does: pass space_id; the port stays where it lives and is live in both), hideFrom (stop showing it in space_id), reload (the tile menu's refresh: a web port's page loads again in place), background (make it the live backdrop behind a space's desktop, as Set as background in the port menu does: pass space_id for which space, else the current one; each space has its own, and a port is the backdrop of one space at a time), unbackground (that space goes back to the ambient backdrop and the port returns to a tile). ports_list reports where it is also shown as alsoIn. Check the status field from ports_list: 'tiled' | 'running' | 'paused'.",
     "input_schema" : {
       "properties" : {
         "action" : {
-          "description" : "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin (minimize and dock are older names for hide; park for pause; restore and undock for show)",
+          "description" : "One of: focus, close, hide, pause, show, pin, pinEverywhere, unpin, showIn, hideFrom, reload, background, unbackground (minimize and dock are older names for hide; park for pause; restore and undock for show)",
           "type" : "string"
         },
         "id" : {
           "description" : "The port's UDID or title",
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "showIn and hideFrom: the other space. background and unbackground: which space's backdrop.",
           "type" : "string"
         },
         "token" : {
@@ -885,9 +1015,13 @@
     "name" : "port_manage"
   },
   {
-    "description" : "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
+    "description" : "Move a port's tile to desktop coordinates, resize it, or both. Pass x and y together to move, width and\/or height to resize (a missing one keeps its current value; the smallest a tile can be is 150 by 110). Use screen_info to get display bounds first. A resize is the tile's own size, the same on every desktop it is shown on.",
     "input_schema" : {
       "properties" : {
+        "height" : {
+          "description" : "New height in points.",
+          "type" : "number"
+        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
           "type" : "string"
@@ -900,19 +1034,21 @@
           "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
+        "width" : {
+          "description" : "New width in points.",
+          "type" : "number"
+        },
         "x" : {
-          "description" : "Horizontal position in desktop points",
+          "description" : "Horizontal position in desktop points (with y)",
           "type" : "number"
         },
         "y" : {
-          "description" : "Vertical position in desktop points",
+          "description" : "Vertical position in desktop points (with x)",
           "type" : "number"
         }
       },
       "required" : [
         "id",
-        "x",
-        "y",
         "token"
       ],
       "type" : "object"
@@ -1316,7 +1452,7 @@
     "name" : "space_current"
   },
   {
-    "description" : "List all spaces the user belongs to",
+    "description" : "List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).",
     "input_schema" : {
       "properties" : {
 

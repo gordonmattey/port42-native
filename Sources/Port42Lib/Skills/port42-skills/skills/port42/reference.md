@@ -84,9 +84,26 @@ Delete a space: its own ports and terminals close, then the space and its chat g
 
 ## space.list
 
-List all spaces the user belongs to
+List all spaces the user belongs to, with each one's accent color, whether it is resting, and its place in the galaxy order (the list is in that order).
 
     port42 space.list
+
+## space.reorder
+
+Move a space in the galaxy order, as dragging it does: it lands just before the space named in before, or at the end when before is omitted. Returns the order, as space ids.
+
+        before (string): The space it should come before. Omit to put it last.
+        space_id (string, required): The space to move.
+
+    port42 space.reorder space_id=… before=…
+
+## space.rest
+
+Put a space at rest: off the galaxy front, unindexed and silent, nothing lost (Rest in the space settings card). Resting the space the person is in moves them to another working space. A space already at rest is refused.
+
+        space_id (string, required): The space to rest.
+
+    port42 space.rest space_id=…
 
 ## space.setWorkingDirectory
 
@@ -104,6 +121,24 @@ Set (or clear) a space's working directory. Command companions spawned in the sp
 Switch the app's current space by id.
 
     port42 space.switchTo space_id=…
+
+## space.update
+
+Change a space's name or accent color, as the space settings card does. The name is lowercased with spaces as dashes, and may not be one another space holds. The accent is a hex color like #4ECDC4. Returns the space.
+
+        accent (string): A hex color, #RRGGBB.
+        name (string): The new name.
+        space_id (string, required): The space (from space_list).
+
+    port42 space.update space_id=… name=… accent=…
+
+## space.wake
+
+Wake a resting space: back into the working set, on the galaxy front. It does not switch to it (space_switchTo does). A space not at rest is refused.
+
+        space_id (string, required): The space to wake.
+
+    port42 space.wake space_id=…
 
 ## user.get
 

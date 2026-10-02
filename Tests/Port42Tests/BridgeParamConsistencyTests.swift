@@ -201,7 +201,9 @@ struct BridgeParamConsistencyTests {
         // + port.delete (delete a closed port for good). = 69.
         // + space.delete (GM, 2026-09-26: clearing test spaces; it closes the space's ports). = 70.
         // sessions.find and sessions.import live in SessionImportFlow.swift, outside this scan.
-        #expect(methods.count == 70, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + space.update, space.rest, space.wake, space.reorder (API parity, Phase C). = 74.
+        // + port.fork (Phase D). = 75. (Phase E's invite.* and remote.* live in Invites.swift, outside this scan.)
+        #expect(methods.count == 75, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

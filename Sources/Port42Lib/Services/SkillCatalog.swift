@@ -31,7 +31,7 @@ public enum SkillCatalog {
             return "port42"
         case "port.publish", "port.subscribe":
             return "port42-compose"
-        case "companions.create", "companions.remove", "companions.watch", "companions.unwatch", "companions.watches", "companions.invoke":
+        case "companions.create", "companions.remove", "companions.update", "companions.delete", "companions.watch", "companions.unwatch", "companions.watches", "companions.invoke":
             return "port42-team"
         case "presentation":
             return "port42-ports"
@@ -42,7 +42,7 @@ public enum SkillCatalog {
             return "port42-team"
         case "user", "space", "chat", "presence":
             return "port42"
-        case "port", "ports", "storage", "state", "invite":
+        case "port", "ports", "storage", "state", "invite", "remote":
             return "port42-ports"
         case "audio", "automation", "browser", "camera", "clipboard", "fs", "notify", "rest", "screen", "terminal", "ai":
             return "port42-devices"

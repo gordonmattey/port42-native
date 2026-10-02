@@ -25,6 +25,7 @@ publishes for the one after. No code outside the ports.
 Make the middle stages run off the desktop (`presentation=running`, see `port42-ports`). They run in
 full with no tile. Off screen a port still receives every event at full rate; a running port's timers
 also run at full rate, while a paused port's or one in another space slow to about once a second.
+Off-screen timers never stop, though a long interval may fire a little late.
 
 ## Being woken by a port
 

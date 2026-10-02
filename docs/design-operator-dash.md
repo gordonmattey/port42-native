@@ -112,7 +112,7 @@ Each "needs you" item has up to three actions:
   restart, pairing and scoped tokens, Codex tools, the relay rate cap, and so on. The rest of the
   later list stays in the doc until one is picked up.
 - **Dev autopilot:** the squad's 1.0.2 batch, from `port42-issues`.
-- **Dev waiting on GM today:** the relay rate cap (#122).
+- **Dev waiting on GM today:** nothing. The relay rate cap (#122) is deferred (Gordon, 2026-09-30).
 - **Growth** (lucky-ibis, 2026-09-28). Autopilot lanes: content (the Drafts desk in `port42-growth`),
   publishing, the site following releases, moments, desk upkeep. Deliberate: the Product Hunt launch
   (Tuesday 2026-09-29, 12:01am PT), the flagged Show HN, the protocol RFC, auto-publish on approval,

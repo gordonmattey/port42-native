@@ -39,7 +39,19 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("[Port42] Sparkle updater initialized, canCheckForUpdates=%d", updaterController.updater.canCheckForUpdates ? 1 : 0)
     }
 
+    /// The Dock icon (or opening the app again) brings the main window back when it was closed.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if MainWindow.existing?.isVisible != true { MainWindow.show() }
+        return false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A launch after quitting with no window open restores none: open the main window once macOS has
+        // finished restoring, so the app is never running with no way in.
+        NotificationCenter.default.addObserver(forName: NSApplication.didFinishRestoringWindowsNotification,
+                                               object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { if MainWindow.existing == nil { MainWindow.show() } }
+        }
         setupCustomCursor()
         UserDefaults.standard.set(100, forKey: "NSInitialToolTipDelay")
         ghosttyProbe()  // Step 1: confirm GhosttyKit links and resolves at runtime
@@ -274,6 +286,55 @@ extension Port42AppDelegate: SPUUpdaterDelegate {
     }
 }
 
+/// The main window: the one place the shell lives when no space window is open. Closing every window
+/// used to leave no way back, not even a relaunch (macOS restores an app with the windows it quit with,
+/// and the File menu had lost New Window): Gordon, 2026-10-01. The Window menu, the Dock icon and a
+/// launch that restores none all bring it back.
+enum MainWindow {
+    static let id = "main"
+    static let menuTitle = "Port42 Window"
+
+    /// The main window, if it is open (visible or not). SwiftUI names a group's windows after its id.
+    static var existing: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix(id) == true }
+    }
+
+    /// Bring the main window forward, or ask the Window menu's item to open one (only a scene command can
+    /// open a SwiftUI window, so the app delegate goes through the menu).
+    @MainActor static func show() {
+        if let window = existing {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        guard let menu = NSApp.mainMenu else { return }
+        for top in menu.items {
+            guard let sub = top.submenu, let i = sub.items.firstIndex(where: { $0.title == menuTitle }) else { continue }
+            sub.performActionForItem(at: i)
+            return
+        }
+    }
+}
+
+/// File → New Window (⇧⌘N) and Window → Port42 Window (⌘0): the main window back, from anywhere.
+struct MainWindowCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        // Window → Port42 Window. File → New Window (in the app's File group) goes through this item.
+        CommandGroup(before: .windowList) {
+            Button(MainWindow.menuTitle) { bringBack() }
+                .keyboardShortcut("0", modifiers: .command)
+        }
+    }
+
+    private func bringBack() {
+        if MainWindow.existing != nil { MainWindow.show() } else { openWindow(id: MainWindow.id) }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 @main
 struct Port42App: App {
     @NSApplicationDelegateAdaptor(Port42AppDelegate.self) var delegate
@@ -298,7 +359,7 @@ struct Port42App: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: MainWindow.id) {
             TransitionRoot(appState: appState)
                 .environmentObject(appState)
                 .frame(minWidth: 180, minHeight: 400)
@@ -316,6 +377,7 @@ struct Port42App: App {
                     NotificationCenter.default.post(name: .checkForUpdatesRequested, object: nil)
                 }
             }
+            MainWindowCommands()
             CommandGroup(replacing: .newItem) {
                 Button("New Space") {
                     NotificationCenter.default.post(
@@ -323,6 +385,14 @@ struct Port42App: App {
                     )
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                // Where people look for it (Gordon): another Port42 window, on a space no window shows; with
+                // no window open at all, the main window back.
+                Button("New Window") {
+                    if MainWindow.existing?.isVisible == true { appState.displaySpaces.openAnotherWindow() }
+                    else { MainWindow.show() }
+                }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
 
                 Button("Quick Switcher") {
                     NotificationCenter.default.post(
@@ -335,13 +405,6 @@ struct Port42App: App {
                     NotificationCenter.default.post(name: .imagineRequested, object: nil)
                 }
                 .keyboardShortcut("i", modifiers: .command)
-
-                Button("Help") {
-                    NotificationCenter.default.post(
-                        name: .helpRequested, object: nil
-                    )
-                }
-                .keyboardShortcut("/", modifiers: .command)
             }
 
             #if DEBUG
