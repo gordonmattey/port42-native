@@ -1,6 +1,6 @@
 # Plan: two instances, an agent on each side, working on one shared port
 
-Status: test run 2026-10-02 (all eight steps), fix scoped, not built. Gordon: "the most valuable thing to get
+Status: test run 2026-10-02 (all eight steps), fix scoped, decisions made (below), not built. Gordon: "the most valuable thing to get
 working is port sharing between two instances where my agent is talking with the other agent on a shared
 port." Branch to come: `lead/two-agents`.
 
@@ -47,6 +47,22 @@ Dev6 hosts, with companion `alba` in space `studio`; Dev11 is the guest, with `b
    one). The accept box offers remote wake only.
 9. **Permissions** (decisions, see the order): a mention adds an agent to the whole space, and any of the
    guest's agents can act on a tile. Further hardening of the path between instances is tracked privately.
+
+## Decisions (Gordon, 2026-10-02)
+
+1. **A mention gives that agent the one port**, as a port-level grant; it does not join the space.
+2. **On the guest, only agents the person brought onto a tile act on it**; others are refused and told how to be
+   added.
+3. **A card the first time another instance's agent wakes one of yours**, once per (that agent, your agent, that
+   port), remembered. On both sides: the share's `wake_agents` (host) and remote wake (guest) say the other
+   side may ask; the card is the yes for that pair. To confirm with Gordon: keep the card, or fold it into the
+   share card's wording.
+4. **A code edit conflicts only with another code edit**: a code token for code writes; storage, chat and other
+   activity no longer move it.
+5. **Remote wake on by default**, and an agent making an invite includes `wake_agents` unless told otherwise.
+6. **Bring a companion** on the accept box (one or more), and add or remove later from the tile's menu.
+7. **One history, the host's**, shown on both sides with the author named (`bram (gordon11)`); the guest keeps
+   no copy of a mirrored page's versions.
 
 ## The fix, in order
 
