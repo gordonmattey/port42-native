@@ -38,6 +38,7 @@ wait_html() { local t=0; until A port.getHtml id=$BOARD 2>/dev/null | grep -q "$
 authors_since() { A port.history id=$BOARD | python3 -c "import sys,json;d=json.load(sys.stdin);print(' '.join(sorted({str(v.get('createdBy')) for v in d if v['version']>$1})))" 2>/dev/null; }
 last_version() { A port.history id=$BOARD | python3 -c "import sys,json;print(max(v['version'] for v in json.load(sys.stdin)))" 2>/dev/null; }
 token_of() { A ports.list | field "[p['token'] for p in d if p['id']=='$1'][0]"; }
+gtoken_of() { B ports.list | field "[p['token'] for p in d if p['id']=='$1'][0]"; }   # a tile hands out the host's token
 
 RUN=$(date +%H%M%S)
 ALBA="alba$RUN"; BRAM="bram$RUN"
@@ -151,21 +152,21 @@ for ((r=1; r<=ROUNDS; r++)); do
   $HSIDE chat.post port=$HCHAT text:="$(J "@$OTHER round $r: help @$LEAD, in the Team board's chat, add $F. Agree the plan there, make at least one change to the board's code yourself with port.patch, review theirs, and keep the board working. The new element's id is '$TAG'.")" >/dev/null
   wait_html "$TAG" 600 && pass "round $r: the new element ($TAG) is on the host" || fail "round $r: no element $TAG"
   chat_has host $BOARD "'round $r done' in e.get('text','').lower()" 300 && pass "round $r: done was said in the shared chat" || fail "round $r: nobody said it was done"
-  AUTH=$(authors_since "$V0")
-  echo "   versions this round by: $AUTH"
-  echo "$AUTH" | grep -q "$BRAM" && echo "$AUTH" | grep -q "$ALBA" && pass "round $r: both agents changed the code" || fail "round $r: not both agents changed the code ($AUTH)"
+  # Who edited is checked over the whole run, not per round: the agents plan and start the next round while
+  # finishing this one, so a patch can land after this round is counted.
+  echo "   versions so far this round by: $(authors_since "$V0")"
   ERR=$(A port.console id=$BOARD level=count | field "d['errors']")
   [ "${ERR:-1}" = "0" ] && pass "round $r: no console errors on the host" || fail "round $r: $ERR console errors on the host"
   A port.getHtml id=$BOARD | grep -q 'id="cols"' && pass "round $r: the board still renders its columns" || fail "round $r: the board lost its columns"
-  SEEN_AUTHORS="$SEEN_AUTHORS $AUTH"
 done
+SEEN_AUTHORS=$(authors_since 1)
 
-echo "== history names both agents"
+echo "== both agents changed the code, and the history names each"
 echo "$SEEN_AUTHORS" | grep -q "$BRAM (" && echo "$SEEN_AUTHORS" | grep -q "$ALBA" && pass "history names $BRAM (from there) and $ALBA" || fail "history authors: $SEEN_AUTHORS"
 
 echo "== the board's data: cards added on each side show on the other, and survive a reload"
 A port.exec id=$BOARD token="$(token_of $BOARD)" js='return window.addCard ? window.addCard("host-card-'"$RUN"'", 0).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
-B port.exec id=$TILE js='return window.addCard ? window.addCard("guest-card-'"$RUN"'", 1).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
+B port.exec id=$TILE token="$(gtoken_of $TILE)" js='return window.addCard ? window.addCard("guest-card-'"$RUN"'", 1).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
 sleep 8
 t=0; until B port.getDom id=$TILE 2>/dev/null | grep -q "host-card-$RUN" || [ $t -ge 60 ]; do sleep 5; t=$((t+5)); done
 B port.getDom id=$TILE | grep -q "host-card-$RUN" && pass "the host's card shows on the guest's tile" || fail "the guest's tile does not show the host's card"

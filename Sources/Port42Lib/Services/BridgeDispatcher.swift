@@ -261,8 +261,11 @@ extension AppState {
             // mandatory for the one surface that cannot tolerate a splice.
             if let expected = args.string(PortActivity.expectParam) {
                 let current = portInput.token(for: key)
-                guard expected == current || (replacesCode && Self.noCodeWriteSince(expected, current: current,
-                                                                                      lastCode: codeWriteSeq[key])) else {
+                // A tile of someone else's port hands out the host's token (two agents, finding 1); a write that
+                // runs in the tile's own page (port.exec) takes that token too.
+                let handedOut = ref.id.flatMap { mirrorHostTokens[$0] }
+                guard expected == current || expected == handedOut
+                        || (replacesCode && Self.noCodeWriteSince(expected, current: current, lastCode: codeWriteSeq[key])) else {
                     // The error CARRIES `current`. Without it a caller only learns that it lost,
                     // not what to compose against — so the retry would be a guess, and a naive
                     // caller could never converge. With it: write → conflict → write, once.

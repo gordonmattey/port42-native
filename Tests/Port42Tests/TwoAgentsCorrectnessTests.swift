@@ -148,4 +148,22 @@ struct TwoAgentsCorrectnessTests {
         await w.state.refreshMirrorHistory(tile: tile, row: row)
         #expect(w.state.mirrorHistory[tile]?.first?.createdBy == "bram (gordon11)", "the tile does not show the host's history")
     }
+
+    @Test("a write that runs in the tile's own page (port.exec) takes the token the tile hands out")
+    func localWriteOnTileTakesTheTilesToken() async throws {
+        let (w, tile) = try tileWorld { _ in Self.response("{}") }
+        let row = try #require(w.state.mirroredRemote(tile))
+        w.state.mirrorEvent(tile: tile, row: row, ["kind": "state", "token": "HOST:30", "payload": [:]])
+        let person = Principal.human(id: "u", displayName: "Gordon", spaceId: w.space.id)
+        guard case .array(let list) = try await w.state.runBridgeMethod("ports.list", principal: person, args: BridgeArgs([:])) else { return }
+        let token = list.compactMap { v -> String? in
+            if case .object(let o) = v, o["id"] == .string(tile), case .string(let t)? = o["token"] { return t }; return nil }.first
+        #expect(token == "HOST:30")
+        do {
+            _ = try await w.state.runBridgeMethod("port.exec", principal: person,
+                                                  args: BridgeArgs(["id": tile, "js": "return 1", "token": token ?? ""]))
+        } catch let e as BridgeError {
+            #expect(e.code != "stale_write" && e.code != "token_required", "the tile's own token was refused for a write in its page: \(e.code)")
+        }
+    }
 }
