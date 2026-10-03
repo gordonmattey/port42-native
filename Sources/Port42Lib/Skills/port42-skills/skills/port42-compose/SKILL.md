@@ -20,6 +20,10 @@ listens with `port42.port.subscribe(id, fn)`. Input goes in with `port.push`; st
 A three-stage pipe (produce, transform, render) is three ports: each subscribes to the one before and
 publishes for the one after. No code outside the ports.
 
+A stage may be in another space. Subscribing to it needs nothing; reading, pushing to or editing it
+needs the person's grant, asked once on a card, and names it by id (see `port42-ports`, A PORT IN
+ANOTHER SPACE).
+
 ## Stages nobody needs to see
 
 Make the middle stages run off the desktop (`presentation=running`, see `port42-ports`). They run in

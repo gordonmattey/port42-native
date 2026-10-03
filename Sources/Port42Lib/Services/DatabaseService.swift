@@ -1395,10 +1395,22 @@ public final class DatabaseService {
         }
     }
 
-    /// Every remote right, for the manager: (grantee, port key, right).
+    /// Every remote right, for the manager: (grantee, port key, right). A port's rights on a port in
+    /// another space (#238) share the table and are not another machine's, so they are left out.
     public func allRemoteRights() throws -> [(grantee: String, portKey: String, right: RemoteRight)] {
         try dbQueue.read { db in
-            try Row.fetchAll(db, sql: "SELECT grantee, object, permission FROM grants WHERE zone = ''")
+            try Row.fetchAll(db, sql: "SELECT grantee, object, permission FROM grants WHERE zone = '' AND grantee NOT LIKE 'port:%'")
+                .compactMap { r in
+                    RemoteRight(rawValue: r["permission"]).map { (r["grantee"], r["object"], $0) }
+                }
+        }
+    }
+
+    /// Every port's rights on ports in other spaces (#238), for Settings, Access: (reading port's
+    /// grantee, the target's key or `space:<id>`, right).
+    public func allCrossSpaceRights() throws -> [(grantee: String, object: String, right: RemoteRight)] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT grantee, object, permission FROM grants WHERE zone = '' AND grantee LIKE 'port:%' ORDER BY grantee, object")
                 .compactMap { r in
                     RemoteRight(rawValue: r["permission"]).map { (r["grantee"], r["object"], $0) }
                 }

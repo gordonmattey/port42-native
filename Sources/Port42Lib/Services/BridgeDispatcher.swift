@@ -41,6 +41,8 @@ extension AppState {
         }
         // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
         try authorizeRemote(canonical, principal: principal, args: args)
+        // A port reaches a port in another space only by a grant (#238); admitted for this call only.
+        let principal = try await authorizeCrossSpace(canonical, principal: principal, args: args)
 
         #if DEBUG
         // I1.1 (plan §B). Recorded BEFORE the permission gate, so a call that is about to be
@@ -224,7 +226,8 @@ extension AppState {
             // can see the port, and a refusal carries it back. Authorization is THIS check and the
             // permission gate; a caller holding a perfectly valid token for a port outside its scope
             // is refused here all the same. Never let a write rely on the token to keep anyone out.
-            guard canRead(portInSpace: portSpaceId(ref), by: principal) else {
+            // #238: or the one port in another space the cross-space gate admitted for this call.
+            guard canRead(portInSpace: portSpaceId(ref), by: principal) || admitsCrossSpace(key, by: principal) else {
                 throw BridgeError.notFound("port '\(raw)'")
             }
             // LIVENESS — before CAS and before the token moves.
@@ -585,8 +588,9 @@ extension AppState {
                 if let text = SafeJSON.string(event, options: [.fragmentsAllowed]) { yield(text) }
             })
         }
-        // The SAME remote gate as the one-shot path.
+        // The SAME remote gate as the one-shot path, and the same cross-space gate (#238).
         try authorizeRemote(canonical, principal: principal, args: args)
+        let principal = try await authorizeCrossSpace(canonical, principal: principal, args: args)
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,
                             grants: grants(grantee: principal.id, on: .machine,

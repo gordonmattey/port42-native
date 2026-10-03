@@ -1889,8 +1889,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "required": ["id"],
         ]) { p, args in
         let id = try args.requireString("id")
+        // #238: or a port in another space this port holds `fork` on. The copy lands in a space the
+        // caller acts in, and holds none of the reading port's grants.
         guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id),
-              appState.canRead(portInSpace: panel.spaceId, by: p) else { throw BridgeError.notFound("port '\(id)'") }
+              appState.canRead(portInSpace: panel.spaceId, by: p) || appState.admitsCrossSpace(panel.udid, by: p)
+        else { throw BridgeError.notFound("port '\(id)'") }
         var into: String? = nil
         if let sid = args.string("space_id") {
             guard appState.spaces.contains(where: { $0.id == sid }), appState.canRead(portInSpace: sid, by: p) else {

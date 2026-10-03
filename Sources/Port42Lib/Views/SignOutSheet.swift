@@ -506,6 +506,56 @@ public struct SignOutSheet: View {
         grantsRefresh &+= 1
     }
 
+    /// Ports reaching ports in other spaces (#238): one row per reading port and target, a box per
+    /// right that can be ticked or unticked here, and a revoke. A change takes effect on the next call.
+    @ViewBuilder
+    private var crossSpaceSection: some View {
+        let rows = appState.crossSpaceGrants()
+        if !rows.isEmpty {
+            Text("PORTS IN OTHER SPACES")
+                .font(Port42Theme.mono(9)).tracking(2)
+                .foregroundStyle(Port42Theme.textSecondary)
+                .padding(.top, 4)
+            ForEach(rows) { row in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text("\(row.reader) → \(row.target)")
+                            .font(Port42Theme.monoBold(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("revoke") {
+                            appState.setCrossSpaceRights([], grantee: row.grantee, object: row.object)
+                            grantsRefresh &+= 1
+                        }
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Revoke \(row.reader) reaching \(row.target)")
+                    }
+                    HStack(spacing: 10) {
+                        ForEach(row.offered, id: \.self) { right in
+                            Toggle(CrossSpaceAsk.name(right), isOn: Binding(
+                                get: { row.rights.contains(right) },
+                                set: { on in
+                                    var rights = row.rights
+                                    if on { rights.insert(right) } else { rights.remove(right) }
+                                    appState.setCrossSpaceRights(rights, grantee: row.grantee, object: row.object)
+                                    grantsRefresh &+= 1
+                                }))
+                                .toggleStyle(.checkbox)
+                                .font(Port42Theme.mono(10))
+                                .accessibilityLabel("\(CrossSpaceAsk.name(right)): \(CrossSpaceAsk.meaning(right)), for \(row.reader) on \(row.target)")
+                        }
+                    }
+                    .padding(.leading, 10)
+                }
+                .padding(.vertical, 4)
+                .id("cross-\(row.id)-\(grantsRefresh)")
+            }
+        }
+    }
+
     /// Ports shared with other machines, and invites not used up (nautilus Phase 4, 4.5).
     @ViewBuilder
     private var sharedSection: some View {
@@ -648,6 +698,8 @@ public struct SignOutSheet: View {
                 }
 
                 sharedSection
+
+                crossSpaceSection
 
                 let all = granteeGrants
                 if all.isEmpty {

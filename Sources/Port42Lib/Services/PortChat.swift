@@ -457,7 +457,9 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let from = appState.companion(actingAs: p).map {
             Principal.companion(id: $0.id, displayName: $0.displayName, spaceId: p.spaceId)
         } ?? p
-        let entry = try appState.postToChat(key: k, text: text, from: from)
+        // #238: a port posting into another space's port wakes its companions only with wake_agents.
+        let entry = try appState.postToChat(key: k, text: text, from: from,
+                                            route: appState.crossSpaceWakes(p, chat: k))
         return .object(["ok": .bool(true), "entry": entry.bridgeValue])
     }
 

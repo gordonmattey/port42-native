@@ -966,6 +966,16 @@ FINDING PORTS:
     shared from another machine is port42://PEER_ID/PORT_ID and opens only if its invite was
     accepted here. A title is not an address. Setting location from a script is refused.
 
+  A PORT IN ANOTHER SPACE:
+    Your page reaches a port in another space only if the person grants it. Name the target by its
+    id (a title never resolves across spaces). The first call raises a card naming both ports, with
+    the rights sharing uses: see (its source, page, console, chat and state), use (push to it, post
+    in its chat), edit (update, patch, restore or rename it), wake_agents (your posts wake that
+    space's companions) and fork (take a copy). See is ticked by default. Until granted, or if denied, the target is not_found; granted something else, the call
+    is permission_denied naming the right it needs. A terminal is never reachable, and port.exec is
+    not_found whatever is granted. port.subscribe needs no grant. The person reviews and revokes
+    these grants in Settings → Access.
+
 SENDING INPUT TO A TERMINAL PORT:
 
   port_push(id, data)

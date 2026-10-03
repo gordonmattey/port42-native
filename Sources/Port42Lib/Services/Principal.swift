@@ -60,6 +60,11 @@ public struct Principal: Equatable {
     /// On a `.remote` caller: who on that instance made the call, as that instance claims (4.6c). The
     /// instance is proven; the actor is its word. Never part of identity: rights are the instance's.
     public let actor: RemoteActor?
+    /// The port in ANOTHER space this one call may reach (#238), set only by `authorizeCrossSpace`
+    /// once the calling port holds the right the method needs on it. The scope checks admit exactly
+    /// this key and nothing else; a call it is not set on sees other spaces as before (APP-10). Not
+    /// part of identity: grants and coalescing never key on it.
+    public let crossSpaceTarget: String?
 
     /// PRIVATE, and the point of I1.2 (`plan-port42-protocol-local-bus.md` §B).
     ///
@@ -72,7 +77,7 @@ public struct Principal: Equatable {
     ///
     /// Enforced by `PrincipalConstructionTests` scanning the whole package, tests included.
     private init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil,
-                 actor: RemoteActor? = nil, zone: String? = nil) {
+                 actor: RemoteActor? = nil, zone: String? = nil, crossSpaceTarget: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.spaceId = spaceId
@@ -80,6 +85,13 @@ public struct Principal: Equatable {
         self.portId = portId
         self.actor = actor
         self.zone = zone ?? spaceId
+        self.crossSpaceTarget = crossSpaceTarget
+    }
+
+    /// This caller, admitted for one call to the port `key` in another space (#238), or to none.
+    func reaching(_ key: String?) -> Principal {
+        Principal(id: id, displayName: displayName, spaceId: spaceId, kind: kind, portId: portId,
+                  actor: actor, zone: zone, crossSpaceTarget: key)
     }
 
     // MARK: - Surfaces

@@ -70,7 +70,7 @@ func registerStateMethods(into r: inout BridgeRegistry, appState: AppState) {
     func target(_ p: Principal, _ args: BridgeArgs) throws -> PortPanel {
         if let raw = args.string("port") {
             guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(raw)?.udid ?? raw),
-                  appState.canRead(portInSpace: panel.spaceId, by: p) else {
+                  appState.canRead(portInSpace: panel.spaceId, by: p) || appState.admitsCrossSpace(panel.udid, by: p) else {
                 throw BridgeError.notFound("port '\(raw)'")
             }
             return panel

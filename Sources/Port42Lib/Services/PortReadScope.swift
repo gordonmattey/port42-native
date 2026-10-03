@@ -91,15 +91,17 @@ extension AppState {
     /// only the chats of the space it acts in, and a refusal is `not_found`, as for a missing chat.
     func requireReadableChat(_ port: String, by principal: Principal) throws -> String {
         guard let key = chatKey(for: port),
-              canRead(portInSpace: chatSpaceId(key), by: principal) else {
+              canRead(portInSpace: chatSpaceId(key), by: principal) || admitsCrossSpace(key, by: principal) else {
             throw BridgeError.notFound("port '\(port)' (a chat belongs to port 0, a space, or a port)")
         }
         return key
     }
 
     /// Resolve `id` for a READ, refusing a port outside the caller's scope as if it did not exist.
+    /// The one exception is the port in another space the cross-space gate admitted for this call (#238).
     func requireReadablePort(_ id: String, by principal: Principal) throws -> PortRef {
-        guard let ref = resolvePortRef(id), canRead(portInSpace: portSpaceId(ref), by: principal) else {
+        guard let ref = resolvePortRef(id),
+              canRead(portInSpace: portSpaceId(ref), by: principal) || admitsCrossSpace(ref.key, by: principal) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return ref

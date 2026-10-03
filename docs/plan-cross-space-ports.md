@@ -1,6 +1,6 @@
 # Plan: ports across spaces, with the same rights as sharing
 
-Status: decided, not built (Gordon, 2026-09-30). For 1.0.7. A feature for the squad to build; the dev lead
+Status: decided (Gordon, 2026-09-30); built on `lens/238` (#238), not yet in `main`. Aimed at 1.0.7. A feature for the squad to build; the dev lead
 reviews the permission design.
 
 ## The call (Gordon)
@@ -39,3 +39,21 @@ refuses `port.push` with `permission_denied`; each right allows exactly its meth
 takes effect at once; a fork or a share carries no grant; the space box grants see and use for every port
 in the space and never edit. ImagineTeamScenarioTests and BridgeTargetScopeTests stay green. Live on Dev3
 with the Launch desk and its small view across port42-growth and port42-app.
+
+## As built (#238)
+
+- The gate is `authorizeCrossSpace` (`Sources/Port42Lib/Services/CrossSpacePorts.swift`), after the remote
+  gate. It acts only when a port's page names, by id, a web port in a space it cannot read. A title never
+  resolves across spaces, a terminal is never reached, and a method outside the table is not admitted
+  (`port.exec` stays `not_found` with every right).
+- The grant: grantee `port:<reading port's key>`, object the target's key or `space:<id>`, zone "", in
+  `grants`. The `port:` prefix keeps these rows out of everything that lists another machine's rights.
+- Reach: the invite table (`RemoteAccess`), plus `port.fork` by `fork`. `chat.read` is `see`, as in the
+  table (this plan's list put it under use). Not gated, because they already answer across spaces with no
+  grant: `port.subscribe` and `presence.list` (the subscriptions spike, #246).
+- `wake_agents`: a post into the other space's port wakes its companions only with it, as for a guest.
+- `edit` runs APP-07's rule unchanged, and a cross-space write marks the code as changed by that port
+  (NAU-02), so the target stops running with its creator's grants.
+- The space box covers the reading port, not every port in its space: the grantee is always one port.
+- More rights later: unticked in Settings, Access, not by a second card, so a page cannot ask again and
+  again.

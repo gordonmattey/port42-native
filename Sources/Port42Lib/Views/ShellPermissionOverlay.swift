@@ -26,7 +26,7 @@ struct ShellPermissionOverlay: View {
 
             VStack(spacing: 14) {
                 // Who's asking — the first thing you need, and what scope keys off.
-                Text(request.principal.displayName.uppercased())
+                Text(request.asker.uppercased())
                     .font(Port42Theme.monoBold(11))
                     .foregroundStyle(accent)
                     .tracking(1.2)
@@ -45,66 +45,74 @@ struct ShellPermissionOverlay: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let detail = request.detail {
-                    Text(detail)
-                        .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // Narrate the macOS dialogs that follow, BEFORE they land (the mic case fires two
-                // more consent sheets — Microphone, then Speech Recognition).
-                if let followUp = request.systemFollowUp {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .font(.system(size: 10))
-                            .foregroundStyle(accent.opacity(0.8))
-                            .padding(.top, 1)
-                        Text(followUp)
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
+                if let ask = request.crossSpace {
+                    // #238: the first card on the shared layout (docs/plan-permission-card.md): who
+                    // wants to do what to what, with the rights to pick and their weight.
+                    CrossSpaceCardBody(ask: ask, accent: accent) { choice in
+                        coordinator.resolveCurrent(granted: choice != nil, choice: choice)
+                    }
+                } else {
+                    if let detail = request.detail {
+                        Text(detail)
+                            .font(Port42Theme.monoBold(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.07)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.25), lineWidth: 1))
-                }
 
-                // Say what "Allow" actually does. The old code silently wrote a per-(companion,
-                // space) grant the human was never shown.
-                Text(request.principal.scopeDescription)
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.75))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 12) {
-                    Button(action: { coordinator.resolveCurrent(granted: false) }) {
-                        Text("Deny")
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 96, height: 30)
-                            .background(Port42Theme.bgSecondary)
-                            .cornerRadius(6)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                    // Narrate the macOS dialogs that follow, BEFORE they land (the mic case fires two
+                    // more consent sheets — Microphone, then Speech Recognition).
+                    if let followUp = request.systemFollowUp {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "arrow.turn.down.right")
+                                .font(.system(size: 10))
+                                .foregroundStyle(accent.opacity(0.8))
+                                .padding(.top, 1)
+                            Text(followUp)
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.07)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.25), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.cancelAction)
 
-                    Button(action: { coordinator.resolveCurrent(granted: true) }) {
-                        Text("Allow")
-                            .font(Port42Theme.mono(12))
-                            .fontWeight(.medium)
-                            .foregroundStyle(.black)
-                            .frame(width: 96, height: 30)
-                            .background(accent)
-                            .cornerRadius(6)
+                    // Say what "Allow" actually does. The old code silently wrote a per-(companion,
+                    // space) grant the human was never shown.
+                    Text(request.principal.scopeDescription)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.75))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 12) {
+                        Button(action: { coordinator.resolveCurrent(granted: false) }) {
+                            Text("Deny")
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                                .frame(width: 96, height: 30)
+                                .background(Port42Theme.bgSecondary)
+                                .cornerRadius(6)
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.cancelAction)
+
+                        Button(action: { coordinator.resolveCurrent(granted: true) }) {
+                            Text("Allow")
+                                .font(Port42Theme.mono(12))
+                                .fontWeight(.medium)
+                                .foregroundStyle(.black)
+                                .frame(width: 96, height: 30)
+                                .background(accent)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, 2)
                 }
-                .padding(.top, 2)
 
                 // A queue is never a surprise.
                 if coordinator.pendingCount > 1 {
@@ -114,7 +122,10 @@ struct ShellPermissionOverlay: View {
                 }
             }
             .padding(24)
-            .frame(width: 380)
+            .frame(width: request.crossSpace == nil ? 380 : 440)
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+            .accessibilityLabel("Permission request from \(request.asker)")
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Port42Theme.bgPrimary)
@@ -127,5 +138,109 @@ struct ShellPermissionOverlay: View {
         .onAppear { withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { appeared = true } }
         // Re-run the entrance for each queued ask so an advancing queue reads as a new card.
         .id(request.id)
+    }
+}
+
+/// The cross-space card's own part (#238): both ports named, a box per right with see ticked and
+/// nothing stronger, the space box off, and Deny or Allow. `answer(nil)` denies.
+struct CrossSpaceCardBody: View {
+    let ask: CrossSpaceAsk
+    let accent: Color
+    let answer: (CrossSpaceChoice?) -> Void
+
+    @State private var picked: Set<RemoteRight> = CrossSpaceAsk.preset
+    @State private var wholeSpace = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(ask.sentence)
+                .font(Port42Theme.monoBold(12))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+
+            ForEach(CrossSpaceAsk.offered, id: \.self) { right in
+                Toggle(isOn: binding(right)) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text(CrossSpaceAsk.name(right))
+                                .font(Port42Theme.monoBold(11))
+                                .foregroundStyle(Port42Theme.textPrimary)
+                            if CrossSpaceAsk.isStrong(right) {
+                                Text("stronger")
+                                    .font(Port42Theme.mono(9))
+                                    .foregroundStyle(Color.orange.opacity(0.9))
+                            }
+                            if right == ask.needs, right != .see {
+                                Text("this call needs it")
+                                    .font(Port42Theme.mono(9))
+                                    .foregroundStyle(accent)
+                            }
+                        }
+                        Text(CrossSpaceAsk.meaning(right))
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .accessibilityLabel(CrossSpaceAsk.accessibilityLabel(right, needs: ask.needs))
+            }
+
+            Divider().overlay(Port42Theme.border)
+
+            Toggle(isOn: $wholeSpace) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(ask.spaceBoxLabel)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Text("See and use only. Edit is only ever given port by port.")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityLabel("\(ask.spaceBoxLabel). See and use only.")
+
+            Text("Kept until you change it in Settings, Access.")
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.75))
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            HStack(spacing: 12) {
+                Button(action: { answer(nil) }) {
+                    Text("Deny")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 96, height: 30)
+                        .background(Port42Theme.bgSecondary)
+                        .cornerRadius(6)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+
+                Button(action: { answer(CrossSpaceChoice(rights: picked, wholeSpace: wholeSpace)) }) {
+                    Text("Allow")
+                        .font(Port42Theme.mono(12))
+                        .fontWeight(.medium)
+                        .foregroundStyle(.black)
+                        .frame(width: 96, height: 30)
+                        .background(picked.isEmpty ? accent.opacity(0.35) : accent)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                .disabled(picked.isEmpty)
+                .accessibilityLabel(CrossSpaceAsk.allowLabel(picked, wholeSpace: wholeSpace))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 2)
+        }
+    }
+
+    private func binding(_ right: RemoteRight) -> Binding<Bool> {
+        Binding(get: { picked.contains(right) },
+                set: { on in if on { picked.insert(right) } else { picked.remove(right) } })
     }
 }

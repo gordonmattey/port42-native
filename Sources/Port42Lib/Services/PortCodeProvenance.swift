@@ -21,6 +21,10 @@ extension AppState {
         guard let panel = portWindows.findPort(by: target) else { return }
         if writer.kind == .remote {
             panel.bridge.codeChangedBy = writer.displayName
+        } else if writer.crossSpaceTarget != nil {
+            // #238: a port in another space with `edit` is an outsider to this port's grants, as a
+            // guest is, so its code runs as itself from now on.
+            panel.bridge.codeChangedBy = crossSpaceReader(writer)?.title ?? writer.displayName
         } else if replacesAll, panel.bridge.codeChangedBy != nil,
                   writer.kind == .human || (panel.createdBy.map { $0 == writer.id } ?? false) {
             panel.bridge.codeChangedBy = nil

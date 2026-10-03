@@ -42,6 +42,118 @@ public enum PermissionOutcome: Equatable {
     case locked
 }
 
+/// A port asking to reach a port in another space (#238, docs/plan-cross-space-ports.md): both sides
+/// by name and space, and the right the call that raised it needs. The first user of the shared card
+/// (docs/plan-permission-card.md): who wants to do what to what, with the rights to pick from.
+public struct CrossSpaceAsk: Equatable {
+    public let readerKey: String
+    public let readerTitle: String
+    public let readerSpace: String
+    public let targetKey: String
+    public let targetTitle: String
+    public let targetSpaceId: String
+    public let targetSpace: String
+    /// The right the call that raised the card needs. Shown, never ticked for the person.
+    public let needs: RemoteRight
+
+    public init(readerKey: String, readerTitle: String, readerSpace: String, targetKey: String,
+                targetTitle: String, targetSpaceId: String, targetSpace: String, needs: RemoteRight) {
+        self.readerKey = readerKey; self.readerTitle = readerTitle; self.readerSpace = readerSpace
+        self.targetKey = targetKey; self.targetTitle = targetTitle
+        self.targetSpaceId = targetSpaceId; self.targetSpace = targetSpace; self.needs = needs
+    }
+
+    /// The rights the card offers, weakest first. `move` is a hand-over, never a grant.
+    public static let offered: [RemoteRight] = [.see, .use, .edit, .wakeAgents, .fork]
+    /// The space box covers these and no more: edit is per port, always (Gordon, 2026-09-30).
+    public static let spaceWide: Set<RemoteRight> = [.see, .use]
+    /// What is ticked when the card opens: see, and nothing stronger.
+    public static let preset: Set<RemoteRight> = [.see]
+
+    /// The card's sentence: "Launch desk, small (port42-app) wants to use Launch desk in port42-growth".
+    public var sentence: String {
+        "\(readerTitle) (\(readerSpace)) wants to \(Self.verb(needs)) \(targetTitle) in \(targetSpace)"
+    }
+
+    /// The space box's words.
+    public var spaceBoxLabel: String {
+        "Also let it see and use every port in \(targetSpace)"
+    }
+
+    static func verb(_ r: RemoteRight) -> String {
+        switch r {
+        case .see: return "see"
+        case .use: return "use"
+        case .edit: return "edit"
+        case .wakeAgents: return "wake the companions of"
+        case .fork, .move: return "copy"
+        }
+    }
+
+    /// What each right gives, in a line, for the card and for Settings, Access.
+    public static func meaning(_ r: RemoteRight) -> String {
+        switch r {
+        case .see: return "read its page, source, console and state"
+        case .use: return "send it input, and read and post in its chat"
+        case .edit: return "change its code and name"
+        case .wakeAgents: return "its chat posts wake that space's companions"
+        case .fork: return "take a copy of it"
+        case .move: return "take it over"
+        }
+    }
+
+    /// A right that changes something or reaches people looks stronger on the card (#243).
+    public static func isStrong(_ r: RemoteRight) -> Bool { r != .see }
+
+    /// A right's name on the card and in Settings, Access.
+    public static func name(_ r: RemoteRight) -> String {
+        switch r {
+        case .see: return "See"
+        case .use: return "Use"
+        case .edit: return "Edit"
+        case .wakeAgents: return "Wake companions"
+        case .fork: return "Copy"
+        case .move: return "Take over"
+        }
+    }
+
+    /// What VoiceOver reads for a right's box: its name, what it gives, its weight, and whether the
+    /// call waiting on the card needs it.
+    public static func accessibilityLabel(_ r: RemoteRight, needs: RemoteRight) -> String {
+        var parts = [name(r), meaning(r)]
+        if isStrong(r) { parts.append("a stronger right") }
+        if r == needs { parts.append("this call needs it") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// What VoiceOver reads for Allow: what a press gives, so it is never a bare "Allow".
+    public static func allowLabel(_ picked: Set<RemoteRight>, wholeSpace: Bool) -> String {
+        let names = offered.filter(picked.contains).map { name($0).lowercased() }
+        guard !names.isEmpty else { return "Allow, nothing ticked" }
+        var label = "Allow " + names.joined(separator: ", ")
+        if wholeSpace, !picked.intersection(spaceWide).isEmpty { label += ", and see and use on every port in the space" }
+        return label
+    }
+}
+
+/// What the person picked on a cross-space card.
+public struct CrossSpaceChoice: Equatable {
+    public var rights: Set<RemoteRight>
+    /// The space box: see and use on every port in the target's space, never more.
+    public var wholeSpace: Bool
+
+    public init(rights: Set<RemoteRight>, wholeSpace: Bool) {
+        self.rights = rights
+        self.wholeSpace = wholeSpace
+    }
+}
+
+/// How an ask ended, with what the person picked on a card that offers a choice.
+public struct PermissionAnswer: Equatable {
+    public let outcome: PermissionOutcome
+    public let choice: CrossSpaceChoice?
+}
+
 /// One pending ask. Many awaiters can ride a single request (coalescing), so a port that fires
 /// three `ai.complete` calls at once shows one card and resumes all three.
 public final class PermissionRequest: Identifiable, ObservableObject {
@@ -51,26 +163,35 @@ public final class PermissionRequest: Identifiable, ObservableObject {
     /// What exactly is asked for, when the permission alone does not say: the named secret a caller
     /// wants to use (`rest.call`). Part of the coalescing key, so two different secrets are two cards.
     public let detail: String?
+    /// A cross-space ask (#238): the card offers rights rather than a yes to one capability.
+    public let crossSpace: CrossSpaceAsk?
     /// Each awaiter has an id, so one that gives up can leave without answering the others (#247).
-    fileprivate var continuations: [(id: UUID, resume: CheckedContinuation<PermissionOutcome, Never>)] = []
+    fileprivate var continuations: [(id: UUID, resume: CheckedContinuation<PermissionAnswer, Never>)] = []
 
     /// How many awaiters ride this request. Continuations stay private; the count is observable so
     /// a caller (or a test settling on registration) can see coalescing without touching them.
     public var awaiterCount: Int { continuations.count }
 
-    fileprivate init(permission: PortPermission, principal: Principal, detail: String?) {
+    fileprivate init(permission: PortPermission, principal: Principal, detail: String?,
+                     crossSpace: CrossSpaceAsk? = nil) {
         self.permission = permission
         self.principal = principal
         self.detail = detail
+        self.crossSpace = crossSpace
     }
 
     /// Resume every awaiter exactly once. The list is cleared first so a double-answer (Esc racing
     /// a click) is a no-op rather than a crash on a resumed continuation.
-    fileprivate func resolve(_ outcome: PermissionOutcome) {
+    fileprivate func resolve(_ outcome: PermissionOutcome, choice: CrossSpaceChoice? = nil) {
         let waiting = continuations
         continuations.removeAll()
-        for c in waiting { c.resume.resume(returning: outcome) }
+        let answer = PermissionAnswer(outcome: outcome, choice: outcome == .granted ? choice : nil)
+        for c in waiting { c.resume.resume(returning: answer) }
     }
+
+    /// Who the card names as asking. A cross-space grant belongs to the reading port, not to whoever
+    /// made it (P-260 authorizes a companion's port as the companion), so the card names the port.
+    public var asker: String { crossSpace?.readerTitle ?? principal.displayName }
 
     /// The macOS consent dialogs that follow OUR card, named before they appear. Found live
     /// 2026-07-16: a mic port fires three dialogs back-to-back — our card, then macOS Microphone,
@@ -138,17 +259,29 @@ public final class PermissionCoordinator: ObservableObject {
     /// timed out used to have its companions.delete applied when the person clicked Allow later).
     public func decide(_ permission: PortPermission, from principal: Principal,
                        detail: String? = nil) async -> PermissionOutcome {
-        guard canPrompt() else { return .locked }
-        if Task.isCancelled { return .cancelled }
+        await answer(permission, from: principal, detail: detail, crossSpace: nil).outcome
+    }
+
+    /// Ask the cross-space card (#238). Coalesces on the two ports, so a port that calls twice while
+    /// the card is up gets one card, whatever right each call needs.
+    public func decideCrossSpace(_ ask: CrossSpaceAsk, from principal: Principal) async -> PermissionAnswer {
+        await answer(.crossSpace, from: principal, detail: ask.sentence, crossSpace: ask)
+    }
+
+    private func answer(_ permission: PortPermission, from principal: Principal, detail: String?,
+                        crossSpace: CrossSpaceAsk?) async -> PermissionAnswer {
+        guard canPrompt() else { return PermissionAnswer(outcome: .locked, choice: nil) }
+        if Task.isCancelled { return PermissionAnswer(outcome: .cancelled, choice: nil) }
         Self.awaitingPerson?()
         let awaiter = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if let existing = find(permission, principal, detail) {
+                if let existing = find(permission, principal, detail, crossSpace) {
                     existing.continuations.append((awaiter, continuation))
                     return
                 }
-                let req = PermissionRequest(permission: permission, principal: principal, detail: detail)
+                let req = PermissionRequest(permission: permission, principal: principal, detail: detail,
+                                            crossSpace: crossSpace)
                 req.continuations.append((awaiter, continuation))
                 if current == nil {
                     current = req
@@ -169,7 +302,7 @@ public final class PermissionCoordinator: ObservableObject {
         guard let req = all.first(where: { $0.continuations.contains { $0.id == awaiter } }),
               let i = req.continuations.firstIndex(where: { $0.id == awaiter }) else { return }
         let gone = req.continuations.remove(at: i)
-        gone.resume.resume(returning: .cancelled)
+        gone.resume.resume(returning: PermissionAnswer(outcome: .cancelled, choice: nil))
         guard req.continuations.isEmpty else { return }
         if current === req {
             current = nil
@@ -180,19 +313,22 @@ public final class PermissionCoordinator: ObservableObject {
     }
 
     private func find(_ permission: PortPermission, _ principal: Principal,
-                      _ detail: String?) -> PermissionRequest? {
+                      _ detail: String?, _ crossSpace: CrossSpaceAsk?) -> PermissionRequest? {
         func same(_ r: PermissionRequest) -> Bool {
-            r.permission == permission && r.principal.id == principal.id && r.detail == detail
+            if let ask = crossSpace {
+                return r.crossSpace.map { $0.readerKey == ask.readerKey && $0.targetKey == ask.targetKey } ?? false
+            }
+            return r.permission == permission && r.principal.id == principal.id && r.detail == detail
         }
         if let c = current, same(c) { return c }
         return queued.first(where: same)
     }
 
     /// Answer the current card and advance the queue.
-    public func resolveCurrent(granted: Bool) {
+    public func resolveCurrent(granted: Bool, choice: CrossSpaceChoice? = nil) {
         guard let req = current else { return }
         current = nil
-        req.resolve(granted ? .granted : .denied)
+        req.resolve(granted ? .granted : .denied, choice: choice)
         advance()
     }
 

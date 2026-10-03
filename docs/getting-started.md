@@ -104,7 +104,8 @@ revoke any of them.
 
 ## Settings
 
-- **Access:** the callers that can reach Port42, what each may do, and the ports you share.
+- **Access:** the callers that can reach Port42, what each may do, the ports you share, and the ports
+  you let reach a port in another space.
 - **Secrets:** API keys a companion may use through `rest.call`, never shown to it. Pick where the
   API wants the key: Bearer (the default), API Key (`x-api-key`), Basic, Header with the API's own
   header name, or Query with its parameter name. ElevenLabs, for example, is Header `xi-api-key`.

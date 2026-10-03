@@ -59,6 +59,7 @@ on the desktop moves.
 | ⌘1 to ⌘9 | The Nth space. |
 | Tab | Exposé, on the desktop. |
 | Esc | Close a box, leave exposé, or step back from a zoomed port (not in a terminal, which needs Esc). |
+| Esc, on a permission card | Deny. A click outside the card answers nothing. Return never allows: Allow is a click, or Space with keyboard navigation on. On the cross-space card (#238) each right and the space box is a checkbox, see ticked and the rest unticked. |
 | Space, held | Dictate: hold, speak, let go (sends, unless turned off). Up to two minutes. |
 
 ## Several displays (#189)

@@ -20,6 +20,7 @@ public enum PortPermission: String, Hashable {
     case deleteCompanion   // companions.delete by anyone but the person: asked every time, never kept
     case changeSharing     // remote.leave, remote.setWake on: a shared port's tile closed or its host let wake your companions, by anyone but the person: asked every time, never kept
     case editCompanion     // companions.update of another companion by anyone but the person: asked every time, never kept
+    case crossSpace        // a port reaching a port in another space (#238): the card picks rights, kept as a grant on that port
 
     // The method-to-permission mapping lives on each method's registry declaration
     // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
@@ -47,6 +48,7 @@ public enum PortPermission: String, Hashable {
         case .deleteCompanion: return "person.fill.xmark"
         case .editCompanion: return "person.crop.circle.badge.pencil"
         case .changeSharing: return "person.2.slash"
+        case .crossSpace: return "arrow.left.arrow.right.square"
         }
     }
 
@@ -127,6 +129,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Change Sharing",
                 message: "This wants to change how a port shared with you works here: leave it (its tile closes and the host's grant is theirs to renew), or let the host's chat wake your companions. Allow?"
+            )
+        case .crossSpace:
+            return (
+                title: "Reach a Port in Another Space",
+                message: "A port wants to read, use or change a port in another space. Pick what it may do there. See is the smallest; nothing stronger is given unless you tick it."
             )
         case .deleteCompanion:
             return (
