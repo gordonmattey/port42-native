@@ -237,9 +237,11 @@ struct ShellDesktopView: View {
                 }
                 // #196: while a resize is making room, how to keep it or only look; after, one action
                 // puts the layout back.
-                if shell.resizingTile {
+                if shell.resizingTile || (shell.tileMoving && !shell.makeRoomPreview.isEmpty) {
                     VStack { Spacer()
-                        Text(shell.makeRoomPreview.isEmpty ? "hold ⇧ to make room" : "making room · let go of ⇧ to cover instead")
+                        Text(shell.makeRoomPreview.isEmpty ? "hold ⇧ to make room"
+                             : NSEvent.modifierFlags.contains(.command) ? "making room · let go of ⌘ to snap"
+                             : "snapping · add ⌘ to slide instead · let go of ⇧ to cover")
                             .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                             .padding(.bottom, ShellState.layoutPillBottom)
                     }.zIndex(9_000).allowsHitTesting(false)
@@ -397,6 +399,19 @@ struct ShellTile: View {
     enum Corner { case nw, ne, sw, se, n, s, e, w }
 
     @State private var moveDelta: CGSize = .zero
+    /// #251: where the port was when ⇧ went down in this move. Room is made from here, not from where the
+    /// drag began, so a port picked up on top of another, moved clear, and then given ⇧ pushes the port
+    /// it was over too. nil while ⇧ is up.
+    @State private var roomAnchor: CGRect? = nil
+    /// The last pointer position of this move, so pressing or letting go of ⇧ or ⌘ without moving the
+    /// pointer takes effect at once.
+    @State private var lastMove: (translation: CGSize, location: CGPoint)? = nil
+    /// #251, the same for a resize: the port's frame when ⇧ went down, so a port that started over another,
+    /// pulled clear and then given ⇧ pushes the one it was over (Gordon: "shift does nothing and you can
+    /// just drag over the window below"). And the last translation, so ⇧ or ⌘ pressed with the pointer
+    /// still takes effect at once.
+    @State private var resizeAnchor: CGRect? = nil
+    @State private var lastResize: (corner: Corner, translation: CGSize)? = nil
     @State private var resizeCorner: Corner? = nil
     @State private var resizeDelta: CGSize = .zero
     @State private var peekHovered = false
@@ -778,6 +793,11 @@ struct ShellTile: View {
                 }
             }
             .gesture(moveGesture)
+            // #251: ⇧ or ⌘ pressed or let go mid-move, with the pointer still, takes effect at once.
+            .onChange(of: shell.heldModifiers) { _, _ in
+                if let r = lastResize { applyResize(r.corner, r.translation) }
+                else if let m = lastMove { applyMove(m.translation, at: m.location) }
+            }
             // The console: new errors counted on the icon; the panel slides down like the chat.
             if !showsCard, let key = consoleKey {
                 let errors = console.errorCounts[key] ?? 0
@@ -971,16 +991,37 @@ struct ShellTile: View {
             .gesture(resizeGesture(side))
     }
 
+    /// Place the moving port for a pointer translation (#251). With ⇧ held the ports it touches give way,
+    /// snapped (⌘ as well: they slide), and the move stops where one would be pushed off the screen, as
+    /// a ⇧ resize does. Room is made from where the port was when ⇧ went down.
+    private func applyMove(_ translation: CGSize, at location: CGPoint) {
+        lastMove = (translation, location)
+        let flags = NSEvent.modifierFlags
+        let target = frame.offsetBy(dx: translation.width, dy: translation.height)
+        guard ShellState.resizeMakesRoom(flags), !isPeeking, railZone(at: location) == nil else {
+            roomAnchor = nil
+            moveDelta = translation
+            shell.clearMakeRoomPreview()
+            return
+        }
+        let anchor = roomAnchor ?? frame.offsetBy(dx: moveDelta.width, dy: moveDelta.height)
+        roomAnchor = anchor
+        let limited = shell.limitedMove(tile.id, from: anchor, to: target)
+        moveDelta = CGSize(width: limited.minX - frame.minX, height: limited.minY - frame.minY)
+        shell.previewMakeRoom(resizing: tile.id, from: anchor, to: limited,
+                              snap: ShellState.resizeSnaps(flags), moving: true)
+    }
+
     private var moveGesture: some Gesture {
         // Read the pointer in the desktop space so a drop onto the right rail parks/closes the port.
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
                 guard !isFocused else { return }                        // a focused unit doesn't drag
-                if moveDelta == .zero {                                  // grabbing a tile raises it
+                if lastMove == nil {                                     // grabbing a tile raises it
                     shell.bringToFront(tile.id); shell.isDraggingTile = true
                     shell.tileMoving = true                             // and opens the rail to drop on
                 }
-                moveDelta = v.translation
+                applyMove(v.translation, at: v.location)
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
                 // Over Running, show where it would land among the cards.
                 if shell.draggingOverPark == .hide, let panel = tile.panel {
@@ -997,7 +1038,10 @@ struct ShellTile: View {
                 shell.railDropSlot = nil
                 shell.isDraggingTile = false
                 shell.endTileMove(overRail: railZone(at: v.location) != nil)
+                let anchor = roomAnchor
                 moveDelta = .zero
+                roomAnchor = nil
+                lastMove = nil
                 // Drag-to-keep (Phase 1): pulling a peek into the space ADOPTS it as a tile at
                 // the drop spot (no re-grid — the user chose the place); the close zone dismisses.
                 if isPeeking, let peek, let pf = peekFrame {
@@ -1025,15 +1069,42 @@ struct ShellTile: View {
                         appState.portWindows.park(id: panel.id, at: appState.portWindows.railIds(in: panel.spaceId).count)
                     }
                 case nil:
-                    commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
-                           size: CGSize(width: frame.width, height: frame.height))
+                    if ShellState.resizeMakesRoom(NSEvent.modifierFlags), let anchor {   // #251: a ⇧ move keeps the room it made
+                        let limited = shell.limitedMove(tile.id, from: anchor, to: frame.offsetBy(dx: v.translation.width, dy: v.translation.height))
+                        shell.endMakeRoom(resizing: tile.id, from: frame, keep: true)
+                        commit(origin: limited.origin, size: frame.size)
+                    } else {
+                        shell.clearMakeRoomPreview()
+                        commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
+                               size: CGSize(width: frame.width, height: frame.height))
+                    }
                 }
+                if zone != nil { shell.endMakeRoom(resizing: tile.id, from: frame, keep: false) }
             }
     }
 
     /// The rail zone under a desktop-space point. The chat is NOT exempt — it parks/closes too.
     private func railZone(at p: CGPoint) -> ShellState.ParkZone? {
         ShellState.parkZone(at: p, in: area, pausedHeight: shell.pausedCardsHeight)
+    }
+
+    /// Size the port for a resize translation (#196, #251). With ⇧ held the neighbors give way as it grows,
+    /// snapped (⌘ as well: they slide), and the edge stops where one would be pushed off the screen;
+    /// without ⇧ it covers them. Room is made from where the port was when ⇧ went down.
+    private func applyResize(_ corner: Corner, _ translation: CGSize) {
+        lastResize = (corner, translation)
+        let flags = NSEvent.modifierFlags
+        guard ShellState.resizeMakesRoom(flags) else {
+            resizeAnchor = nil
+            resizeDelta = translation
+            shell.clearMakeRoomPreview()
+            return
+        }
+        let anchor = resizeAnchor ?? Self.resized(frame, corner: corner, by: resizeDelta)
+        resizeAnchor = anchor
+        let limited = shell.limitedResize(tile.id, from: anchor, to: Self.resized(frame, corner: corner, by: translation))
+        resizeDelta = Self.delta(from: frame, to: limited, corner: corner)
+        shell.previewMakeRoom(resizing: tile.id, from: anchor, to: limited, snap: ShellState.resizeSnaps(flags))
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
@@ -1043,21 +1114,15 @@ struct ShellTile: View {
             .onChanged { v in
                 if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true; shell.resizingTile = true }
                 resizeCorner = corner
-                // #196: with ⇧ held the neighbors give way as it grows, and the edge stops where they
-                // would be pushed off the screen; without ⇧ it covers them, as before.
-                if ShellState.resizeMakesRoom(NSEvent.modifierFlags) {
-                    let limited = shell.limitedResize(tile.id, from: frame, to: Self.resized(frame, corner: corner, by: v.translation))
-                    resizeDelta = Self.delta(from: frame, to: limited, corner: corner)
-                    shell.previewMakeRoom(resizing: tile.id, from: frame, to: limited)
-                } else {
-                    resizeDelta = v.translation
-                    shell.clearMakeRoomPreview()
-                }
+                applyResize(corner, v.translation)
             }
             .onEnded { v in
-                let pushed = ShellState.resizeMakesRoom(NSEvent.modifierFlags)
+                let anchor = resizeAnchor
+                let pushed = ShellState.resizeMakesRoom(NSEvent.modifierFlags) && anchor != nil
                 let raw = Self.resized(frame, corner: corner, by: v.translation)
-                let f = pushed ? shell.limitedResize(tile.id, from: frame, to: raw) : raw
+                let f = pushed ? shell.limitedResize(tile.id, from: anchor!, to: raw) : raw
+                resizeAnchor = nil
+                lastResize = nil
                 if !pushed { shell.clearMakeRoomPreview() }
                 shell.endMakeRoom(resizing: tile.id, from: frame, keep: pushed)
                 commit(origin: f.origin, size: f.size)

@@ -1074,6 +1074,124 @@ public final class ShellState: ObservableObject {
         modifiers.contains(.shift)
     }
 
+    /// The modifier keys held now, published so a drag in progress hears ⇧ or ⌘ change without the
+    /// pointer moving (#251). Set by the shell's flagsChanged monitor.
+    @Published public var heldModifiers: UInt = 0
+
+    /// Whether a ⇧ resize snaps the ports it touches (#251, Gordon): a touched port keeps its far edge and
+    /// gives up width (or height) to stay joined to the edge being dragged, and follows it back. ⌘ as
+    /// well unsnaps: the touched port slides away at its own size, as before.
+    nonisolated public static func resizeSnaps(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        modifiers.contains(.shift) && !modifiers.contains(.command)
+    }
+
+    /// New positions for some of a frame's edges; the rest stay.
+    struct Edges: Equatable {
+        var minX, maxX, minY, maxY: CGFloat?
+        func applied(to n: CGRect) -> CGRect {
+            let x0 = minX ?? n.minX, x1 = maxX ?? n.maxX, y0 = minY ?? n.minY, y1 = maxY ?? n.maxY
+            return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        }
+    }
+
+    /// The neighbors whose edges line up with an edge the resize moves, and where those edges go (#251):
+    /// with the bottom edge dragged, a neighbor beside it whose bottom was level keeps level, and one
+    /// whose top sat a gap below that line (a row underneath) keeps the gap. A line runs on through
+    /// ports joined end to end, not across the desktop. Pure.
+    nonisolated static func alignedEdges(from old: CGRect, to new: CGRect, others: [String: CGRect]) -> [String: Edges] {
+        let gap = ShellPlacement.tileGap, tol: CGFloat = 4
+        var out: [String: Edges] = [:]
+        // One horizontal line (y), spanning old's x-range to start; `vertical` swaps the axes.
+        func line(at y0: CGFloat, to y1: CGFloat, below: Bool, vertical: Bool) {
+            func lo(_ r: CGRect) -> CGFloat { vertical ? r.minY : r.minX }
+            func hi(_ r: CGRect) -> CGFloat { vertical ? r.maxY : r.maxX }
+            func near(_ r: CGRect) -> CGFloat { vertical ? (below ? r.maxX : r.minX) : (below ? r.maxY : r.minY) }
+            func far(_ r: CGRect) -> CGFloat { vertical ? (below ? r.minX : r.maxX) : (below ? r.minY : r.maxY) }
+            var span = (lo(old), hi(old))
+            var pending = others.filter { _, n in
+                abs(near(n) - y0) <= tol || ((below ? far(n) - y0 : y0 - far(n)) >= gap - tol && (below ? far(n) - y0 : y0 - far(n)) <= 2 * gap)
+            }
+            var grew = true
+            while grew {
+                grew = false
+                for (id, n) in pending where lo(n) <= span.1 + 2 * gap && hi(n) >= span.0 - 2 * gap {
+                    var e = out[id] ?? Edges()
+                    let sameSide = abs(near(n) - y0) <= tol
+                    let to = sameSide ? y1 : (below ? y1 + gap : y1 - gap)
+                    // The edge of n that sits on the line.
+                    switch (vertical, below == sameSide) {
+                    case (false, true):  e.maxY = to
+                    case (false, false): e.minY = to
+                    case (true, true):   e.maxX = to
+                    case (true, false):  e.minX = to
+                    }
+                    out[id] = e
+                    span = (min(span.0, lo(n)), max(span.1, hi(n)))
+                    pending[id] = nil
+                    grew = true
+                }
+            }
+        }
+        if new.maxY != old.maxY { line(at: old.maxY, to: new.maxY, below: true, vertical: false) }
+        if new.minY != old.minY { line(at: old.minY, to: new.minY, below: false, vertical: false) }
+        if new.maxX != old.maxX { line(at: old.maxX, to: new.maxX, below: true, vertical: true) }
+        if new.minX != old.minX { line(at: old.minX, to: new.minX, below: false, vertical: true) }
+        return out
+    }
+
+    /// How far a ⇧ move may go (#251): no further than leaves every port it pushes, at its smallest,
+    /// inside the desktop. The move stops there, as a resize does. Pure.
+    nonisolated public static func limitForMove(from old: CGRect, to new: CGRect, others: [String: CGRect],
+                                                bounds: CGRect, minSize: CGSize = makeRoomMin) -> CGRect {
+        var r = new
+        let eps: CGFloat = 1, gap = ShellPlacement.tileGap
+        // The ports it carries stay on the desktop: the move stops where one would leave it.
+        let carried = others.values.filter { isJoined($0, to: old) }
+        if !carried.isEmpty {
+            let group = carried.reduce(old) { $0.union($1) }
+            var dx = new.minX - old.minX, dy = new.minY - old.minY
+            dx = min(max(dx, bounds.minX - group.minX), bounds.maxX - group.maxX)
+            dy = min(max(dy, bounds.minY - group.minY), bounds.maxY - group.maxY)
+            r = old.offsetBy(dx: dx, dy: dy)
+        }
+        for n in others.values where !n.insetBy(dx: eps, dy: eps).intersects(old) && !isJoined(n, to: old) {
+            let reach = r.insetBy(dx: -(gap - eps), dy: -(gap - eps))
+            guard n.intersects(reach) else { continue }
+            switch pushSide(of: n, from: old, to: reach) {
+            case .right: r.origin.x = min(r.origin.x, bounds.maxX - minSize.width - gap - r.width)
+            case .left:  r.origin.x = max(r.origin.x, bounds.minX + minSize.width + gap)
+            case .below: r.origin.y = min(r.origin.y, bounds.maxY - minSize.height - gap - r.height)
+            case .above: r.origin.y = max(r.origin.y, bounds.minY + minSize.height + gap)
+            case nil: break
+            }
+        }
+        return r
+    }
+
+    /// The side of `old` a neighbor sits joined to (its near edge within a gap or two of that edge, and
+    /// overlapping it the other way), when that edge moved from `old` to `new`. Pure.
+    /// Whether a port sits joined to `r` on any side: its near edge within a few gaps of r's, overlapping
+    /// it the other way. What a ⇧ move carries along (#251). Pure.
+    nonisolated static func isJoined(_ n: CGRect, to r: CGRect) -> Bool {
+        let gap = ShellPlacement.tileGap, eps: CGFloat = 1, reach = 3 * gap
+        let acrossX = n.minY < r.maxY - eps && n.maxY > r.minY + eps
+        let acrossY = n.minX < r.maxX - eps && n.maxX > r.minX + eps
+        if n.insetBy(dx: eps, dy: eps).intersects(r) { return false }
+        return (acrossX && ((n.minX >= r.maxX - eps && n.minX <= r.maxX + reach) || (n.maxX <= r.minX + eps && n.maxX >= r.minX - reach)))
+            || (acrossY && ((n.minY >= r.maxY - eps && n.minY <= r.maxY + reach) || (n.maxY <= r.minY + eps && n.maxY >= r.minY - reach)))
+    }
+
+    nonisolated static func joinedSide(of n: CGRect, from old: CGRect, to new: CGRect) -> PushSide? {
+        let gap = ShellPlacement.tileGap, eps: CGFloat = 1
+        let acrossX = n.minY < old.maxY - eps && n.maxY > old.minY + eps
+        let acrossY = n.minX < old.maxX - eps && n.maxX > old.minX + eps
+        if acrossX, new.maxX != old.maxX, n.minX >= old.maxX - eps, n.minX <= old.maxX + 2 * gap { return .right }
+        if acrossX, new.minX != old.minX, n.maxX <= old.minX + eps, n.maxX >= old.minX - 2 * gap { return .left }
+        if acrossY, new.maxY != old.maxY, n.minY >= old.maxY - eps, n.minY <= old.maxY + 2 * gap { return .below }
+        if acrossY, new.minY != old.minY, n.maxY <= old.minY + eps, n.maxY >= old.minY - 2 * gap { return .above }
+        return nil
+    }
+
     /// Where the layout hint and "Put the layout back" sit above the desktop's bottom edge: clear of the
     /// dock, which is taller than the tile clearance (the pill sat across it on Dev7, 2026-09-30).
     nonisolated public static let layoutPillBottom: CGFloat = ShellPlacement.dockClearance + 28
@@ -1114,16 +1232,50 @@ public final class ShellState: ObservableObject {
 
     public static func makeRoom(from old: CGRect, to new: CGRect, others: [String: CGRect],
                                 bounds: CGRect = CGRect(x: -1e6, y: -1e6, width: 2e6, height: 2e6),
-                                minSize: CGSize = makeRoomMin) -> [String: CGRect] {
+                                minSize: CGSize = makeRoomMin, snap: Bool = false,
+                                moving: Bool = false) -> [String: CGRect] {
         // A neighbor slides out of the way at its own size, keeping the desktop's 8-point gap (a wider gap
         // closes first), and shrinks only once it reaches the edge of the desktop (Gordon, 2026-09-30).
         var out: [String: CGRect] = [:]
         let eps: CGFloat = 1
         let gap = ShellPlacement.tileGap
         let reach = new.insetBy(dx: -(gap - eps), dy: -(gap - eps))
-        for (id, n) in others where n.intersects(reach) && !n.insetBy(dx: eps, dy: eps).intersects(old) {
+        // Edges lined up with the one being dragged move with it (#251, Gordon): drag a port's bottom down
+        // and the neighbor beside it whose bottom was level follows. Not while moving a port.
+        let lined = snap && !moving ? alignedEdges(from: old, to: new, others: others) : [:]
+        for (id, n) in others where !n.insetBy(dx: eps, dy: eps).intersects(old) {
+            let touched = n.intersects(reach) ? pushSide(of: n, from: old, to: reach) : nil
+            // Snapped (#251): a neighbor the edge touches, or one joined to it when the drag began, keeps
+            // its far edge and gives up width or height to stay a gap from the dragged edge, following it
+            // both ways. Too small to give up more, it slides at its smallest, as a pushed one does. A
+            // moved port snaps only what it touches: moving away stretches nothing.
+            // A moved port carries the ports joined to it (#251, Gordon: "the window next to it doesn't
+            // shift with"): snapped together, they move as one. ⌘ unsnaps: it moves alone.
+            if snap, moving, isJoined(n, to: old) {
+                let f = n.offsetBy(dx: new.minX - old.minX, dy: new.minY - old.minY)
+                if f != n { out[id] = f }
+                continue
+            }
+            let side = touched ?? (moving ? nil : joinedSide(of: n, from: old, to: new))
+            if snap, side != nil || lined[id] != nil {
+                var e = lined[id] ?? Edges()
+                switch side {
+                case .right?: e.minX = new.maxX + gap
+                case .left?:  e.maxX = new.minX - gap
+                case .below?: e.minY = new.maxY + gap
+                case .above?: e.maxY = new.minY - gap
+                case nil: break
+                }
+                let f = e.applied(to: n)
+                if f.width >= minSize.width, f.height >= minSize.height {
+                    if f != n { out[id] = f }
+                    continue
+                }
+                guard touched != nil else { continue }    // joined but not reached: it stays as it is
+            }
+            guard n.intersects(reach) else { continue }
             var f = n
-            switch pushSide(of: n, from: old, to: reach) {
+            switch touched {
             case .right:
                 let left = new.maxX + gap
                 let w = left + n.width > bounds.maxX ? max(minSize.width, bounds.maxX - left) : n.width
@@ -1188,6 +1340,13 @@ public final class ShellState: ObservableObject {
     }
 
     /// While a tile is resized with ⇧: the rect it may actually take, given what it pushes.
+    /// Where a ⇧ move may go (#251).
+    public func limitedMove(_ id: String, from old: CGRect, to new: CGRect) -> CGRect {
+        var others = desktopFrames()
+        others[id] = nil
+        return Self.limitForMove(from: old, to: new, others: others, bounds: Self.makeRoomBounds(in: lastDesktopArea))
+    }
+
     public func limitedResize(_ id: String, from old: CGRect, to new: CGRect) -> CGRect {
         var others = desktopFrames()
         others[id] = nil
@@ -1205,10 +1364,12 @@ public final class ShellState: ObservableObject {
     }
 
     /// While a tile is resized: its neighbors give way, live.
-    public func previewMakeRoom(resizing id: String, from old: CGRect, to new: CGRect) {
+    public func previewMakeRoom(resizing id: String, from old: CGRect, to new: CGRect, snap: Bool = false,
+                                moving: Bool = false) {
         var others = desktopFrames()
         others[id] = nil
-        let preview = Self.makeRoom(from: old, to: new, others: others, bounds: Self.makeRoomBounds(in: lastDesktopArea))
+        let preview = Self.makeRoom(from: old, to: new, others: others, bounds: Self.makeRoomBounds(in: lastDesktopArea),
+                                    snap: snap, moving: moving)
         if preview != makeRoomPreview { makeRoomPreview = preview }
     }
 

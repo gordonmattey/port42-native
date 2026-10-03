@@ -831,7 +831,14 @@ public struct ShellView: View {
             if voice.keyUp(keyCode: e.keyCode, now: e.timestamp) == .endCapture { endVoice() }
             return e
         }
-        monitors = [magnify, move, keys, keyUps].compactMap { $0 }
+        // #251: a drag in progress hears ⇧ or ⌘ pressed or let go without the pointer moving.
+        let flags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { e in
+            guard shell.owns(e) else { return e }
+            let held = e.modifierFlags.intersection([.shift, .command, .option, .control]).rawValue
+            if shell.heldModifiers != held { shell.heldModifiers = held }
+            return e
+        }
+        monitors = [magnify, move, keys, keyUps, flags].compactMap { $0 }
     }
 
     private func removeInputMonitors() {
