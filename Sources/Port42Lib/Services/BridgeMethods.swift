@@ -1709,7 +1709,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             }
             return .string(html)
         }
-        if let html = try? appState.db.fetchPortHtml(udid: udid) { return .string(html) }
+        let began = Date()
+        let html = try? appState.db.fetchPortHtml(udid: udid)
+        if Date().timeIntervalSince(began) > 0.5 {
+            p42log("[db] port.getHtml read %.1fs (%d bytes)", Date().timeIntervalSince(began), html?.utf8.count ?? 0)
+        }
+        if let html { return .string(html) }
         throw BridgeError.notFound("port '\(id)'")
     }
 

@@ -31,6 +31,14 @@ public final class DatabaseService {
         config.prepareDatabase { db in
             _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
             try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            // Any statement over 100 ms says so (the freezes, 2026-10-03): the one connection serializes every
+            // read and write, so a slow one holds up the main thread's reads behind it.
+            db.trace(options: .profile) { event in
+                if case let .profile(statement, duration) = event, duration > 0.1 {
+                    p42log("[db] slow statement %.2fs on %@: %@", duration, Thread.isMainThread ? "main" : "background",
+                           String(statement.sql.prefix(160)))
+                }
+            }
         }
         dbQueue = try DatabaseQueue(path: path, configuration: config)
         try migrate()

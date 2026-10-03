@@ -681,6 +681,7 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
+        if !AppState.isTestProcess { MainProbe.start() }
         // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
         // loading now rather than when someone first holds space: loading takes seconds, and the first hold
         // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
@@ -993,8 +994,8 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             self.recordTurnsInFlight()
             self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
-                                   payload: .object(["presence": .array(self.presence.entries(chat).map {
-                                       $0.bridgeValue(detail: false, label: self.sharedSelfLabel(chat)) })]))
+                                   payload: .object(["presence": .array(self.presence.entries(chat).map { [label = self.sharedSelfLabel(chat)] in
+                                       $0.bridgeValue(detail: false, label: label) })]))
         }
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in

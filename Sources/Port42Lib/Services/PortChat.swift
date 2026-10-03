@@ -626,9 +626,15 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         // APP-09: only a chat in the caller's own space (the APP-10 rule), not any chat by id.
         let k = try appState.requireReadableChat(try args.requireString("port"), by: p)
         let limit = max(1, min(args.int("limit") ?? PortChat.defaultReadLimit, PortChat.maxReadLimit))
+        let began = Date()
         let entries = try appState.db.chatEntries(chat: k, after: args.int("after") ?? 0, limit: limit)
         let last = try appState.db.lastChatSeq(chat: k)
-        var out: [String: BridgeValue] = ["entries": .array(entries.map { appState.outward($0, key: k).bridgeValue }), "last": .int(last)]
+        if Date().timeIntervalSince(began) > 0.5 {
+            p42log("[db] chat.read read %.1fs (%d entries)", Date().timeIntervalSince(began), entries.count)
+        }
+        // The label once per read, not per entry: each lookup reads the clients table (300 reads a call, on main).
+        let label = appState.sharedSelfLabel(k)
+        var out: [String: BridgeValue] = ["entries": .array(entries.map { ChatRouting.labeled($0, local: label).bridgeValue }), "last": .int(last)]
         if let agents = appState.sharedAgents(k) { out["agents"] = .array(agents.map { .string($0) }) }
         return .object(out)
     }
