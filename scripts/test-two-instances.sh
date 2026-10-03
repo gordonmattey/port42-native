@@ -43,7 +43,13 @@ ALBA="alba$RUN"; BRAM="bram$RUN"
 sleep 25   # the two CLIs start
 
 echo "== 1. host shares (click Share on the host)"
-LINK=$(A invite.create port=$BOARD rights:='["see","use","edit","wake_agents"]' | field "d['link']")
+# A card left unanswered past the call's timeout acts for nobody (#247): ask again, up to three times.
+LINK=""
+for try in 1 2 3; do
+  echo "   waiting for the Share card on the host (try $try of 3)"
+  LINK=$(A invite.create port=$BOARD rights:='["see","use","edit","wake_agents"]' 2>/dev/null | field "d['link']")
+  [ -n "$LINK" ] && break
+done
 [ -n "$LINK" ] && pass "1 invite made with see, use, edit, wake_agents" || { fail "1 no invite"; exit $FAILS; }
 
 echo "== 2. guest accepts, bringing $BRAM"
