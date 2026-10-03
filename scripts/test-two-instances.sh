@@ -105,7 +105,14 @@ done
 [ -n "$LINK" ] && pass "1 invite made with see, use, edit, wake_agents" || { fail "1 no invite"; exit $FAILS; }
 
 echo "== 2. guest accepts, bringing $BRAM"
-TILE=$(B invite.accept link="$LINK" remoteWake:=true companions:="[\"$BRAM\"]" | field "d['tile']")
+TILE=""
+for try in 1 2 3; do
+  echo "   waiting for the guest to accept: unlock it and allow its card if one shows (try $try of 3)"
+  OUT=$(B invite.accept link="$LINK" remoteWake:=true companions:="[\"$BRAM\"]" 2>&1)
+  TILE=$(echo "$OUT" | field "d['tile']")
+  [ -n "$TILE" ] && break
+  echo "   $OUT" | cut -c1-160; sleep 20
+done
 [ -n "$TILE" ] && pass "2 tile opened on the guest" || { fail "2 no tile"; exit $FAILS; }
 
 echo "== 3. $BRAM, brought in, says hello in the port's chat"
