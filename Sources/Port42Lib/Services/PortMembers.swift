@@ -188,22 +188,38 @@ extension AppState {
         return ChatRouting.localizedMentions(text, local: companions.map(\.displayName), remote: otherMachineAuthors(key))
     }
 
-    /// An agent's post in a chat this machine shares that names someone who is not there: Port42 says so in the
-    /// chat, with who is (6.4). A person sees the same under the composer before sending; an agent never did, and
-    /// waited on a mention that had reached nobody.
+    /// An agent's post in a chat this machine shares that misnames an agent: Port42 says so in the chat, with the
+    /// agent it most likely meant (6.4). Only a near miss: an agent's name with the wrong machine after it, or one
+    /// a letter or two off. A name that is nobody's here, often a person in the story ("@sam"), is left alone
+    /// (Gordon, 2026-10-03: that line was noise).
     func noteWrongMentions(key: String, entry: PortChatEntry) {
         guard entry.fromKind == Principal.Kind.companion.rawValue, let label = sharedSelfLabel(key) else { return }
         let entries = (try? db.chatEntries(chat: key, after: 0, limit: 200)) ?? []
         let authors = entries.filter { $0.fromId != ChatRouting.port42SenderId && $0.fromKind != "system" }
             .map { ChatRouting.labeled($0, local: label).fromName }
-        let known = companions.map(\.displayName) + authors + [currentUser?.displayName].compactMap { $0 }
-        let wrong = ChatRouting.unmatchedMentions(routingText(entry.text, key: key), known: known)
-        guard !wrong.isEmpty else { return }
-        var here: [String] = []
-        for a in authors where !here.contains(a) { here.append(a) }
-        let example = here.first(where: { $0 != ChatRouting.labeled(entry, local: label).fromName })
-            .map { " Mention by the name before the brackets: \(CompanionName.mention(ChatRouting.plainName($0)))." } ?? ""
-        postSystemChatLine(key: key, text: "Nobody in this chat is called " + wrong.map { "@" + $0 }.joined(separator: ", ")
-                                            + ". Here: " + here.joined(separator: ", ") + "." + example)
+        let agents = companions.map(\.displayName)
+            + entries.filter { $0.fromKind == Principal.Kind.companion.rawValue }.map { ChatRouting.plainName($0.fromName) }
+        let known = agents + authors + [currentUser?.displayName].compactMap { $0 }
+        var lines: [String] = []
+        for wrong in ChatRouting.unmatchedMentions(routingText(entry.text, key: key), known: known) {
+            let others = agents.filter { $0.lowercased() != ChatRouting.plainName(entry.fromName).lowercased() }
+            guard let meant = ChatRouting.nearestAgent(wrong, agents: others) else { continue }
+            lines.append("Nobody in this chat is called @\(wrong). Did you mean \(CompanionName.mention(meant))?")
+        }
+        guard !lines.isEmpty else { return }
+        postSystemChatLine(key: key, text: lines.joined(separator: " "))
+    }
+
+    /// This machine's agents on a port it shares, as its chat shows them, or nil for a chat not shared: the
+    /// companions of the port's space and the port's members. The other machine's @ picker offers them from the
+    /// moment it joins, not only once each has posted (Gordon, 2026-10-03).
+    func sharedAgents(_ key: String) -> [String]? {
+        guard let label = sharedSelfLabel(key) else { return nil }
+        let space = portWindows.panels.first { $0.udid == key || $0.id == key }?.spaceId
+        let members = portMemberIds(key)
+        let here = (space.map { companions(forSpace: $0) } ?? []) + companions.filter { members.contains($0.id) }
+        var out: [String] = []
+        for c in here where !out.contains("\(c.displayName) (\(label))") { out.append("\(c.displayName) (\(label))") }
+        return out
     }
 }

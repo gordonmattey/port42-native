@@ -1276,6 +1276,16 @@ public final class DatabaseService {
         }
     }
 
+    /// One instance's names, on every port of its this one holds: what it calls itself now, and what it knows
+    /// this one by (two agents, Phase 6: a machine's name can change).
+    public func setRemoteNames(peerKey: String, hostName: String, knownAs: String) throws {
+        defer { forgetRemoteCache() }
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE remote_ports SET hostName = ?, knownAs = ? WHERE peerKey = ?",
+                           arguments: [hostName, knownAs, peerKey])
+        }
+    }
+
     public func upsertRemotePort(_ r: RemotePortRow) throws {
         defer { forgetRemoteCache() }
         try dbQueue.write { db in

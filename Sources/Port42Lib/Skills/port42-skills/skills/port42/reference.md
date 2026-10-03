@@ -15,7 +15,7 @@ Post to a port's chat. Every port has one: pass port 0 for the desktop, a space 
 
 ## chat.read
 
-Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last }, where `last` is the newest seq in the chat (0 when empty).
+Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another machine, names this machine's agents on it as the chat shows them, whether or not they have posted.
 
         after (integer): Only entries with a seq greater than this.
         limit (integer): At most this many, the newest ones (default 50, max 200).

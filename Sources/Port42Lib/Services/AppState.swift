@@ -99,6 +99,10 @@ public final class AppState: ObservableObject {
     /// The host's last token for each tile of someone else's port, by tile id: a tile's reads hand it out,
     /// since its writes are checked on the host (two agents on one port, finding 1).
     var mirrorHostTokens: [String: String] = [:]
+    /// The machine name this instance last told each host it holds tiles of, by peer: told once per name.
+    var toldMachineName: [String: String] = [:]
+    /// The host's agents on each tile's port, by chat key, as its `chat.read` names them: the @ picker offers them.
+    @Published var mirrorAgents: [String: [String]] = [:]
     /// The counter at each port's last code write (update, patch, restore, rename): a code write is refused
     /// only when another code write happened after its token, not for other activity (Gordon, decision 4).
     var codeWriteSeq: [String: Int] = [:]
@@ -520,7 +524,7 @@ public final class AppState: ObservableObject {
     var heldWebLinks: [URL] = []
 
     /// Active tool executors for remote RPC calls, keyed by senderId
-    private var remoteExecutors: [String: RemoteToolExecutor] = [:]
+    var remoteExecutors: [String: RemoteToolExecutor] = [:]
     /// What each spawned terminal's client id was spawned AS, recorded at spawn (APP-15). Read when
     /// that client calls through the gateway, so it authorizes as its companion in its space.
     private(set) var spawnBindings: [String: Principal.SpawnBinding] = [:]
@@ -657,6 +661,7 @@ public final class AppState: ObservableObject {
                     return try self.redeemInvite(peer: peer, args: input).toJSONObject()
                 }
                 principal = try self.remotePrincipal(peer: peer).acting(as: claim.actor)
+                if method == AppState.renameMethod { return self.renamePeer(peer: peer, args: input) }
             } catch let e as BridgeError {
                 return e.toJSONObject()
             } catch { return ["error": error.localizedDescription] }

@@ -37,6 +37,14 @@ struct SharedChatNameTests {
         #expect(ChatRouting.labeled(local, local: nil).fromName == "alba")
     }
 
+    @Test("a near miss names the agent it meant; nobody's name is no one's near miss")
+    func nearest() {
+        #expect(ChatRouting.nearestAgent("alda", agents: ["alba (Mac)", "otto"]) == "alba")
+        #expect(ChatRouting.nearestAgent("sam", agents: ["alba", "otto"]) == nil)
+        #expect(ChatRouting.nearestAgent("sam", agents: ["bram"]) == nil, "a short name two letters off was taken for a typo")
+        #expect(ChatRouting.nearestAgent("otto (wrong)", agents: ["otto (Mac)"]) == "otto")
+    }
+
     @Test("completing a mention writes the plain name, and a mention with a machine is someone here")
     func composer() {
         #expect(ChatRouting.complete("hi @br", with: "bram (Sam's laptop)") == "hi @bram ")
@@ -44,11 +52,10 @@ struct SharedChatNameTests {
         #expect(ChatRouting.mentions("@Gordon%20%28Mac%29 look", name: "Gordon"))
     }
 
-    @Test("this machine's name is the Mac's, with the profile on a dev instance")
+    @Test("a machine is called \"<its person>'s Port42\" until its person names it")
     func machineName() {
-        #expect(AppState.defaultMachineName(computer: "Gordon's MacBook Pro", bundleId: "com.port42.app") == "Gordon's MacBook Pro")
-        #expect(AppState.defaultMachineName(computer: "Gordon's MacBook Pro", bundleId: "com.port42.dev6") == "Gordon's MacBook Pro dev6")
-        #expect(AppState.defaultMachineName(computer: nil, bundleId: nil) == "a Mac")
+        #expect(AppState.defaultMachineName(person: "Gordon") == "Gordon's Port42")
+        #expect(AppState.defaultMachineName(person: " ") == "Port42")
     }
 }
 
@@ -142,7 +149,7 @@ struct TwoAgentsAddressingTests {
         #expect(w.state.chatReplyTargets["alba"] == nil, "the other machine's alba woke this one")
     }
 
-    @Test("an agent's mention of nobody in a shared chat gets a Port42 line naming who is there; a right one does not")
+    @Test("an agent's near miss of an agent's name in a shared chat gets a Port42 line naming who it meant; a stranger's name does not")
     func wrongMentionSaid() throws {
         let w = try makeParityWorld()
         _ = try companion(w, "alba", terminal: false)
@@ -152,13 +159,14 @@ struct TwoAgentsAddressingTests {
         let before = try lines().count
         _ = try w.state.postToChat(key: id, text: "@alba hello", from: bram())
         #expect(try lines().count == before, "a right mention was flagged")
-        _ = try w.state.postToChat(key: id, text: "@zed please look", from: bram())
+        _ = try w.state.postToChat(key: id, text: "@sam, what launch date do you want?", from: bram())
+        #expect(try lines().count == before, "a person in the story was flagged as a wrong agent")
+        _ = try w.state.postToChat(key: id, text: "@alda please look", from: bram())
         let said = try lines()
         #expect(said.count == before + 1)
-        #expect(said.last?.contains("Nobody in this chat is called @zed") == true && said.last?.contains("bram (gordon11)") == true,
-                "the line does not say who is there: \(said.last ?? "")")
+        #expect(said.last == "Nobody in this chat is called @alda. Did you mean @alba?", "\(said.last ?? "")")
         let person = Principal.human(id: w.state.currentUser!.id, displayName: "Gordon", spaceId: w.space.id)
-        _ = try w.state.postToChat(key: id, text: "@zed are you there", from: person)
+        _ = try w.state.postToChat(key: id, text: "@alda are you there", from: person)
         #expect(try lines().count == before + 1, "a person's post was flagged; the composer tells them first")
     }
 
@@ -207,5 +215,75 @@ struct TwoAgentsAddressingTests {
         let echo = PortChatEntry(seq: 1, at: Date(), text: "@bram go", fromId: Self.me + "/u", fromName: "Gordon (gordon11)", fromKind: "human")
         w.state.wakeMentioned(tile: tile, key: key, entry: echo)
         #expect(w.state.chatReplyTargets["bram"] == nil, "this machine's own post woke bram again when it came back")
+    }
+
+    @Test("a machine that renames itself reads by the new name from then on; what it said before keeps the old one")
+    func hostFollowsARename() async throws {
+        let w = try makeParityWorld()
+        let id = try board(w)
+        try w.state.db.upsertPeerClient(id: "peer-g11", name: "gordon11", peerKey: Self.peer)
+        w.state.grantRemoteRights([.see, .use], to: Self.peer, onPort: id)
+        let before = try w.state.remotePrincipal(peer: Self.peer).acting(as: RemoteActor(id: "B1", name: "otto", kind: .companion))
+        _ = try w.state.postToChat(key: id, text: "hi", from: before)
+        let out = w.state.renamePeer(peer: Self.peer, args: ["name": "Sam's Port42"])
+        #expect(out["knownAs"] as? String == "Sam's Port42")
+        #expect(out["host"] as? String == w.state.machineName, "the host did not say its own name")
+        let after = try w.state.remotePrincipal(peer: Self.peer).acting(as: RemoteActor(id: "B1", name: "otto", kind: .companion))
+        _ = try w.state.postToChat(key: id, text: "again", from: after)
+        #expect(try w.state.db.chatEntries(chat: id, after: 0, limit: 10).map(\.fromName) == ["otto (gordon11)", "otto (Sam's Port42)"])
+        // A name this machine already goes by is not taken.
+        let taken = w.state.renamePeer(peer: Self.peer, args: ["name": w.state.machineName])
+        #expect(taken["knownAs"] as? String != w.state.machineName)
+    }
+
+    @Test("a tile tells its host this machine's name once, and keeps the names the host answers with")
+    func guestTellsItsName() async throws {
+        let (w, tile, _) = try tileWorld()
+        let door = w.state.door
+        var told: [String] = []
+        door.sendOverride = { [weak door] text in
+            guard let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  o["method"] as? String == AppState.renameMethod, let cid = o["call_id"] as? String else { return }
+            told.append(((o["args"] as? [String: Any])?["name"] as? String) ?? "")
+            let reply = #"{"type":"response","call_id":"\#(cid)","payload":{"senderName":"host","senderType":"host","content":"{\"knownAs\":\"Sam's Port42\",\"host\":\"Gordon's Port42\"}"}}"#
+            Task { @MainActor in door?.receive(reply) }
+        }
+        let row = try #require(w.state.mirroredRemote(tile))
+        await w.state.tellMachineName(row: row)
+        await w.state.tellMachineName(row: row)
+        #expect(told == [w.state.machineName], "told the host \(told.count) times")
+        let now = try #require(w.state.mirroredRemote(tile))
+        #expect(now.knownAs == "Sam's Port42" && now.hostName == "Gordon's Port42")
+    }
+
+    @Test("reading a shared port's chat names the host's agents on it; an unshared one does not")
+    func hostListsItsAgents() async throws {
+        let w = try makeParityWorld()
+        _ = try companion(w, "iris", terminal: false)
+        let id = try board(w)
+        func agents() async throws -> [String]? {
+            let v = try await w.state.runBridgeMethod("chat.read", principal: w.principal, args: BridgeArgs(["port": id]))
+            return ((v.toJSONObject() as? [String: Any])?["agents"] as? [String])
+        }
+        #expect(try await agents() == nil)
+        w.state.grantRemoteRights([.see, .use], to: Self.peer, onPort: id)
+        #expect(try await agents()?.contains("iris (\(w.state.selfLabel))") == true)
+    }
+
+    @Test("a tile's @ picker offers the host's agents before they have posted")
+    func guestPickerKnowsHostAgents() async throws {
+        let (w, tile, key) = try tileWorld()
+        let door = w.state.door
+        door.sendOverride = { [weak door] text in
+            guard let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  let cid = o["call_id"] as? String else { return }
+            let content = o["method"] as? String == "chat.read" ? #"{\"entries\":[],\"last\":0,\"agents\":[\"iris (Gordon's Port42)\"]}"# : #"{}"#
+            let reply = #"{"type":"response","call_id":"\#(cid)","payload":{"senderName":"host","senderType":"host","content":"\#(content)"}}"#
+            Task { @MainActor in door?.receive(reply) }
+        }
+        let row = try #require(w.state.mirroredRemote(tile))
+        await w.state.loadMirrorChat(tile: tile, row: row)
+        #expect(w.state.chatPeople(key: key).contains("iris (Gordon's Port42)"))
+        #expect(ChatRouting.complete("@ir", with: "iris (Gordon's Port42)") == "@iris ")
     }
 }

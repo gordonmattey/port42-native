@@ -248,6 +248,22 @@ enum ShareWords {
         }
     }
 
+    /// "see it, use it and change its code": what someone who joined can do, as a chat line says it.
+    static func sentence(_ rs: [RemoteRight]) -> String {
+        let words = RemoteRight.allCases.filter(rs.contains).map { r -> String in
+            switch r {
+            case .see: return "see it"
+            case .use: return "use it and post here"
+            case .edit: return "change its code"
+            case .wakeAgents: return "wake agents here by name"
+            case .fork: return "take a copy"
+            case .move: return "take it over"
+            }
+        }
+        guard let last = words.last else { return "see nothing yet" }
+        return words.count == 1 ? last : words.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     /// "see, use and edit": the rights a person holds, in a sentence.
     static func rights(_ rs: [RemoteRight]) -> String {
         let words = RemoteRight.allCases.filter(rs.contains).map(right)

@@ -297,8 +297,9 @@ struct InviteTests {
             let again = try await remote(w, as: peer, "invite.redeem", ["nonce": c.nonce])
             #expect((again as? [String: Any])?["port"] as? String == w.p, "a machine it let in was refused on reconnecting")
         }
-        let joins = try w.state.db.chatEntries(chat: w.p, after: 0, limit: 20).filter { $0.text.contains("joined from another machine") }
+        let joins = try w.state.db.chatEntries(chat: w.p, after: 0, limit: 20).filter { $0.text.contains("joined this port") }
         #expect(joins.count == 2, "each machine let in is announced once: \(joins.count)")
+        #expect(joins.allSatisfy { $0.text.contains("They can see it") }, "the line does not say in plain words what they can do")
     }
 
     @Test("a shared port's page reads its own space and companions from another machine, and nothing wider")

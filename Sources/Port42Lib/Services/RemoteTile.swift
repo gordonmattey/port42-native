@@ -151,6 +151,7 @@ extension AppState {
                 let reached = (first && fresh) ? true : await self.refreshMirror(tile: tile, row: row)
                 first = false
                 self.mirrorStatus[tile]?.online = reached
+                if reached { await self.tellMachineName(row: row) }
                 await self.loadMirrorChat(tile: tile, row: row)
                 do {
                     _ = try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.subscribe",
@@ -388,6 +389,7 @@ extension AppState {
                                                    args: ["port": row.portKey]) as? [String: Any],
               let list = out["entries"] as? [Any] else { return }
         chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
+        mirrorAgents[key] = (out["agents"] as? [String]) ?? []
         // And who is on it right now, so a tile opened mid-turn shows it. A host older than presence in
         // the API has no `presence.list`; the tile then shows presence from the next event on.
         if let now = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "presence.list",

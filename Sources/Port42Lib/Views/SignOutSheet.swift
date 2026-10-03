@@ -144,11 +144,11 @@ public struct SignOutSheet: View {
                 Text("THIS MACHINE'S NAME")
                     .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
                     .padding(.top, 6)
-                TextField(AppState.thisMacName, text: $machineName)
+                TextField(AppState.defaultMachineName(person: appState.currentUser?.displayName), text: $machineName)
                     .textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .padding(6).background(Color.white.opacity(0.04))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                Text("This machine's name to people on other machines: beside you and your companions in a shared port's chat, and on the invites you send. Empty uses this Mac's name.")
+                Text("This machine's name to people on other machines: beside you and your companions in a shared port's chat, and on the invites you send. Empty uses your name, as \"<name>'s Port42\". A machine you share with sees a new name the next time it connects.")
                     .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
 

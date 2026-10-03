@@ -234,9 +234,9 @@ extension AppState {
             if row.redeemedBy == nil { try db.markInviteRedeemed(id: row.id, by: peer) }
             else { try db.markInviteRedeemedAgain(id: row.id, by: peer) }
             refreshSharing()
-            let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
+            // In plain words, read on both machines (Gordon, 2026-10-03: the rights' wire names made no sense).
             postSystemChatLine(key: row.portKey,
-                               text: "\(label) joined from another machine (\(shown)). "
+                               text: "\(label) joined this port. They can \(ShareWords.sentence(Array(rights))). "
                                    + "To stop sharing, click 'shared' on the port.")
         }
         return .object(["port": .string(row.portKey), "title": .string(panel.title), "knownAs": .string(label),
@@ -600,30 +600,59 @@ extension AppState {
         return taken.contains(name.lowercased()) ? "\(name) \(peer.prefix(4))" : name
     }
 
+    // MARK: A machine's name changes (Phase 6, Gordon 2026-10-03)
+
+    /// Between instances only, like `invite.redeem`: not in the registry, so no person or agent calls it.
+    static let renameMethod = "invite.rename"
+
+    /// A machine this one shares with says its name now. Its label here follows (deduplicated as at enrolment),
+    /// so a person renamed in Settings reads by the new name in every chat from then on; what was already said
+    /// keeps the name it was said under. Answers with the label and this machine's own name, so the other side
+    /// can show both.
+    func renamePeer(peer: String, args: Any?) -> [String: Any] {
+        let typed = (((args as? [String: Any])?["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty, let client = try? db.client(peerKey: peer), client.kind == .peer else {
+            return ["error": "a name is needed", "code": BridgeErrorCode.missingArg.wire]
+        }
+        let label = client.name.lowercased() == typed.lowercased() ? client.name : peerLabel(String(typed.prefix(40)), peer: peer)
+        if label != client.name {
+            try? db.upsertPeerClient(id: client.id, name: label, peerKey: peer)
+            // A cached executor holds the principal, and with it the old name.
+            for key in remoteExecutors.keys where key.hasPrefix("remote:\(peer)/") { remoteExecutors[key] = nil }
+            refreshSharing()
+            p42log("[invite] %@ is now %@", client.name, label)
+        }
+        return ["knownAs": label, "host": machineName]
+    }
+
+    /// Tell a host this machine's name, once per name, when its tile connects: the host labels this machine's
+    /// people and agents with it. And learn the host's own name now, which an invite only carried once.
+    func tellMachineName(row: DatabaseService.RemotePortRow) async {
+        let name = machineName
+        guard toldMachineName[row.peerKey] != name else { return }
+        guard let out = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: Self.renameMethod,
+                                                   args: ["name": name]) as? [String: Any],
+              let knownAs = out["knownAs"] as? String else { return }   // a host from before this: as it was
+        toldMachineName[row.peerKey] = name
+        try? db.setRemoteNames(peerKey: row.peerKey, hostName: (out["host"] as? String) ?? row.hostName, knownAs: knownAs)
+    }
+
     /// The name this instance gives when it joins another: its machine name.
     var joiningName: String { machineName }
 
     /// This machine's one name to other machines (two agents, Phase 6.1): what it joins as, what its invites
     /// say the host is, and the label beside its people and agents in a shared chat. The name the person set in
-    /// Settings, else this Mac's own name; a dev instance adds its profile, so two on one Mac differ.
+    /// Settings (the only place it is edited, Gordon 2026-10-03), else "<their name>'s Port42".
     var machineName: String {
         let set = (UserDefaults.standard.string(forKey: Self.machineNameKey) ?? "").trimmingCharacters(in: .whitespaces)
-        return set.isEmpty ? Self.thisMacName : String(set.prefix(40))
+        return set.isEmpty ? Self.defaultMachineName(person: currentUser?.displayName) : String(set.prefix(40))
     }
-    /// Read once: this Mac's name does not change under a running app, and a chat labels every post with it.
-    nonisolated static let thisMacName = defaultMachineName()
     static let machineNameKey = "PORT42_MACHINE_NAME"
 
-    /// This Mac's name ("Gordon's MacBook Pro"), with the dev profile on a dev instance ("... dev6").
-    nonisolated static func defaultMachineName(computer: String? = Host.current().localizedName,
-                                   bundleId: String? = Bundle.main.bundleIdentifier) -> String {
-        let base = (computer ?? "").trimmingCharacters(in: .whitespaces)
-        let dev = bundleId.flatMap { id -> String? in
-            guard id.hasPrefix("com.port42."), id != "com.port42.app" else { return nil }
-            return String(id.dropFirst("com.port42.".count))
-        }
-        let name = [base.isEmpty ? "a Mac" : base, dev].compactMap { $0 }.joined(separator: " ")
-        return String(name.prefix(40))
+    /// "Gordon's Port42": what a machine is called until its person names it (Gordon, 2026-10-03).
+    nonisolated static func defaultMachineName(person: String?) -> String {
+        let name = (person ?? "").trimmingCharacters(in: .whitespaces)
+        return String((name.isEmpty ? "Port42" : "\(name)'s Port42").prefix(40))
     }
 
     /// The grant object for sharing one port: a local port's key, or `<peer>/<port>` for one elsewhere.

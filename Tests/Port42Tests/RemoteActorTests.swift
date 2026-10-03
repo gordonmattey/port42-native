@@ -40,8 +40,8 @@ struct RemoteActorTests {
 
         let theirPerson = there.acting(as: RemoteActor(id: "u-ada", name: "Ada", kind: .human))
         let e2 = try w.state.postToChat(key: key, text: "alpha, go", from: theirPerson)
-        // Named as themselves, and marked as remote (NAU-04): never the bare name a local post has.
-        #expect(e2.fromName == "Ada (remote)" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves, from there")
+        // Named as themselves, with their machine (NAU-04, Phase 6): never the bare name a local post has.
+        #expect(e2.fromName == "Ada (Ada)" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves, from there")
         #expect(e2.fromId != w.state.currentUser?.id, "a claim of human became this instance's person")
         #expect(w.state.chatReplyTargets["alpha"] == key, "the person there, with wake_agents, did not wake the port's companion")
         withExtendedLifetime(w.state) {}

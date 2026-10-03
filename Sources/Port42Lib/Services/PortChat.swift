@@ -149,13 +149,13 @@ extension AppState {
     /// **EVERY remote author is suffixed, a person too** (NAU-04). The actor's name and kind are the
     /// other instance's claim; only its peer id is attested. A person there used to be shown by the
     /// bare name it gave, so a peer could post as "Alice", this instance's person, and read as her.
-    /// The suffix is the peer's enrolled label, or "remote" when the claimed name IS that label (no
-    /// "Ada (Ada)"); a local post is never suffixed, so a remote one can never render as a local one.
+    /// The suffix is the peer's enrolled label, its machine's name (Phase 6), always: "(remote)" told
+    /// nobody where someone was (Gordon, 2026-10-03). A local post is never suffixed with another machine's
+    /// label, so a remote one can never render as a local one.
     static func chatAuthor(_ p: Principal) -> (id: String, name: String, kind: String) {
         guard p.kind == .remote, let a = p.actor else { return (p.id, p.displayName, p.kind.rawValue) }
         let kind: Principal.Kind = a.kind == .port ? .peer : a.kind
-        let label = a.name == p.displayName ? "remote" : p.displayName
-        return (p.id + "/" + a.id, "\(a.name) (\(label))", kind.rawValue)
+        return (p.id + "/" + a.id, "\(a.name) (\(p.displayName))", kind.rawValue)
     }
 
     /// A line from Port42 itself in a port's chat: a notice, not a message, so it wakes nobody.
@@ -397,6 +397,35 @@ public enum ChatRouting {
 
     // MARK: Names in a shared chat (two agents, Phase 6)
 
+    /// The agent a mention that matched nobody most likely meant: the same name with another machine after it,
+    /// or a name a letter off (two for a name of six or more). nil when it is nobody's near miss: "sam" is two
+    /// letters from "bram", and a person in the story, not a typo.
+    public static func nearestAgent(_ mention: String, agents: [String]) -> String? {
+        let want = plainName(mention).lowercased()
+        var best: (name: String, d: Int)?
+        for a in Set(agents.map(plainName)) {
+            let d = editDistance(want, a.lowercased())
+            if d <= (a.count >= 6 ? 2 : 1), a.count >= 3, best.map({ d < $0.d }) ?? true { best = (a, d) }
+        }
+        return best?.name
+    }
+
+    static func editDistance(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        guard !x.isEmpty else { return y.count }
+        guard !y.isEmpty else { return x.count }
+        var row = Array(0...y.count)
+        for i in 1...x.count {
+            var prev = row[0]; row[0] = i
+            for j in 1...y.count {
+                let cur = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (x[i - 1] == y[j - 1] ? 0 : 1))
+                prev = cur
+            }
+        }
+        return row[y.count]
+    }
+
     /// A name as a shared chat shows it, `alba (Gordon's MacBook Pro)`: the name, and the machine it is on.
     public static func splitLabel(_ s: String) -> (name: String, label: String?) {
         guard s.hasSuffix(")"), let open = s.range(of: " (", options: .backwards) else { return (s, nil) }
@@ -584,7 +613,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["chat.read"] = BridgeMethod(permission: nil, paramNames: ["port", "after", "limit"],
-        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last }, where `last` is the newest seq in the chat (0 when empty).",
+        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another machine, names this machine's agents on it as the chat shows them, whether or not they have posted.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -599,7 +628,9 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let limit = max(1, min(args.int("limit") ?? PortChat.defaultReadLimit, PortChat.maxReadLimit))
         let entries = try appState.db.chatEntries(chat: k, after: args.int("after") ?? 0, limit: limit)
         let last = try appState.db.lastChatSeq(chat: k)
-        return .object(["entries": .array(entries.map { appState.outward($0, key: k).bridgeValue }), "last": .int(last)])
+        var out: [String: BridgeValue] = ["entries": .array(entries.map { appState.outward($0, key: k).bridgeValue }), "last": .int(last)]
+        if let agents = appState.sharedAgents(k) { out["agents"] = .array(agents.map { .string($0) }) }
+        return .object(out)
     }
 
     r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
@@ -757,7 +788,7 @@ extension AppState {
 
     func chatPeople(key: String) -> [String] {
         if let tile = portWindows.panels.first(where: { $0.udid == key })?.id, let row = mirroredRemote(tile) {
-            return [row.hostName]
+            return (mirrorAgents[key] ?? []) + [row.hostName]
         }
         return (sharing[key]?.people ?? []).map(\.name)
     }

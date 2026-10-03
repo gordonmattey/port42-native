@@ -128,6 +128,18 @@ nothing.
   Port42 line in that chat: "nobody here is called X; in this chat: ...". The composer's hint knows the chat's
   authors, so a person sees the same before sending.
 
+**Phase 7. From the first hand-run** (Gordon typing both people, 2026-10-03).
+- **Freezes:** calls to the host took 18 to 30 s during setup and about 190 times overnight, with the gateway and,
+  in most samples, the app's main thread idle. Every call slower than 2 s now logs where it spent the time, on
+  both sides under one call id: handed to the app, waiting for the main thread, or in its method.
+- **A machine is "<name>'s Port42"** until its person names it in Settings (the only place it is edited). A
+  tile tells its host this machine's name when it connects, and the host's label follows it; what was said
+  before keeps the old name. People read as "Gordon (Gordon's Port42)", never "(remote)".
+- **The joined line** says in words what they can do. **The wrong-mention line** fires only for a near miss of
+  an agent's name, and names the one meant; a person in the story ("@sam") is left alone.
+- **The guest's @ picker** offers the host's agents on the port from the moment it joins: `chat.read` names
+  them on a shared port.
+
 ## Not in this
 
 Ports across spaces on one machine (#238, #249); sharing a whole space; the relay rate cap (#122).
