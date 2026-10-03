@@ -332,6 +332,11 @@ public final class ShellState: ObservableObject {
             ?? appState.companions(forSpace: sid).first?.displayName ?? "space"
     }
 
+    /// Whether a window other than this one is showing a space (#189).
+    func shownInAnotherWindow(_ spaceId: String) -> Bool {
+        appState.shells.contains { $0 !== self && $0.spaceId == spaceId }
+    }
+
     /// Is this space at rest? A rested space is FULLY SILENT — no chat peeks, no port-birth
     /// peeks; unread still accumulates (visible only inside the galaxy shelf). A DM (`direct`)
     /// space is never in `appState.spaces`, so it can never read as rested here — correct,
@@ -351,6 +356,9 @@ public final class ShellState: ObservableObject {
         // order), so stamp it frontmost + select it here — the ONE choke point every creator funnels
         // through (portCreated) — so a launched terminal/browser/AI-made port lands on top, not under.
         guard sid != self.spaceId else { bringToFront(id); return }
+        // Another window shows that space: the port is already in sight there, and a peek here would take
+        // its one live view out of that window's tile (#189: tiles went transparent with several windows).
+        guard !shownInAnotherWindow(sid) else { return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), title: title))
         startPeekCountdown(id, Self.unseenPeekLifetime)
@@ -371,7 +379,7 @@ public final class ShellState: ObservableObject {
     /// exception — an unanswered permission prompt re-notifies — so the dedup is load-bearing.
     func handleNeedsAttention(id: String, spaceId: String?, title: String, reason: String = "") {
         guard let sid = spaceId, !isRested(sid) else { return }
-        guard sid != self.spaceId else { return }
+        guard sid != self.spaceId, !shownInAnotherWindow(sid) else { return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid),
                                      title: Self.attentionTitle(companion: title, reason: reason)))
@@ -632,6 +640,9 @@ public final class ShellState: ObservableObject {
     /// second live view per window is the next step (docs/design-display-spaces.md).
     public func hostsLive(_ portId: String) -> Bool {
         let showing = appState.shells.filter { $0.desktopTilePanels.contains { $0.id == portId } }
+        // A peek here (not one of this window's tiles) never takes the live view from a window that shows
+        // the port as a tile: that tile would go transparent (#189).
+        if !showing.contains(where: { $0 === self }), !showing.isEmpty { return false }
         guard showing.count > 1, showing.contains(where: { $0 === self }) else { return true }
         if let key = showing.first(where: \.isKey) { return key === self }
         return showing.first === self
