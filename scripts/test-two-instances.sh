@@ -26,6 +26,7 @@ chat_has() {
     if { [ "$side" = host ] && A chat.read port="$chat" limit:=60 || B chat.read port="$chat" limit:=60; } 2>/dev/null | python3 -c "
 import sys,json
 d=json.load(sys.stdin); es=d if isinstance(d,list) else d.get('entries',[])
+who=lambda e: (e.get('from') or {}).get('name') or e.get('fromName') or ''   # chat.read nests the author under from
 sys.exit(0 if any(($pred) for e in es) else 1)"; then return 0; fi
     sleep 10; t=$((t+10))
   done
@@ -57,12 +58,12 @@ TILE=$(B invite.accept link="$LINK" remoteWake:=true companions:="[\"$BRAM\"]" |
 [ -n "$TILE" ] && pass "2 tile opened on the guest" || { fail "2 no tile"; exit $FAILS; }
 
 echo "== 3. $BRAM, brought in, says hello in the port's chat (it should reach the host)"
-chat_has host $BOARD "e.get('fromName','').startswith('$BRAM (')" 240 && pass "3 $BRAM spoke in the shared chat" || fail "3 $BRAM did not speak in the shared chat"
+chat_has host $BOARD "who(e).startswith('$BRAM')" 240 && pass "3 $BRAM spoke in the shared chat" || fail "3 $BRAM did not speak in the shared chat"
 
 echo "== 4. $BRAM talks to $ALBA (click 'An Agent From Another Machine' on the host)"
 BR=$(B ports.list | field "[p['id'] for p in d if p['title']=='$BRAM'][0]")
 B chat.post port=$BR text:="$(J "@$BRAM please ask @$ALBA, in the Shared board's chat, whether the board should get a Done list, and agree on it with them.")" >/dev/null
-chat_has host $BOARD "e.get('fromName','')=='$ALBA'" 300 && pass "4 $ALBA answered in the shared chat" || fail "4 $ALBA never answered"
+chat_has host $BOARD "who(e)=='$ALBA'" 300 && pass "4 $ALBA answered in the shared chat" || fail "4 $ALBA never answered"
 
 echo "== 5. $BRAM changes the code"
 B chat.post port=$BR text:="$(J "@$BRAM please add a heading 'made on two machines $RUN' to the Shared board with one port.patch.")" >/dev/null
