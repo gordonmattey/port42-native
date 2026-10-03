@@ -92,4 +92,23 @@ struct TwoAgentsUXTests {
         #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 50).contains { $0.text.contains("stopped sharing") },
                 "nothing in the tile's chat says so")
     }
+
+    @Test("a companion woken from two chats in one turn answers in both (the round 4 stall)")
+    func replyGoesToEveryChatThatAsked() throws {
+        let w = try makeParityWorld()
+        var alba = AgentConfig.createCommand(ownerId: w.state.currentUser!.id, displayName: "alba", command: "claude",
+                                             systemPrompt: nil, trigger: .mentionOnly)
+        alba.openInTerminal = true
+        try w.state.db.saveAgent(alba)
+        w.state.companions.append(alba)
+        w.state.deliverToTerminalCompanion(alba, line: "from the board", replyChat: "BOARD", spaceId: w.space.id)
+        w.state.deliverToTerminalCompanion(alba, line: "from its own chat", replyChat: "OWN", spaceId: w.space.id)
+        let targets = w.state.takeReplyTargets(companion: "alba", ownTerminalChat: "TERMINAL")
+        #expect(targets == ["OWN", "BOARD"], "the answer did not go to both chats that asked: \(targets)")
+        #expect(w.state.takeReplyTargets(companion: "alba", ownTerminalChat: "TERMINAL") == ["TERMINAL"],
+                "the next turn still answers the last turn's chats")
+        w.state.deliverToTerminalCompanion(alba, line: "again", replyChat: "BOARD", spaceId: w.space.id)
+        w.state.deliverToTerminalCompanion(alba, line: "and again", replyChat: "BOARD", spaceId: w.space.id)
+        #expect(w.state.takeReplyTargets(companion: "alba", ownTerminalChat: "TERMINAL") == ["BOARD"], "one chat was answered twice")
+    }
 }

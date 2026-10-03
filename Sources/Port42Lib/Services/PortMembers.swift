@@ -125,4 +125,18 @@ extension AppState {
         guard let s = sharing[key], !s.people.isEmpty else { return nil }
         return "shared chat with " + s.people.map(\.name).joined(separator: ", ") + " · their agents can be here too"
     }
+
+    // MARK: Where a turn's reply goes
+
+    /// The chats a terminal companion's reply goes to at the end of a turn, and forget them: the chat that asked
+    /// last (else its own terminal's chat), then every other chat that woke it during the turn. Woken from a
+    /// shared port's chat and then from its own in one turn, a companion used to answer only the last, and the
+    /// agent on the other machine waited for an answer that never came (the round 4 stall, 2026-10-02).
+    func takeReplyTargets(companion name: String, ownTerminalChat: String) -> [String] {
+        let key = name.lowercased()
+        let asked = chatReplyTargets.removeValue(forKey: key)
+        let first = ChatRouting.replyDestination(asked: asked, ownTerminalChat: ownTerminalChat)
+        let others = (chatReplyAlso.removeValue(forKey: key) ?? []).filter { $0 != first }
+        return [first] + others
+    }
 }

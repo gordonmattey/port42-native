@@ -226,6 +226,11 @@ public final class AppState: ObservableObject {
     /// Companion name (lowercased) → the port chat its next reply goes to. Set when a port chat
     /// routes to it; absent means the reply goes to the space's own chat.
     var chatReplyTargets: [String: String] = [:]
+    /// Every chat that woke a terminal companion during its current turn, in order (by companion, lowercased).
+    /// The reply goes to each, not only the last: woken from a shared port's chat and then from its own chat
+    /// in one turn, a companion's answer went only to its own, and the agent on the other machine waited
+    /// for it forever (two agents, the round 4 stall, 2026-10-02).
+    var chatReplyAlso: [String: [String]] = [:]
     /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
@@ -1401,6 +1406,7 @@ public final class AppState: ObservableObject {
         let name = companion.displayName
         let key = name.lowercased()
         ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        if let replyChat, !(chatReplyAlso[key] ?? []).contains(replyChat) { chatReplyAlso[key, default: []].append(replyChat) }
         presence.received(name, in: replyChat ?? spaceId)
         companionWatches.turnStarted(companionName: name)
         if let controller = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) }),
@@ -2004,10 +2010,10 @@ public final class AppState: ObservableObject {
             } ?? .peer(id: terminalClientId, displayName: name, spaceId: config.spaceId)
             // The chat that asked, else this terminal's own chat (a turn typed into the terminal).
             // Posting there also routes the reply's @mentions, so a hand-off is never lost.
-            let asked = self.chatReplyTargets.removeValue(forKey: name.lowercased())
-            let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
-            do { try self.postReply(key: chat, text: content, from: who) }
-            catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
+            for target in self.takeReplyTargets(companion: name, ownTerminalChat: panel.udid) {
+                do { try self.postReply(key: target, text: content, from: who) }
+                catch { p42log("[chat] reply to %@ failed: %@", target, error.localizedDescription) }
+            }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainPending: () -> [String] = { [weak self] in
@@ -2109,10 +2115,11 @@ public final class AppState: ObservableObject {
             defer { self.companionWatches.turnEnded(companionName: name) }
             // The chat that asked, else the terminal's own. Posted as Port42, and naming the
             // companion without an @, so it wakes no one.
-            guard let chat = self.chatReplyTargets.removeValue(forKey: name.lowercased())
-                    ?? self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
-            _ = try? self.postToChat(key: chat, text: ChatPresence.failureNotice(name: name, error: error, details: details),
-                                     from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
+            let own = self.portWindows.panels.first(where: { $0.id == panel.id })?.udid ?? panel.id
+            for target in self.takeReplyTargets(companion: name, ownTerminalChat: own) {
+                _ = try? self.postToChat(key: target, text: ChatPresence.failureNotice(name: name, error: error, details: details),
+                                         from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
+            }
         }
         controller.onSessionId = { [weak self] sid in
             self?.noteSessionId(sid, config: config, panelId: panel.id)
