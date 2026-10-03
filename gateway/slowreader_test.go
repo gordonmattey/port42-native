@@ -95,7 +95,12 @@ func TestAGuestThatStopsReadingHoldsUpOnlyItself(t *testing.T) {
 	}
 
 	sendEnvelope(t, ctx, busy, Envelope{Type: "call", Method: "whoami", CallID: "b1"})
-	if call := host(); call.CallID != "b1" {
+	// The stuck guest may be dropped first, and its subscription cancelled on the host: skip that.
+	call := host()
+	for call.Type == "cancel" {
+		call = host()
+	}
+	if call.CallID != "b1" {
 		t.Fatalf("the host got %+v", call)
 	}
 	hostSend(Envelope{Type: "response", CallID: "b1", TargetID: "busy", Payload: json.RawMessage(`{"content":"ok"}`)})
