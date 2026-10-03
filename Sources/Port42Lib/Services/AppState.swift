@@ -2558,12 +2558,23 @@ public final class AppState: ObservableObject {
         // companion's DM (a direct space whose companion is the one being deleted)?
         let wasViewingThisDM = currentSpace?.type == "direct"
             && spaceCompanions.contains { $0.id == companion.id }
-        // Close any port panels spawned by this companion so they don't persist and re-restore
-        let panelsToClose = portWindows.panels.filter { $0.createdBy == companion.displayName }
+        // Close any port panels spawned by this companion so they don't persist and re-restore, and
+        // its terminals too (#253, Gordon: yes): a deleted companion's terminal kept running under a
+        // client nobody could see any more.
+        let panelsToClose = portWindows.panels.filter {
+            $0.createdBy == companion.displayName || terminal($0.terminalConfig, isFor: companion)
+        }
         for panel in panelsToClose {
             portWindows.close(panel.id)
         }
         companionWatches.removeAll(companionId: companion.id)
+        // Its credentials go with it (#253): every client its terminals enrolled under
+        // (`child-<companion>-<space>`, one per space) is revoked, which retires its token (APP-13)
+        // and removes the token file. A deleted companion's token used to keep working.
+        let childPrefix = ClientRegistry.slug("child-\(companion.id)-")
+        for client in clientRegistry.clients() where client.isActive && client.id.hasPrefix(childPrefix + "-") {
+            clientRegistry.revoke(id: client.id)
+        }
         do {
             try db.removeAllSpacesForAgent(companion.id)
             try db.deleteAgent(id: companion.id)

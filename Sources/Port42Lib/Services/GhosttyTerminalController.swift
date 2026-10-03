@@ -107,8 +107,14 @@ struct TerminalWrite {
     /// another at a newline, and swallowed the Enter that followed 80ms later. So those go as one
     /// bracketed paste, which the TUI takes whole, and Enter waits longer the longer the paste.
     static let keysLimit = 200
+    ///
+    /// **A body with an `@` is pasted too** (#253). Typed as keys, the `@` opens Claude Code's file
+    /// picker and the Enter 80 ms later accepts its top suggestion: a wake line `[@gordon in …]: hi`
+    /// reached a companion as `[gordon in …]: hi?child-<id>`, the `@` gone and the companion's own
+    /// token file named on the end. Every wake line starts with `[@`, and chat text names people and
+    /// files with it; a paste is taken whole and opens no picker.
     static func message(_ body: String, clearFirst: Bool = false) -> TerminalWrite {
-        let asPaste = body.count > keysLimit || body.contains("\n") || body.contains("\r")
+        let asPaste = body.count > keysLimit || body.contains("\n") || body.contains("\r") || body.contains("@")
         let delay = asPaste ? min(1.5, 0.25 + Double(body.count) / 4000) : 0.08
         return TerminalWrite(text: body, submit: true, paste: asPaste, clearFirst: clearFirst, enterDelay: delay)
     }

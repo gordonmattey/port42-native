@@ -25,7 +25,7 @@ Make a companion, as the new-companion card does: an agent CLI (claude or codex)
 
 ## companions.delete
 
-Delete a companion for good: it leaves every space, its watches go, and the ports it made close. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.
+Delete a companion for good: it leaves every space, its watches go, the ports it made and its terminals close, and its tokens are revoked. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.
 
         companion (string, required): The companion's id or name.
 

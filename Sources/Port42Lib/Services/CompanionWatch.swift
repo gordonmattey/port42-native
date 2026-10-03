@@ -554,7 +554,7 @@ func registerCompanionCreate(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["companions.delete"] = BridgeMethod(permission: nil, paramNames: ["companion"], toolExposed: false,
-        description: "Delete a companion for good: it leaves every space, its watches go, and the ports it made close. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.",
+        description: "Delete a companion for good: it leaves every space, its watches go, the ports it made and its terminals close, and its tokens are revoked. Cannot be undone; use companions.remove to take it off one space's roster instead. The person may delete any; anyone else asks the person, naming the companion, every time, and a yes is never kept. companion is its id or name.",
         inputSchema: [
             "type": "object",
             "properties": ["companion": ["type": "string", "description": "The companion's id or name."]],

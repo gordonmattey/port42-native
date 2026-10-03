@@ -235,9 +235,13 @@ public enum ChatRouting {
     /// be read as a mention of `app`.
     /// A line Port42 typed into a terminal (`terminalLine`): a chat message or a watch wake, already in
     /// a chat. Anything else a terminal submits, the person typed there.
+    ///
+    /// Recognised by `[…]: ` rather than `[@`: a TUI that rewrote the line on the way in (the `@`
+    /// taken by a file picker, #253) still sent Port42's line, and mirroring it into a chat as the
+    /// person's carried a message from one space into another.
     public static func isInjectedLine(_ prompt: String) -> Bool {
         let t = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.hasPrefix("[@") && t.contains("]: ")
+        return t.hasPrefix("[") && t.contains("]: ")
     }
 
     /// A prompt the CLI submitted itself, not the person: Claude Code hands its session background-task

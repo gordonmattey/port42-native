@@ -189,7 +189,8 @@ struct MessageDeliveryTests {
 
     @Test("a short single line is typed as keys, with the quick Enter that works for it")
     func shortLineAsKeys() {
-        let w = TerminalWrite.message("[@gordon in #genesis]: hi")
+        // No `@`: a line with one is pasted (#253, WakeLineTests).
+        let w = TerminalWrite.message("ok, starting the build now")
         #expect(!w.paste)
         #expect(w.submit)
         #expect(w.enterDelay == 0.08)
