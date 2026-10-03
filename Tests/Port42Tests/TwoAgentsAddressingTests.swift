@@ -285,4 +285,29 @@ struct TwoAgentsAddressingTests {
         #expect(w.state.chatPeople(key: key).contains("iris (Gordon's Port42)"))
         #expect(ChatRouting.complete("@ir", with: "iris (Gordon's Port42)") == "@iris ")
     }
+
+    @Test("a copy's page says what it is doing about the copy, here, as the original does there; it never speaks for another port")
+    func copySpeaksForItself() async throws {
+        let (w, tile, key) = try tileWorld()
+        let page = try #require(w.state.portWindows.panels.first { $0.id == tile }).bridge.portPrincipal
+        // Run here, not sent to the host, which refuses both to another computer.
+        #expect(w.state.mirroredCall("state.set", fromTile: tile, args: [[["label": "done", "value": "3/5"]]]) == nil)
+        #expect(w.state.mirroredCall("port.publish", fromTile: tile, args: ["state", ["a": 1]]) == nil)
+        #expect(w.state.mirroredCall("storage.get", fromTile: tile, args: ["k"]) != nil, "the page's storage stopped going to the host")
+
+        _ = try await w.state.runBridgeMethod("state.set", principal: page,
+                                               args: BridgeArgs(["lines": [["label": "done", "value": "3/5"]]]))
+        let card = w.state.portCard(try #require(w.state.portWindows.panels.first { $0.id == tile }))
+        #expect(card.lines.contains { $0.label == "done" && $0.value == "3/5" }, "the copy's card does not show what its page said")
+
+        var heard = false
+        _ = w.state.notifyBus.subscribe(topic: PortNotify.topic(forPortKey: key)) { json in if json.contains("\"a\":1") { heard = true } }
+        _ = try await w.state.runBridgeMethod("port.publish", principal: page, args: BridgeArgs(["kind": "state", "payload": ["a": 1]]))
+        #expect(heard, "a watcher of the copy did not hear its page")
+
+        let other = try board(w)
+        let refused = try #require(w.state.mirroredCall("state.set", fromTile: tile, args: [[["label": "x", "value": "1"]], other]))
+        #expect((await refused.value as? [String: Any])?["code"] as? String == BridgeErrorCode.notGranted.wire,
+                "a copy's page named another port here")
+    }
 }

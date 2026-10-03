@@ -46,6 +46,11 @@ extension AppState {
 
     /// Methods a mirrored tile answers for itself: they are about this desktop, not the port.
     static let mirrorLocalMethods: Set<String> = ["presentation", "port.info", "user.get"]
+    /// What a page says about itself, which on a copy is said about the copy: its card's lines (`state.set`) and
+    /// its own feed (`port.publish`). They went to the host, which refuses both to another computer, so every
+    /// shared page logged rejections and the agents there patched each one (Gordon, 2026-10-03: fix it here).
+    /// Run on this computer, and only about the tile itself: a copy never names another port here.
+    static let mirrorSelfMethods: Set<String> = ["state.set", "port.publish"]
     /// Calls a shared port's page makes that the host answers for that port, so the copy names it: its
     /// storage, and the space and companions it reads at start (4.7b). `user.get` is the viewer, here.
     static func namesItsPort(_ method: String) -> Bool {
@@ -84,6 +89,16 @@ extension AppState {
     /// local terminals. A mirror that is not forwarding now has its calls refused, never run locally.
     func mirroredCall(_ method: String, fromTile tile: String, args: [Any]) -> Task<Any, Never>? {
         guard !Self.mirrorLocalMethods.contains(method), let row = mirroredRemote(tile) else { return nil }
+        if Self.mirrorSelfMethods.contains(method) {
+            let names = bridgeRegistry[method]?.paramNames ?? []
+            let named = BridgeArgs(positional: args, names: names).dictionary
+            if let other = named["port"] as? String, other != tile,
+               portWindows.panels.first(where: { $0.id == other || $0.udid == other })?.id != tile {
+                let refusal = BridgeError(code: .notGranted, message: "a copy of a shared port speaks only for itself")
+                return Task { ["error": refusal.message, "code": refusal.code] }
+            }
+            return nil
+        }
         guard mirrorStatus[tile] != nil else {
             let refusal = BridgeError(
                 code: .hostOffline,
