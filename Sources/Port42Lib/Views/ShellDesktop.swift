@@ -747,6 +747,15 @@ struct ShellTile: View {
                     .lineLimit(1).truncationMode(.tail)
                 // At card size the bar keeps the title and close; the rest is out of room (GM, 2026-09-29).
                 if !showsCard {
+                // The companion bar: who is in this port's chat, and what you have not read. Left of the
+                // header, next to the title, where the space's own bar sits next to its name (#254).
+                if let key = chatKey {
+                    PortChatBar(chats: appState.chats, key: key, me: appState.currentUser?.id,
+                                accent: tileAccent, open: chatOpen) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { chatOpen.toggle() }
+                    }
+                    .onAppear { appState.chats.load(key, from: appState.db) }
+                }
                 // The sharing pill (nautilus Phase 4, 4.6b): whose this port is and who else is in it,
                 // with everything about sharing one click behind it. Silent on a port nobody shares.
                 if let id = tile.panel?.id, let pill = appState.sharePill(tile: id, key: tile.panel?.udid) {
@@ -818,14 +827,6 @@ struct ShellTile: View {
                 }
                 .buttonStyle(.plain).help(consoleOpen ? "Close console" : "Console")
                 .onChange(of: errors) { _, n in if consoleOpen { seenErrors = n } }
-            }
-            // The companion bar: who is in this port's chat, and what you have not read.
-            if !showsCard, let key = chatKey {
-                PortChatBar(chats: appState.chats, key: key, me: appState.currentUser?.id,
-                            accent: tileAccent, open: chatOpen) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { chatOpen.toggle() }
-                }
-                .onAppear { appState.chats.load(key, from: appState.db) }
             }
             // Trailing chrome — the SAME controls whether tiled or focused (GM: "literally the same
             // code"). Secondary actions live under "…"; only focus-toggle and close stay visible.
