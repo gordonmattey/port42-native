@@ -688,7 +688,7 @@ extension AppState {
                                       args: BridgeArgs(["port": key, "text": text]))
         // In a tile of someone else's port, the person's own companions answer to their plain names
         // (GM's brother, 2026-09-28: "@Ovi" there reached no one). Only the person's own post does this.
-        if remotePort(for: key) != nil { wakeOwnCompanions(key: key, text: text, fromName: user.displayName, fromId: user.id) }
+        // Waking this machine's own companions in a tile's chat happens for every local post, in forwardRemote.
     }
 
     /// The people in a shared port's chat, whether or not they have posted yet: in a tile of someone

@@ -314,12 +314,15 @@ extension AppState {
         }
     }
 
-    /// The person's own post in a tile of someone else's port wakes their own companions by plain name.
-    /// No switch: it is the person asking their own companion, not the other machine waking it.
-    func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String) {
+    /// A post by anyone on this machine in a tile of someone else's port wakes this machine's companions it
+    /// names by their plain names, as on any port here: the person, a script, or one companion handing off to
+    /// another (Gordon, 2026-10-02: only the person's typed post did, so agents on one side could not reach
+    /// each other in a shared chat). No switch: it is this machine asking its own companions, not the other
+    /// machine waking them. Never the sender itself.
+    func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String, sender: String? = nil) {
         guard let tile = portWindows.panels.first(where: { $0.udid == key })?.id else { return }
         let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
-        let targets = companions.filter { named.contains($0.displayName.lowercased()) }
+        let targets = companions.filter { named.contains($0.displayName.lowercased()) && $0.id != sender }
         // The person bringing their own companion in by name makes it the tile's member (decision 2).
         for c in targets { addPortMember(c.id, port: key) }
         deliverMirrored(targets, tile: tile, key: key, text: text, fromName: fromName, fromId: fromId)

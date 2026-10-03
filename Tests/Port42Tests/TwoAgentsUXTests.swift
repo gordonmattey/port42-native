@@ -111,4 +111,38 @@ struct TwoAgentsUXTests {
         w.state.deliverToTerminalCompanion(alba, line: "and again", replyChat: "BOARD", spaceId: w.space.id)
         #expect(w.state.takeReplyTargets(companion: "alba", ownTerminalChat: "TERMINAL") == ["BOARD"], "one chat was answered twice")
     }
+
+    @Test("any post on this machine in a tile's chat wakes this machine's companions it names, never the sender")
+    func localPostsWakeLocalCompanions() async throws {
+        let (w, tile) = try tileWorld()
+        let door = w.state.door
+        door.sendOverride = { [weak door] text in       // the host takes the post
+            guard let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  o["type"] as? String == "remote_call", let cid = o["call_id"] as? String else { return }
+            let reply = #"{"type":"response","call_id":"\#(cid)","payload":{"senderName":"host","senderType":"host","content":"{\"ok\":true}"}}"#
+            Task { @MainActor in door?.receive(reply) }
+        }
+        func companion(_ name: String) throws -> AgentConfig {
+            var c = AgentConfig.createCommand(ownerId: w.state.currentUser!.id, displayName: name, command: "claude",
+                                              systemPrompt: nil, trigger: .mentionOnly)
+            c.openInTerminal = true
+            try w.state.db.saveAgent(c); w.state.companions.append(c)
+            return c
+        }
+        let bram = try companion("bram"), cora = try companion("cora")
+        let key = try #require(w.state.mirrorChatKey(tile))
+        w.state.addPortMember(bram.id, port: key)                           // bram is on the tile
+        w.state.chatReplyTargets = [:]
+        // bram hands off to cora in the shared chat: a companion's post, not the person's.
+        let asBram = Principal.companion(id: bram.id, displayName: "bram", spaceId: w.space.id)
+        _ = try await w.state.runBridgeMethod("chat.post", principal: asBram, args: BridgeArgs(["port": tile, "text": "@cora please review, and @bram notes"]))
+        #expect(w.state.chatReplyTargets["cora"] == key, "a companion's mention of another companion here woke nobody")
+        #expect(w.state.isPortMember(cora.id, port: key), "the mention did not bring cora onto the tile")
+        #expect(w.state.chatReplyTargets["bram"] == nil, "the sender woke itself")
+        // A script on this machine does the same.
+        w.state.chatReplyTargets = [:]
+        _ = try await w.state.runBridgeMethod("chat.post", principal: .peer(id: "cli", displayName: "cli"),
+                                              args: BridgeArgs(["port": tile, "text": "@bram over to you"]))
+        #expect(w.state.chatReplyTargets["bram"] == key, "a script's mention here woke nobody")
+    }
 }

@@ -741,6 +741,12 @@ extension AppState {
                                                 actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
             // Every answer from the host carries its token: keep it for this tile's reads.
             if let tile, let token = (out as? [String: Any])?["token"] as? String { mirrorHostTokens[tile] = token }
+            // A post in the tile's chat from anyone here also wakes the companions here it names (by plain name).
+            if method == "chat.post", let caller, caller.kind != .remote, let text = args.string("text"),
+               let key = mirrorTileKey(peer: target.peer, port: target.port) {
+                let who = AppState.chatAuthor(caller)
+                wakeOwnCompanions(key: key, text: text, fromName: who.name, fromId: who.id, sender: companion(actingAs: caller)?.id)
+            }
             return BridgeValue.fromJSONObject(out)
         } catch let e as BridgeError {
             if let tile, let current = e.details["current"] { mirrorHostTokens[tile] = current }
