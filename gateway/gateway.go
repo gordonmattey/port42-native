@@ -116,6 +116,9 @@ type Peer struct {
 	// credential here. Every call this peer sends carries it (see routeCall).
 	Credential string
 	mu         sync.Mutex
+	// q carries every frame to this peer, written by its own goroutine (see outq). nil for a Peer built
+	// without a connection loop (tests), which writes as it sends.
+	q *outq
 	// Rate limiting: sliding window of frame timestamps
 	msgTimes []time.Time
 	rateMu   sync.Mutex
@@ -163,6 +166,11 @@ func (p *Peer) Send(ctx context.Context, env Envelope) error {
 	data, err := json.Marshal(env)
 	if err != nil {
 		return err
+	}
+	if p.q != nil {
+		// The app's frames are calls people wait on: its senders wait for room. A caller that has fallen
+		// that far behind is dropped instead of holding up the loop that sent it.
+		return p.q.put(ctx, data, p.hostProven)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -437,6 +445,13 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer g.removePeer(peer)
+	peer.q = newOutq(func(ctx context.Context, data []byte) error {
+		return conn.Write(ctx, websocket.MessageText, data)
+	}, func(reason string) {
+		log.Printf("[gateway] dropped %s: %s", peer.ID[:min(8, len(peer.ID))], reason)
+		conn.CloseNow()
+	})
+	defer peer.q.end()
 
 	if peer.hostProven {
 		g.mu.Lock()

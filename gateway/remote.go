@@ -60,6 +60,7 @@ func (g *Gateway) SetAttestKey(k string) {
 // remoteConn is one remote session, addressed by the id the host replies to.
 type remoteConn struct {
 	s      transport.Session
+	q      *outq
 	sendMu sync.Mutex
 	rateMu sync.Mutex
 	times  []time.Time
@@ -87,6 +88,10 @@ func (c *remoteConn) send(ctx context.Context, env Envelope) error {
 	if err != nil {
 		return err
 	}
+	if c.q != nil {
+		// Through its own queue: a slow relay holds up this session only, never the app's answers (see outq).
+		return c.q.put(ctx, data, false)
+	}
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 	return c.s.Send(ctx, data)
@@ -108,6 +113,10 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	rand.Read(b[:])
 	id := "remote-" + hex.EncodeToString(b[:])
 	c := &remoteConn{s: s}
+	c.q = newOutq(s.Send, func(reason string) {
+		log.Printf("[gateway] dropped remote session %s: %s", id, reason)
+		s.Close()
+	})
 	g.mu.Lock()
 	if g.remotes == nil {
 		g.remotes = map[string]*remoteConn{}
@@ -119,6 +128,7 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 		delete(g.remotes, id)
 		g.forgetCallsOf(id)
 		g.mu.Unlock()
+		c.q.end()
 		s.Close()
 	}()
 	peer := s.RemotePeer()
