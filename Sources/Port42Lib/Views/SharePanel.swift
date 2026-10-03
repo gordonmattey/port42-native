@@ -273,3 +273,44 @@ struct RightChip: View {
         .buttonStyle(.plain)
     }
 }
+
+/// Which of your companions are on a tile of someone else's port (two agents, decision 6): only they act on
+/// it. Bringing one in tells it where it is; taking it off stops its calls on the tile.
+struct TileCompanionsPopover: View {
+    @ObservedObject var appState: AppState
+    let tile: String
+    let accent: Color
+    @State private var members: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("your companions on this port").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            ForEach(appState.companions) { c in
+                let on = members.contains(c.id)
+                Button {
+                    guard let key = appState.mirrorChatKey(tile) else { return }
+                    if on { appState.removePortMember(c.id, port: key) } else { appState.bringOnto(tile: tile, companions: [c]) }
+                    reload()
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(on ? "[x]" : "[ ]").font(Port42Theme.mono(11)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
+                        Text(c.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+        .frame(width: 260)
+        .background(Port42Theme.bgPrimary)
+        .onAppear(perform: reload)
+    }
+
+    private func reload() {
+        guard let key = appState.mirrorChatKey(tile) else { return }
+        members = appState.portMemberIds(key)
+    }
+}

@@ -9,6 +9,8 @@ struct AcceptBox: View {
     @ObservedObject var shell: ShellState
 
     @State private var wake = true
+    /// The companions to bring onto the tile (two agents, decision 6): only they act on it.
+    @State private var bring: Set<String> = []
     @State private var code = ""
     @State private var working = false
     @State private var error: String?
@@ -47,6 +49,28 @@ struct AcceptBox: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                if !appState.companions.isEmpty {
+                    Text("bring a companion").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(appState.companions) { comp in
+                                Button {
+                                    if bring.contains(comp.id) { bring.remove(comp.id) } else { bring.insert(comp.id) }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Text(bring.contains(comp.id) ? "[x]" : "[ ]").font(Port42Theme.mono(12))
+                                            .foregroundStyle(bring.contains(comp.id) ? Port42Theme.accent : Port42Theme.textSecondary)
+                                        Text(comp.displayName).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 120)
+                }
                 }
                 if c.code {
                     HStack(spacing: 10) {
@@ -79,6 +103,8 @@ struct AcceptBox: View {
             defer { working = false }
             do {
                 var args: [String: Any] = ["link": link, "remoteWake": wake]
+                let names = appState.companions.filter { bring.contains($0.id) }.map(\.displayName)
+                if !names.isEmpty { args["companions"] = names }
                 if !code.isEmpty { args["code"] = code }
                 let out = try await appState.runBridgeMethod(
                     "invite.accept",

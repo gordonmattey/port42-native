@@ -52,6 +52,22 @@ than making a second.
   folder applies when its session next starts. `companions.delete` removes one for good and asks the person every time.
   It stops hearing @mentions there; the companion, its ports and its files are kept.
 
+## Working with an agent on another machine
+
+A port someone shares with this machine is a tile here (`ports.list` shows it with `mirrors`), and its chat is
+the host's: whatever is said there reaches both machines.
+
+- Answer in **that port's chat**, never your own: `port42 chat.post port=<tile id> text="..."`. A reply in your
+  own terminal's chat stays on this machine and the other side never sees it.
+- Name the other side's agents exactly as that chat shows them. On the host they are `name (label)`; on the
+  machine that shares, its own agents are plain `name`. A wrong form wakes nobody, silently.
+- Your rights are the invite's (see, use, edit, wake_agents). `not_granted` means the host has not given you
+  that one: say so in the chat and ask, do not work around it.
+- Only companions brought onto a tile act on it. If you are refused on a tile, ask the person to bring you in
+  (the tile's Companions… menu, or an @mention of you in its chat).
+- Sharing a port so agents can work on it together: include `wake_agents` in `rights` unless told otherwise,
+  or their agents cannot wake yours. The first time an agent from there wakes one of yours, the person is asked.
+
 ## Watching for someone
 
 To keep a port under review, or fix it when it throws, watch it (see `port42-compose`):

@@ -750,14 +750,15 @@ extension AppState {
 
 @MainActor
 func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
-    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code", "remoteWake"],
-        description: "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.",
+    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code", "remoteWake", "companions"],
+        description: "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later. companions: names of your companions to bring onto the tile; only companions brought onto it act on it, and each is told what it is.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "link": ["type": "string", "description": "The invite link (https://tele.port42.ai/#…)."],
                 "code": ["type": "string", "description": "The six-digit code, if the invite needs one."],
                 "remoteWake": ["type": "boolean", "description": "Let their chat wake your companions for this port (default true)."],
+                "companions": ["type": "array", "items": ["type": "string"], "description": "Your companions to bring onto the tile (by name)."] as [String: Any],
             ],
             "required": ["link"],
         ]) { p, args in
@@ -784,7 +785,13 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
         let tile = try? await appState.openRemoteTile(peer: joined.address.peerID ?? "", port: joined.address.portId)
         var out: [String: BridgeValue] = ["address": .string(joined.address.canonical), "title": .string(joined.title),
                                           "rights": .array(joined.rights.map { .string($0.rawValue) })]
-        if let tile { out["tile"] = .string(tile) }
+        if let tile {
+            out["tile"] = .string(tile)
+            let names = Set(((args.array("companions") as? [String]) ?? []).map { $0.lowercased() })
+            let chosen = appState.companions.filter { names.contains($0.displayName.lowercased()) }
+            appState.bringOnto(tile: tile, companions: chosen)
+            if !chosen.isEmpty { out["companions"] = .array(chosen.map { .string($0.displayName) }) }
+        }
         return .object(out)
     }
 }

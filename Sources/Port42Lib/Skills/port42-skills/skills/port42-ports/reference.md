@@ -6,13 +6,14 @@ arrays and objects; `key=@<file>` for a file's contents).
 
 ## invite.accept
 
-Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.
+Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later. companions: names of your companions to bring onto the tile; only companions brought onto it act on it, and each is told what it is.
 
         code (string): The six-digit code, if the invite needs one.
+        companions (array): Your companions to bring onto the tile (by name).
         link (string, required): The invite link (https://tele.port42.ai/#…).
         remoteWake (boolean): Let their chat wake your companions for this port (default true).
 
-    port42 invite.accept link=… code=… remoteWake=…
+    port42 invite.accept link=… code=… remoteWake=… companions=…
 
 ## invite.create
 

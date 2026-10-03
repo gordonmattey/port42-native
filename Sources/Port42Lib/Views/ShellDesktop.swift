@@ -403,6 +403,7 @@ struct ShellTile: View {
     @State private var showVersions = false
     @State private var showMore = false
     @State private var showSpaces = false
+    @State private var showCompanions = false
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
     /// The port's console, opened from its title bar (it used to be a ">" drawn inside the page).
@@ -851,6 +852,7 @@ struct ShellTile: View {
                             }
                         } : nil,
                         onSpaces: tile.panel == nil ? nil : { showMore = false; showSpaces = true },
+                        onCompanions: appState.mirroredRemote(tile.id) == nil ? nil : { showMore = false; showCompanions = true },
                         opacity: tile.panel?.opacity ?? 1,
                         onOpacity: { level in
                             if let id = tile.panel?.id { appState.portWindows.setOpacity(id: id, level) }
@@ -870,6 +872,9 @@ struct ShellTile: View {
                         })
                 }
                 .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+                .popover(isPresented: $showCompanions, arrowEdge: .bottom) {
+                    TileCompanionsPopover(appState: appState, tile: tile.panel?.id ?? tile.id, accent: shell.accent)
+                }
                 .popover(isPresented: $showSpaces, arrowEdge: .bottom) {
                     PortSpacesPopover(
                         accent: shell.accent,
@@ -1780,6 +1785,8 @@ struct PortMorePopover: View {
     /// Which spaces it lives in (GM, 2026-09-30): move its home, also show it elsewhere, take a copy
     /// shown here off this desktop, or hand it to another machine. One row, so the menu stays short.
     var onSpaces: (() -> Void)? = nil
+    /// A tile of someone else's port: which of your companions are on it (two agents, decision 6).
+    var onCompanions: (() -> Void)? = nil
     /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
     /// This port's body opacity and how to change it (#195).
     var opacity: Double = 1
@@ -1812,6 +1819,9 @@ struct PortMorePopover: View {
             }
             if let onFork {
                 row("Fork: a copy", icon: "arrow.triangle.branch", action: onFork)
+            }
+            if let onCompanions {
+                row("Companions…", icon: "person.2", action: onCompanions)
             }
             if let onSpaces {
                 row("Spaces…", icon: "square.stack", action: onSpaces)

@@ -82,6 +82,15 @@ struct PortChatPanel: View {
     var body: some View {
         let list = chats.entries[key] ?? []
         VStack(spacing: 0) {
+            // A shared port's chat says so, with whom, and how to bring your companion in (two agents, Phase 4).
+            if let shared = appState.sharedChatLabel(key) {
+                Text(shared)
+                    .font(Port42Theme.mono(9)).foregroundStyle(accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(accent.opacity(0.08))
+                    .accessibilityLabel(shared)
+            }
             // The transcript: yours on the right, others on the left, one selectable text
             // (ChatTranscript). While it scrolls, a pill shows the time of the top message in view.
             ZStack(alignment: .top) {

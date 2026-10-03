@@ -19,6 +19,14 @@ extension AppState {
         try? db.addPortMember(agentId: agentId, portKey: key)
     }
 
+    /// A port's member companions, by id.
+    func portMemberIds(_ key: String) -> Set<String> { (try? db.portMembers(portKey: key)) ?? [] }
+
+    /// Take a companion off a port's members.
+    func removePortMember(_ agentId: String, port key: String) {
+        try? db.removePortMember(agentId: agentId, portKey: key)
+    }
+
     /// A caller reaches a port when it may read the port's space (APP-10), or when it is the port's member.
     func canReach(_ ref: PortRef, by p: Principal) -> Bool {
         if canRead(portInSpace: portSpaceId(ref), by: p) { return true }
@@ -85,5 +93,36 @@ extension AppState {
                 self.routeChat(key: key, entry: entry, fromAnotherInstance: true, allowed: [c.id])
             }
         }
+    }
+
+    // MARK: Bring a companion onto a tile (decision 6)
+
+    /// Bring companions onto a tile of someone else's port: they become its members and each is told where it
+    /// is, whose port it is, what it may do, and to answer in the port's chat.
+    func bringOnto(tile: String, companions chosen: [AgentConfig]) {
+        guard !chosen.isEmpty, let row = mirroredRemote(tile), let key = mirrorChatKey(tile) else { return }
+        for c in chosen { addPortMember(c.id, port: key) }
+        let rights = ShareWords.rights(row.rights)
+        let there = row.knownAs.map { " There you are known as \"<name> (\($0))\"." } ?? ""
+        for c in chosen {
+            let intro = "You are on '\(row.title)', a port \(row.hostName) shares with this machine (port \(key)). "
+                + "Its chat is shared with \(row.hostName)'s machine: reply in that chat, and @mention their agents by the "
+                + "names shown there.\(there.replacingOccurrences(of: "<name>", with: c.displayName)) You can \(rights). "
+                + "Have a look at it and say hello in its chat."
+            deliverMirrored([c], tile: tile, key: key, text: intro, fromName: "Port42", fromId: "port42")
+        }
+    }
+
+    /// What a shared port's chat says at its top, or nil for a chat that is not shared: on a tile, whose port it
+    /// is and how to bring your companion in; on a port this machine shares, who it is shared with.
+    func sharedChatLabel(_ key: String) -> String? {
+        if let tile = portWindows.panels.first(where: { $0.udid == key || $0.id == key })?.id, let row = mirroredRemote(tile) {
+            let mine = portMemberIds(key)
+            let names = companions.filter { mine.contains($0.id) }.map(\.displayName)
+            let here = names.isEmpty ? "@mention a companion to bring it in" : "your companions here: " + names.joined(separator: ", ")
+            return "shared chat with \(row.hostName)'s machine · \(here)"
+        }
+        guard let s = sharing[key], !s.people.isEmpty else { return nil }
+        return "shared chat with " + s.people.map(\.name).joined(separator: ", ") + " · their agents can be here too"
     }
 }

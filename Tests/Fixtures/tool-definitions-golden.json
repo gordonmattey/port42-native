@@ -544,12 +544,19 @@
     "name" : "imagine_start"
   },
   {
-    "description" : "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.",
+    "description" : "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later. companions: names of your companions to bring onto the tile; only companions brought onto it act on it, and each is told what it is.",
     "input_schema" : {
       "properties" : {
         "code" : {
           "description" : "The six-digit code, if the invite needs one.",
           "type" : "string"
+        },
+        "companions" : {
+          "description" : "Your companions to bring onto the tile (by name).",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
         },
         "link" : {
           "description" : "The invite link (https:\/\/tele.port42.ai\/#…).",

@@ -304,12 +304,14 @@ extension AppState {
     }
 
     /// Hand a post in a mirrored chat to this machine's companions; their replies go to the host's chat.
-    private func deliverMirrored(_ targets: [AgentConfig], tile: String, key: String, text: String,
+    func deliverMirrored(_ targets: [AgentConfig], tile: String, key: String, text: String,
                                  fromName: String, fromId: String) {
         guard !targets.isEmpty, let panel = portWindows.panels.first(where: { $0.id == tile }),
               let spaceId = panel.spaceId ?? currentSpace?.id else { return }
         let entry = PortChatEntry(seq: 0, at: Date(), text: text, fromId: fromId, fromName: fromName, fromKind: "human")
-        let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel),
+        // The source says the port is someone else's, shared here, so the companion answers in its chat.
+        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName)'s machine: reply in this port's chat" } ?? ""
+        let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel) + shared,
                                             text: entry.text)
         let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
         for c in targets where c.openInTerminal {
