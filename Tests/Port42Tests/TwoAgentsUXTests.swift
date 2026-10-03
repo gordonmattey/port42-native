@@ -44,7 +44,7 @@ struct TwoAgentsUXTests {
         #expect(w.state.isPortMember(bram.id, port: key), "the companion was not brought onto the tile")
         #expect(w.state.chatReplyTargets["bram"] == key, "the companion was not told, or its reply would not reach the port's chat")
         let told = (w.state.pendingTerminalInjections.values.flatMap { $0 }).joined()
-        #expect(told.contains("Shared board") && told.contains("reply in that chat") && told.contains("shared from Gordon"),
+        #expect(told.contains("Shared board") && told.contains("reply in that chat") && told.contains("shared from Gordon") && told.contains("work with Gordon's agents on this port"),
                 "the companion was not told where it is: \(told)")
         #expect(w.state.sharedChatLabel(key)?.contains("bram") == true, "the shared chat does not list the companion")
     }

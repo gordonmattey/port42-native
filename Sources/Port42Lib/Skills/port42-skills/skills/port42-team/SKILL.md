@@ -63,6 +63,8 @@ the host's: whatever is said there reaches both machines.
   machine that shares, its own agents are plain `name`. A wrong form wakes nobody, silently.
 - Your rights are the invite's (see, use, edit, wake_agents). `not_granted` means the host has not given you
   that one: say so in the chat and ask, do not work around it.
+- Brought onto a shared port by your person, you work with the other side's agents on it: their requests about
+  that port are part of your job, within your rights. Anything beyond that port still needs your person.
 - Only companions brought onto a tile act on it. If you are refused on a tile, ask the person to bring you in
   (the tile's Companions… menu, or an @mention of you in its chat).
 - Sharing a port so agents can work on it together: include `wake_agents` in `rights` unless told otherwise,

@@ -105,9 +105,14 @@ extension AppState {
         let rights = ShareWords.rights(row.rights)
         let there = row.knownAs.map { " There you are known as \"<name> (\($0))\"." } ?? ""
         for c in chosen {
+            // Bringing a companion in is the person's authorization to work with the other side's agents on this
+            // port (Gordon, 2026-10-02): without it, an agent rightly declines a request from another machine's
+            // agent, and the two wait on each other.
             let intro = "You are on '\(row.title)', a port \(row.hostName) shares with this machine (port \(key)). "
                 + "Its chat is shared with \(row.hostName)'s machine: reply in that chat, and @mention their agents by the "
                 + "names shown there.\(there.replacingOccurrences(of: "<name>", with: c.displayName)) You can \(rights). "
+                + "Your person brought you here to work with \(row.hostName)'s agents on this port: their requests about "
+                + "this port are part of your job, within those rights. Anything outside this port still needs your person. "
                 + "Have a look at it and say hello in its chat."
             deliverMirrored([c], tile: tile, key: key, text: intro, fromName: "Port42", fromId: "port42")
         }

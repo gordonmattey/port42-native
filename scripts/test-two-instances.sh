@@ -44,6 +44,8 @@ ALBA="alba$RUN"; BRAM="bram$RUN"
 echo "== setup (run $RUN, $ROUNDS rounds)"
 SA=$(A space.create name="studio-$RUN" | field "d['id']"); SB=$(B space.create name="visit-$RUN" | field "d['id']")
 [ -n "$SA" ] && [ -n "$SB" ] || { echo "cannot reach both instances"; exit 99; }
+# Both windows on the run's own spaces, so the tile lands there and the person sees it.
+A space.switchTo space_id=$SA >/dev/null; B space.switchTo space_id=$SB >/dev/null
 BOARD_HTML=$(mktemp -t board).html
 cat > "$BOARD_HTML" <<'HTML'
 <title>Team board</title>
@@ -143,6 +145,10 @@ for ((r=1; r<=ROUNDS; r++)); do
   V0=$(last_version)
   MSG="@$LEAD round $r. With @$OTHER, in the Team board's chat, add $F. Agree the plan there first, split the work so each of you makes at least one change to the board's code with port.patch, and give the new element the id '$TAG'. Keep what is already on the board working. When both changes are in, check the board's console has no errors, then say 'round $r done' in the board's chat."
   $SIDE chat.post port=$LEADCHAT text:="$(J "$MSG")" >/dev/null
+  # Each side briefs its own agent, as two people would: an agent takes the other machine's requests as part
+  # of its job only within what its own person asked.
+  if [ "$SIDE" = B ]; then HSIDE=A; HCHAT=$AL; else HSIDE=B; HCHAT=$BR; fi
+  $HSIDE chat.post port=$HCHAT text:="$(J "@$OTHER round $r: help @$LEAD, in the Team board's chat, add $F. Agree the plan there, make at least one change to the board's code yourself with port.patch, review theirs, and keep the board working. The new element's id is '$TAG'.")" >/dev/null
   wait_html "$TAG" 600 && pass "round $r: the new element ($TAG) is on the host" || fail "round $r: no element $TAG"
   chat_has host $BOARD "'round $r done' in e.get('text','').lower()" 300 && pass "round $r: done was said in the shared chat" || fail "round $r: nobody said it was done"
   AUTH=$(authors_since "$V0")
