@@ -226,6 +226,9 @@ extension AppState {
                 noticeMention(key: key, entry: entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
             }
+        case PortEventKind.subscribed.wire:
+            // The host now sends every post: read what was posted since this tile last saw its chat, and wake for it.
+            Task { @MainActor in await self.loadMirrorChat(tile: tile, row: row) }
         case PortEventKind.access.wire:
             // The host changed what this machine may do here: shown at once, and kept on the tile.
             let p = o["payload"] as? [String: Any]

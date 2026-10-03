@@ -574,7 +574,7 @@ BRIDGE API REFERENCE:
       access · audio.data · audio.transcription · browser.error · browser.load
       browser.redirect · camera.frame · chat · companion.activity · console · driver
       filedrop · message · presence · presentation · push · screen.frame · state · storage
-      terminal.output
+      subscribed · terminal.output
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):

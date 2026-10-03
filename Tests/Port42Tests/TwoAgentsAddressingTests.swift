@@ -357,4 +357,19 @@ struct TwoAgentsAddressingTests {
         #expect(w.state.mirrorStatus[tile]?.online == false, "the tile said online before the host answered")
         w.state.stopMirror(tile: tile)
     }
+
+    @Test("when the host says the tile's stream is live, the tile catches up on what was posted before it was")
+    func liveStreamCatchesUp() async throws {
+        let (w, tile, key) = try tileWorld()
+        let bram = try companion(w, "bram")
+        w.state.addPortMember(bram.id, port: key)
+        let row = try #require(w.state.mirroredRemote(tile))
+        w.state.mirrorSeenSeq[tile] = 1
+        hostAnswersChat(w, [["seq": 2, "at": 0.0, "text": "@bram posted before the stream was live",
+                             "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]])
+        w.state.chatReplyTargets = [:]
+        w.state.mirrorEvent(tile: tile, row: row, ["kind": "subscribed", "topic": "port:P", "payload": [String: Any]()])
+        for _ in 0..<200 where w.state.chatReplyTargets["bram"] == nil { await Task.yield() }
+        #expect(w.state.chatReplyTargets["bram"] == key, "a post made before the stream was live never woke bram")
+    }
 }

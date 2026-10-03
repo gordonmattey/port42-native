@@ -55,7 +55,7 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         permission: nil,
         paramNames: ["id"],
         toolExposed: false,
-        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.",
+        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output), after a first `subscribed` event that says the stream is live: read anything you need to catch up on then. `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -73,6 +73,12 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         let topic = PortNotify.topic(forPortKey: ref?.key ?? id)
         let subId = appState.notifyBus.subscribe(topic: topic, deliver: yield)
         defer { appState.notifyBus.unsubscribe(id: subId, topic: topic) }
+        // Say the stream is live, so a caller can read what it might have missed up to now and miss nothing after
+        // (a tile on another computer reads its host's chat here; Gordon, 2026-10-03: posts in the gap were lost).
+        if let ready = PortNotify(topic: topic, kind: PortEventKind.subscribed.wire, payload: .object([:]),
+                                  token: appState.notifyBus.tokenForTopic?(topic)).jsonString() {
+            yield(ready)
+        }
         // Hold the stream open until the caller cancels — the run executes on a tracked Task that is
         // cancelled on close/cancel (mirrors ai.complete's cancellation). Poll so cleanup is prompt.
         while !Task.isCancelled {
