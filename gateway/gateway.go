@@ -124,6 +124,9 @@ type Peer struct {
 	rateMu   sync.Mutex
 }
 
+// slowCall is how long a call may take before the gateway logs where it spent the time.
+const slowCall = 2 * time.Second
+
 // maxCallerMessageSize is the frame limit for every WebSocket peer that is not the proven host
 // (GW-13): the 2026-03 limit. The 2 MB limit exists for the host's answers, which can carry large
 // payloads; a caller with a large request has /call, which takes the same 2 MB.
@@ -693,6 +696,9 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	// Where a slow call spent its time, for the freezes (2026-10-03): handing it to the app, or waiting
+	// for the app's answer. The app logs its side under the same call id.
+	started := time.Now()
 	if err := hostPeer.Send(ctx, call); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -700,6 +706,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 			"error": "failed to reach host", "code": CodeTransportFailed})
 		return
 	}
+
+	handed := time.Since(started)
 
 	// Wait for the response: callWait, or approvalWait once the host says a person is being asked
 	// (#247). A caller that gives up, by timeout or by leaving, tells the host, so the card it was
@@ -712,6 +720,10 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 			timer.Reset(approvalWait)
 			continue
 		case resp := <-replyCh:
+			if took := time.Since(started); took > slowCall {
+				log.Printf("[gateway] slow call %s %s: answered after %v (handed over in %v)",
+					req.Method, callID, took.Round(time.Millisecond), handed.Round(time.Millisecond))
+			}
 			w.Header().Set("Content-Type", "application/json")
 			if resp.Error != "" {
 				w.WriteHeader(http.StatusBadGateway)
@@ -732,6 +744,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"content": ""})
 			}
 		case <-timer.C:
+			log.Printf("[gateway] slow call %s %s: no answer after %v (handed over in %v)",
+				req.Method, callID, time.Since(started).Round(time.Millisecond), handed.Round(time.Millisecond))
 			go g.cancelOnHost(hostID, localPrincipalID, callID)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusGatewayTimeout)

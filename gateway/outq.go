@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"time"
 )
@@ -48,8 +49,12 @@ func (q *outq) run() {
 		select {
 		case data := <-q.frames:
 			ctx, cancel := context.WithTimeout(context.Background(), q.timeout)
+			began := time.Now()
 			err := q.write(ctx, data)
 			cancel()
+			if took := time.Since(began); took > time.Second {
+				log.Printf("[gateway] a frame took %v to write (%d behind)", took.Round(time.Millisecond), len(q.frames))
+			}
 			if err != nil {
 				q.stop("write failed: " + err.Error())
 				return
