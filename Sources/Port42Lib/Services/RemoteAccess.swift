@@ -205,6 +205,15 @@ extension AppState {
 
     /// Set a remote caller's rights on one port. An empty set revokes them.
     public func grantRemoteRights(_ rights: Set<RemoteRight>, to grantee: String, onPort key: String) {
+        // Tell that machine first, on the port's own topic, while it can still hear it: a host that shares
+        // nothing any more leaves its relays (two agents, finding 5: the guest saw nothing when sharing stopped).
+        // Only a machine that already has the port is told: a new guest is not subscribed yet.
+        let before = Set(remoteRights(of: grantee, onPort: key))
+        if !before.isEmpty, before != rights {
+            notifyBus.publish(topic: PortNotify.topic(forPortKey: key), kind: PortEventKind.access.wire,
+                              payload: .object(["peer": .string(grantee),
+                                                "rights": .array(rights.map(\.rawValue).sorted().map { .string($0) })]))
+        }
         try? db.saveRemoteRights(rights, grantee: grantee, portKey: key)
         refreshSharing()
     }

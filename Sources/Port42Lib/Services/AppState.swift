@@ -102,6 +102,9 @@ public final class AppState: ObservableObject {
     /// The counter at each port's last code write (update, patch, restore, rename): a code write is refused
     /// only when another code write happened after its token, not for other activity (Gordon, decision 4).
     var codeWriteSeq: [String: Int] = [:]
+    /// How long a host that shares nothing any more waits before leaving its relays, so its last `access`
+    /// notice reaches the guest (two agents). A setting, so a test can make it immediate.
+    var relayLeaveDelay: TimeInterval = 3
     /// The host's version history for each tile of someone else's port, by tile id: one history, shown on
     /// both sides (Gordon, decision 7). Refreshed with the tile.
     @Published var mirrorHistory: [String: [PortVersionSummary]] = [:]

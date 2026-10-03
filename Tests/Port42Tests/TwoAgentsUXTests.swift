@@ -59,4 +59,37 @@ struct TwoAgentsUXTests {
         w.state.grantRemoteRights([.see, .use], to: "guestpeer", onPort: key)
         #expect(w.state.sharedChatLabel(key)?.hasPrefix("shared chat with") == true)
     }
+
+    @Test("the host tells the guest, on the port's topic, when its rights change or sharing stops")
+    func hostAnnouncesAccess() throws {
+        let w = try makeParityWorld()
+        let made = w.state.createPort(type: "web", title: "board", html: "<title>board</title>", command: nil, cwd: nil,
+                                      systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
+        let key = try #require(made["id"] as? String)
+        var heard: [[String: Any]] = []
+        _ = w.state.notifyBus.subscribe(topic: PortNotify.topic(forPortKey: key)) { json in
+            if let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any], o["kind"] as? String == "access" { heard.append(o) }
+        }
+        w.state.grantRemoteRights([.see, .use], to: "guestpeer", onPort: key)
+        w.state.stopSharing(peer: "guestpeer", port: key)
+        let last = try #require(heard.last?["payload"] as? [String: Any], "the guest was not told sharing stopped")
+        #expect(last["peer"] as? String == "guestpeer")
+        #expect((last["rights"] as? [Any])?.isEmpty == true, "the last notice does not say no longer shared")
+    }
+
+    @Test("a guest told sharing stopped shows it on the tile and in its chat")
+    func guestShowsEnded() throws {
+        let (w, tile) = try tileWorld()
+        let row = try #require(w.state.mirroredRemote(tile))
+        w.state.mirrorStatus[tile] = MirrorStatus(hostName: "Gordon", online: true)
+        let key = try #require(w.state.mirrorChatKey(tile))
+        w.state.mirrorEvent(tile: tile, row: row, ["kind": "access", "payload": ["peer": "someone-else", "rights": []]])
+        #expect(w.state.sharePill(tile: tile, key: key) == .theirs(host: "Gordon", online: true), "another machine's notice changed this tile")
+        w.state.mirrorEvent(tile: tile, row: row, ["kind": "access", "payload": ["peer": Self.me, "rights": ["see"]]])
+        #expect(w.state.mirroredRemote(tile)?.rights == [.see], "the tile did not take its new rights")
+        w.state.mirrorEvent(tile: tile, row: row, ["kind": "access", "payload": ["peer": Self.me, "rights": []]])
+        #expect(w.state.sharePill(tile: tile, key: key) == .ended(host: "Gordon"), "the tile does not show sharing stopped")
+        #expect(try w.state.db.chatEntries(chat: key, after: 0, limit: 50).contains { $0.text.contains("stopped sharing") },
+                "nothing in the tile's chat says so")
+    }
 }

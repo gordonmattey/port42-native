@@ -548,6 +548,14 @@ extension AppState {
         let host = !out.isEmpty
         if host != relayHosting {
             relayHosting = host
+            // Leaving: give the last notice (an `access` event) a moment to cross before the relays go.
+            if !host, relayLeaveDelay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + relayLeaveDelay) { [weak self] in
+                    guard let self, !self.relayHosting else { return }
+                    self.onRelayHosting(false)
+                }
+                return
+            }
             onRelayHosting(host)
         }
     }
@@ -555,7 +563,7 @@ extension AppState {
     /// What the sharing pill in a tile's chrome says, if anything: a port of this instance that is
     /// shared or has an invite out, or a tile mirroring someone else's port.
     public func sharePill(tile id: String, key: String?) -> SharePill? {
-        if let m = mirrorStatus[id] { return .theirs(host: m.hostName, online: m.online) }
+        if let m = mirrorStatus[id] { return m.ended ? .ended(host: m.hostName) : .theirs(host: m.hostName, online: m.online) }
         guard let key, let s = sharing[key], !s.people.isEmpty || s.openInvites > 0 else { return nil }
         return .shared(people: s.people.count, invites: s.openInvites)
     }

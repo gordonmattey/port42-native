@@ -35,7 +35,7 @@ struct SharePillButton: View {
                     if let portKey {
                         ShareHostPanel(appState: appState, portKey: portKey) { open = false; onInvite() }
                     }
-                case .theirs:
+                case .theirs, .ended:
                     ShareGuestPanel(appState: appState, tileId: tileId) { open = false }
                 }
             }
@@ -45,13 +45,18 @@ struct SharePillButton: View {
         }
     }
 
-    private var offline: Bool { if case .theirs(_, false) = pill { return true }; return false }
+    private var offline: Bool {
+        if case .theirs(_, false) = pill { return true }
+        if case .ended = pill { return true }
+        return false
+    }
 
     private var help: String {
         switch pill {
         case .shared: return "Who this port is shared with. Click to change it."
         case .theirs(let host, true): return "\(host)'s port, live from their machine. Click for what you can do."
         case .theirs(let host, false): return "\(host)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own."
+        case .ended(let host): return "\(host) stopped sharing this port with you. It shows the port as it last was; a new invite brings it back."
         }
     }
 }

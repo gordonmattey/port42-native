@@ -21,11 +21,14 @@ public enum SharePill: Equatable {
     case shared(people: Int, invites: Int)
     /// A tile mirroring someone else's port.
     case theirs(host: String, online: Bool)
+    /// A tile whose host stopped sharing it with this machine.
+    case ended(host: String)
 
     public var label: String {
         switch self {
         case .shared(let n, let i): return n > 0 ? "shared · \(n)" : (i == 1 ? "invite sent" : "\(i) invites sent")
         case .theirs(let h, let on): return on ? "\(h)'s" : "\(h)'s · offline"
+        case .ended(let h): return "\(h)'s · no longer shared"
         }
     }
 }
@@ -35,6 +38,8 @@ public struct MirrorStatus: Equatable {
     public var online: Bool
     /// Whether a mention in the host's chat may wake this instance's companions (4.6c).
     public var wakes: Bool = false
+    /// The host stopped sharing the port with this machine (it said so: an `access` event).
+    public var ended: Bool = false
 }
 
 extension AppState {
@@ -201,6 +206,23 @@ extension AppState {
                 chats.received(key, entry)
                 noticeMention(key: key, entry: entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
+            }
+        case PortEventKind.access.wire:
+            // The host changed what this machine may do here: shown at once, and kept on the tile.
+            let p = o["payload"] as? [String: Any]
+            guard let peer = p?["peer"] as? String, peer == localPeerID else { break }
+            let rights = ((p?["rights"] as? [String]) ?? []).compactMap(RemoteRight.init(rawValue:))
+            var updated = row
+            updated = DatabaseService.RemotePortRow(peerKey: row.peerKey, portKey: row.portKey, title: row.title, rights: rights,
+                                                    relays: row.relays, hostName: row.hostName, knownAs: row.knownAs, wakes: row.wakes)
+            try? db.upsertRemotePort(updated)
+            let key = mirrorChatKey(tile)
+            if rights.isEmpty {
+                mirrorStatus[tile]?.ended = true
+                mirrorStatus[tile]?.online = false
+                if let key { postSystemChatLine(key: key, text: "\(row.hostName) stopped sharing this port with you. It stays as it last was; a new invite brings it back.") }
+            } else if let key {
+                postSystemChatLine(key: key, text: "\(row.hostName) changed what you can do here: you can \(ShareWords.rights(rights)).")
             }
         case PortEventKind.presence.wire:
             // Who is working in the host's chat, as the host sees it (presence in the API).
