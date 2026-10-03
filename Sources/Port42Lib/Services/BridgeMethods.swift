@@ -1621,9 +1621,10 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // A tile mirroring a port on another instance says so: whose, which port there, and whether the
         // mirror is connected (nautilus Phase 4), so an agent or a person can see a tile that is not.
         let mirrors = (try? appState.db.remotePortTiles()) ?? [:]
-        var mirrorState: [String: (online: Bool, running: Bool)] = [:]
+        var mirrorState: [String: (online: Bool, running: Bool, ended: Bool)] = [:]
         for id in mirrors.keys {
-            mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil)
+            mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil,
+                               appState.mirrorStatus[id]?.ended ?? false)
         }
         var alsoIn: [String: [String]] = [:]
         for panel in appState.portWindows.panels where !panel.adoptedSpaceIds.isEmpty { alsoIn[panel.udid] = panel.adoptedSpaceIds }
@@ -1664,7 +1665,9 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             if let m = mirrors[id] {
                 o["mirrors"] = .object(["peer": .string(m.peerKey), "port": .string(m.portKey),
                                         "online": .bool(mirrorState[id]?.online ?? false),
-                                        "running": .bool(mirrorState[id]?.running ?? false)])
+                                        "running": .bool(mirrorState[id]?.running ?? false),
+                                        // The host stopped sharing it with this machine (an access event).
+                                        "shared": .bool(!(mirrorState[id]?.ended ?? false))])
             }
             entries.append(.object(o))
         }
