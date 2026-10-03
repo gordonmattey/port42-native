@@ -101,6 +101,11 @@ public final class AppState: ObservableObject {
     var mirrorHostTokens: [String: String] = [:]
     /// The machine name this instance last told each host it holds tiles of, by peer: told once per name.
     var toldMachineName: [String: String] = [:]
+    /// The newest post each tile has seen from its host's chat, by tile: what a reconnect catches up from.
+    var mirrorSeenSeq: [String: Int] = [:]
+    /// The focused chat composer's Tab: completes the @name being typed and says whether it did. The window's key
+    /// monitor calls it, because the multi-line field takes Tab as "next field" before the composer sees it.
+    var composerTab: (() -> Bool)?
     /// The host's agents on each tile's port, by chat key, as its `chat.read` names them: the @ picker offers them.
     @Published var mirrorAgents: [String: [String]] = [:]
     /// The counter at each port's last code write (update, patch, restore, rename): a code write is refused

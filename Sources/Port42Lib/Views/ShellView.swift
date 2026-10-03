@@ -790,6 +790,11 @@ public struct ShellView: View {
             }
 
             let isEditor = Self.responderIsEditor(e.window?.firstResponder)
+            // Tab in a chat composer with an @name half-typed completes it (the field would move focus instead).
+            if e.keyCode == 48, isEditor, e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+               let complete = appState.composerTab, complete() {
+                return nil
+            }
             if ShellState.shouldYieldKey(isEditor: isEditor, keyCode: e.keyCode,
                                          focusedPortIsTerminal: shell.focusedPortIsTerminal,
                                          commandBoxOpen: shell.commandBoxOpen) {

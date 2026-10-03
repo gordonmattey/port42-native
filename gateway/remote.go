@@ -126,10 +126,16 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	defer func() {
 		g.mu.Lock()
 		delete(g.remotes, id)
-		g.forgetCallsOf(id)
+		orphaned := g.forgetCallsOf(id)
 		g.mu.Unlock()
 		c.q.end()
 		s.Close()
+		// The calls it left still running on the host stop, as a local caller's do (#247): a guest's
+		// subscription otherwise streamed on into a session that was gone, every event once per dead one
+		// (Dev6, 2026-10-03: five copies of each chat post, four dropped as "not the host of that call").
+		for _, o := range orphaned {
+			go g.cancelOnHost(o.host, o.key.caller, o.key.callID)
+		}
 	}()
 	peer := s.RemotePeer()
 	log.Printf("[gateway] remote session %s from peer %s", id, peer)

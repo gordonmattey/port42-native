@@ -155,7 +155,8 @@ extension AppState {
     /// restored tile would otherwise run what it saved last time.
     func startMirror(tile: String, fresh: Bool = false) {
         guard remoteMirrors[tile] == nil, let row = mirroredRemote(tile) else { return }
-        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true, wakes: row.wakes)
+        // Online once the host has answered (below), not before: the tile said online through a dropped link.
+        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: fresh, wakes: row.wakes)
         remoteMirrors[tile] = Task { @MainActor [weak self] in
             var first = true
             var failures = 0
@@ -219,6 +220,8 @@ extension AppState {
         case PortEventKind.chat.wire:
             // The tile's chat is the host's: each post there is shown here as it lands, stored only there.
             if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
+                p42log("[mirror] %@: chat %d from %@", row.title, entry.seq, entry.fromName)
+                mirrorSeenSeq[tile] = max(mirrorSeenSeq[tile] ?? 0, entry.seq)
                 chats.received(key, entry)
                 noticeMention(key: key, entry: entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
@@ -320,7 +323,11 @@ extension AppState {
     /// A post this machine made comes back as the host's event and is skipped: it woke its companions as it was
     /// posted (`wakeOwnCompanions`).
     func wakeMentioned(tile: String, key: String, entry: PortChatEntry) {
-        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else { return }
+        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else {
+            p42log("[mirror] %@: a post from %@ wakes nobody here (wake off, or not known there yet)",
+                   mirroredRemote(tile)?.title ?? tile, entry.fromName)
+            return
+        }
         if let me = localPeerID, entry.fromId.hasPrefix(me + "/") { return }
         let members = portMemberIds(key)
         let plain = Set(MentionParser.extractMentions(from: routingText(entry.text, key: key)).map { String($0.dropFirst()).lowercased() })
@@ -330,6 +337,10 @@ extension AppState {
         }.filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
         // The tile's wake switch, set when the person accepted, is their yes to the host's people and agents alike
         // (Gordon, 2026-10-03: no second card).
+        if !plain.isEmpty {
+            p42log("[mirror] %@: %@ named %@; waking %@ (members here: %d)", row.title, entry.fromName,
+                   plain.sorted().joined(separator: ", "), targets.map(\.displayName).joined(separator: ", "), members.count)
+        }
         deliverMirrored(targets, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
     }
 
@@ -398,8 +409,15 @@ extension AppState {
               let out = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "chat.read",
                                                    args: ["port": row.portKey]) as? [String: Any],
               let list = out["entries"] as? [Any] else { return }
-        chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
+        let entries = list.compactMap(PortChatEntry.fromEvent)
+        chats.replace(key, entries)
         mirrorAgents[key] = (out["agents"] as? [String]) ?? []
+        // Posts made while the link was down reached nobody here (Gordon's and wren's, 2026-10-03, while the relay
+        // dropped the session): wake for what they named now. On a first load there is nothing to catch up on.
+        if let seen = mirrorSeenSeq[tile] {
+            for entry in entries where entry.seq > seen { wakeMentioned(tile: tile, key: key, entry: entry) }
+        }
+        mirrorSeenSeq[tile] = max(mirrorSeenSeq[tile] ?? 0, entries.map(\.seq).max() ?? 0)
         // And who is on it right now, so a tile opened mid-turn shows it. A host older than presence in
         // the API has no `presence.list`; the tile then shows presence from the next event on.
         if let now = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "presence.list",

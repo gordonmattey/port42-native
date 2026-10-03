@@ -154,11 +154,12 @@ struct PortChatPanel: View {
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .focused($inputFocused)
                     .onSubmit(send)
-                    // Tab completes the @name being typed to the first suggestion.
-                    .onKeyPress(.tab) {
-                        guard let first = suggestions.first else { return .ignored }
-                        draft = ChatRouting.complete(draft, with: first)
-                        return .handled
+                    // Tab completes the @name being typed to the first suggestion. The field takes Tab as "next
+                    // field" before this sees it, so the window's key monitor calls the same completion
+                    // (`composerTab`) while this field has the keyboard (Gordon, 2026-10-03: Tab did nothing).
+                    .onKeyPress(.tab) { completeMention() ? .handled : .ignored }
+                    .onChange(of: inputFocused) { _, focused in
+                        appState.composerTab = focused ? { completeMention() } : nil
                     }
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill").font(.system(size: 14))
@@ -188,6 +189,13 @@ struct PortChatPanel: View {
         // is reused when the space changes, so the other space's text is swapped in, not carried over.
         .onChange(of: draft) { _, text in chats.keepDraft(text, for: key) }
         .onChange(of: key) { _, newKey in draft = chats.draft(newKey) }
+    }
+
+    /// Complete the @name being typed to the first suggestion; false when there is nothing to complete.
+    private func completeMention() -> Bool {
+        guard let first = suggestions.first else { return false }
+        draft = ChatRouting.complete(draft, with: first)
+        return true
     }
 
     /// Companions matching the @name being typed, up to five.

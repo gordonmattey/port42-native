@@ -310,4 +310,51 @@ struct TwoAgentsAddressingTests {
         #expect((await refused.value as? [String: Any])?["code"] as? String == BridgeErrorCode.notGranted.wire,
                 "a copy's page named another port here")
     }
+
+    /// The host answers `chat.read` with these entries, and anything else with nothing.
+    func hostAnswersChat(_ w: ParityWorld, _ entries: [[String: Any]]) {
+        let door = w.state.door
+        door.sendOverride = { [weak door] text in
+            guard let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  let cid = o["call_id"] as? String else { return }
+            let body: [String: Any] = o["method"] as? String == "chat.read" ? ["entries": entries, "last": entries.count] : [:]
+            let content = String(data: try! JSONSerialization.data(withJSONObject: body), encoding: .utf8)!
+            let payload: [String: Any] = ["senderName": "host", "senderType": "host", "content": content]
+            let frame: [String: Any] = ["type": "response", "call_id": cid, "payload": payload]
+            let reply = String(data: try! JSONSerialization.data(withJSONObject: frame), encoding: .utf8)!
+            Task { @MainActor in door?.receive(reply) }
+        }
+    }
+
+    @Test("a tile that reconnects wakes the agents named in what was posted while its link was down; a first load wakes nobody")
+    func reconnectCatchesUp() async throws {
+        let (w, tile, key) = try tileWorld()
+        let bram = try companion(w, "bram")
+        w.state.addPortMember(bram.id, port: key)
+        let row = try #require(w.state.mirroredRemote(tile))
+        func post(_ seq: Int, _ text: String) -> [String: Any] {
+            ["seq": seq, "at": 0.0, "text": text, "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]
+        }
+        hostAnswersChat(w, [post(1, "@bram an old ask, long done")])
+        w.state.chatReplyTargets = [:]
+        await w.state.loadMirrorChat(tile: tile, row: row)
+        #expect(w.state.chatReplyTargets["bram"] == nil, "a first load replayed an old mention")
+
+        hostAnswersChat(w, [post(1, "@bram an old ask, long done"), post(2, "@bram missed while the link was down")])
+        await w.state.loadMirrorChat(tile: tile, row: row)
+        #expect(w.state.chatReplyTargets["bram"] == key, "a mention posted while the link was down never woke bram")
+
+        w.state.chatReplyTargets = [:]
+        await w.state.loadMirrorChat(tile: tile, row: row)
+        #expect(w.state.chatReplyTargets["bram"] == nil, "a caught-up mention woke bram again")
+    }
+
+    @Test("a tile restored at launch is not shown online until its host has answered")
+    func onlineOnlyOnceAnswered() throws {
+        let (w, tile, _) = try tileWorld()
+        w.state.door.sendOverride = { _ in }          // the host never answers
+        w.state.startMirror(tile: tile)
+        #expect(w.state.mirrorStatus[tile]?.online == false, "the tile said online before the host answered")
+        w.state.stopMirror(tile: tile)
+    }
 }
