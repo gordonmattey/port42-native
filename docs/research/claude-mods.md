@@ -19,7 +19,7 @@ what was observed to work, and what it costs.
 **Recommendation.** Yes, adopt it in steps, as a mod added beside today's settings hooks and the shim, behind a
 version check, with today's path kept as the fallback. Order of value:
 
-1. **Delivery of chat messages** with `$.prompt.submit` instead of typing into the terminal.
+1. **Delivery of chat messages** (and, in the same step, presence, which Gordon wants too) with `$.prompt.submit` instead of typing into the terminal.
 2. **Presence and the final reply** from `turn.start`, `turn.complete` (which carries the answer text) and
    `tool.check`, instead of one spawned process per hook.
 3. **A live brief** through `prompt.compose`, so a change to the companion rules reaches running sessions.
@@ -30,11 +30,12 @@ Do not build panes or a UI inside Claude for now. Port42's shell already is the 
 **The one blocker.** Not technical. A mod is unsandboxed code that runs with the person's permissions and can
 approve tool calls, so shipping one is a trust decision, and an organization can switch mods off.
 
-**Needs Gordon.**
-1. Is it acceptable to ship code that runs inside Claude Code with the person's permissions (Port42's own mod,
-   in the app bundle), with the settings-hook path kept for anyone whose Claude is older than 2.1.287 or whose
-   organization blocks mods?
-2. Order: delivery first (largest effect on reliability), or presence first (smallest change)?
+**Decided (Gordon, 2026-10-03).** Shipping code that runs inside Claude Code is acceptable, provided the person
+allows it, at install or after it (section 6). Delivery and presence are both wanted, so both go in the first
+step.
+
+**Needs Gordon.** The consent design in section 6: where the person is asked, and whether an update that grows
+what the mod does asks again.
 
 ## 1. What a mod is
 
@@ -78,10 +79,10 @@ approve tool calls, so shipping one is a trust decision, and an organization can
 
 | Need | With a mod | Basis |
 |---|---|---|
-| Messages in | `$.prompt.submit({ text, asUser })` waits until Claude is idle and starts the turn, so the quiet-screen and Enter timing logic is not needed. Its origin is `plugin`, so the text rule for injected lines goes. By default Claude prefixes "The `<mod>` plugin sent a message:"; `asUser: true` sends the text as it is. | Observed (section 4) that a timer submit starts a turn 62 ms later in the interactive UI. Not observed: a completed turn. |
+| Messages in | `$.prompt.submit({ text, asUser })` waits until Claude is idle and starts the turn, so the quiet-screen and Enter timing logic is not needed. Its origin is `plugin`, so the text rule for injected lines goes. By default Claude prefixes "The `<mod>` plugin sent a message:"; `asUser: true` sends the text as it is. | Observed in the interactive UI (section 4): a timer submit started a turn 67 ms later and it completed with the answer. |
 | Final reply | `turn.complete` carries `answer`, `reason` (`answer`, `aborted`, `refusal`, `error`), duration and usage with the model. No transcript read. | Observed in `claude -p` |
-| Presence | `turn.start` (with `turnId`), `tool.call` (the tool), `tool.check` (the decision, `ask` means a permission prompt is coming), `turn.complete`. In-process, so no spawned process. | Events observed except `tool.check` and `tool.call`, which were not exercised |
-| Waiting on the person | `tool.check` deciding `ask`, the `AskUserQuestion` render site, `classic.Notification`: signals from the engine, not a filter over a nudge | Documented, not exercised |
+| Presence | `turn.start` (with `turnId`), `tool.call` (the tool), `tool.check` (the decision, `ask` means a permission prompt is coming), `turn.complete`. In-process, so no spawned process. | Observed in the interactive UI, all of them |
+| Waiting on the person | `tool.check` deciding `ask`, the `AskUserQuestion` render site, `classic.Notification`: signals from the engine, not a filter over a nudge | Observed: `tool.check` said `ask` 6 s before the `Notification` hook fired (section 4) |
 | Live brief | `prompt.compose` and `prompt.section` rewrite the system prompt each request, so a change reaches a running session. Today a session keeps the brief it started with, for days (found in #245) | Documented |
 | Tools | `$.tool.register` gives Claude `mcp__port42__post`, `ask`, `publish` with a schema and a direct result, instead of Bash and a CLI | Documented |
 | Resume, session ids | Unchanged; these are launch flags | |
@@ -104,11 +105,24 @@ process cost is small and is not, by itself, a reason to move.**
 - `$.http.fetch` to `127.0.0.1` returned in 2 to 12 ms. A hook's total time, fetch included, was 21 ms for
   `session.start` and 40 ms for `prompt.submit`. Hooks on the tool path block the tool until they return, so they
   have to stay small.
-- **In the interactive UI** (a pty running `claude --plugin-dir`), a timer fired `$.prompt.submit` at +4,050 ms.
-  A turn started 62 ms later with the text `The p42-probe plugin sent a message:` followed by the prompt, and the UI
-  showed "Prompt from the p42-probe plugin". The turn then failed with "Login expired": my test harness has no
-  interactive login, so **no completed turn from a submitted prompt was seen**. The `prompt.submit` hook did not
-  fire for the plugin's own submission in that run.
+- **A full interactive session.** In a pty running `claude --plugin-dir` against an isolated config directory
+  (`CLAUDE_CONFIG_DIR`, with the API key pre-approved, so Gordon's own config was not touched; my first attempts
+  failed because the default config rejects the environment key and its OAuth login is expired, which showed as
+  "Login expired" for any prompt, mod or not):
+  - **Submit from a timer.** `$.prompt.submit` at +4,011 ms started a turn 67 ms later, and the turn completed
+    with `turn.complete`: reason `answer`, `answer: "PONG"`, 2,614 ms, usage with the model. Claude prefixed the
+    text with "The p42-probe plugin sent a message:" and the UI labeled it "Prompt from the p42-probe plugin". No
+    `prompt.submit` event fired for the plugin's own submission.
+  - **A prompt typed into the pty** arrived as `prompt.submit` with origin `composer`, so keystrokes are stamped as
+    the person's own. That is why Port42's typed injection needs a text rule to tell its lines from the person's.
+    A plugin submission is not stamped `composer`.
+  - **Tools.** For a read-only command (`echo`), `tool.call` fired (tool `Bash`, with `command`, `description`,
+    `tool_use_id`) and `tool.check` decided `allow`. For `touch /tmp/...` in default permission mode, `tool.check`
+    decided **`ask` at +10,337 ms**, and the settings hook `Notification` ("Claude needs your permission", no tool
+    name) fired at **+16,357 ms**, 6 seconds later. The mod knows the person is wanted 6 seconds before the hook Port42
+    uses today, and knows which tool.
+  - **`--bare`** completed a typed turn with the API key but ran no mod: bare skips plugin hooks, so a mod and
+    `--bare` do not mix.
 
 ## 5. Costs and risks
 
@@ -132,7 +146,35 @@ process cost is small and is not, by itself, a reason to move.**
 - **A hosted terminal.** Mods draw in the terminal surface, which is where Port42's Ghostty tile shows Claude, so a
   pane would appear there. Not recommended, since the shell already shows presence and chat.
 
-## 6. Options
+## 6. Consent: how the person allows it
+
+Claude Code showed no approval prompt for a mod loaded with `--plugin-dir`, in `claude -p` or in the interactive UI
+(observed). The first person who sees it is whoever reads `/plugin`. So the consent has to be Port42's.
+
+**Enforce it with a flag, not with the mod's goodwill.** Ship the mod as its own plugin directory beside
+`port42-skills`, and have the shim pass `--plugin-dir` for it only when the person has allowed it. Skills load as
+now. A mod that was not allowed is not loaded.
+
+**Where to ask**
+- **At install.** First launch of a version that has the mod: one card, on the shared permission card
+  (`docs/plan-permission-card.md`), saying what the mod can see and do and what it is for. Allow or Not now.
+- **After install.** The person who updates from a version without the mod sees the same card the first time a Claude
+  companion would start, not before. A person who chose Not now is asked again only from Settings, where the choice
+  also lives.
+- **Re-ask when it grows.** The card shows `claude plugin validate`'s own `hooks:` and `calls:` lines. A build
+  stores a hash of them. If an update changes that list (a new call, a new event), the card appears again. An update
+  that does not change it does not.
+
+**What the card says, plainly.** It runs inside Claude Code, on this Mac, as you. It sees your prompts and Claude's
+tool calls and replies. It sends them only to Port42 on this Mac. It can start a turn on Port42's behalf. It never
+approves or blocks a tool call.
+
+**What a no changes.** Port42 keeps working through the settings hooks and typed delivery, as now.
+
+**Respect the outside.** A managed policy (`allowManagedModsOnly`, `disableAllHooks`), `--safe-mode`, or an older Claude
+means the mod does not load; the card should say "not available here" and the fallback applies without asking.
+
+## 7. Options
 
 | | Option | Gain | Cost |
 |---|---|---|---|
@@ -140,30 +182,33 @@ process cost is small and is not, by itself, a reason to move.**
 | B | Mod beside them, in steps (recommended) | Delivery, a live brief and exact presence, with a fallback | A second path, a version check, a trust decision |
 | C | Replace the settings hooks entirely | One path | Breaks older Claude, blocked mods and any session where the mod fails to load |
 
-## 7. Not verified
+## 8. Not verified
 
-- **A completed turn from `$.prompt.submit` in the interactive UI** (blocked by login in my harness), and whether
-  typed delivery or submit is more reliable under load. That comparison is the first thing a build spike runs.
-- **`tool.check`, `tool.call` and `classic.Notification`** were registered and loaded but not triggered, because the
-  one permitted test run had no tools.
-- **What the person sees** when a mod loads for the first time in a fresh interactive session. No dialog appeared in
-  the `-p` run.
+- **Typed delivery against `$.prompt.submit` for reliability under load.** Both were seen to work once. The comparison
+  over a hundred wakes on Dev9, loaded and idle, is the first thing a build spike runs.
+- **A submit while Claude is busy.** The documentation says it waits until idle. I did not hold a turn open to see it.
+- **Whether `$.prompt.submit` with `asUser: true` drops the "plugin sent a message" line**, and what origin it carries.
+- **What the person sees** when a mod loads for the first time with no Port42 card. No dialog appeared in these runs,
+  and the isolated config had the folder trusted.
 - **Whether a mod can import another file.** The validator named one hooks module.
 - **The remote switch** is inferred from one table row in the documentation, not confirmed.
-- **Resume with a mod**, an organization's managed settings, and Claude's Desktop app were not tried.
+- **Resume with a mod**, an organization's managed settings, and the Desktop app were not tried.
 - **Dev9 was not used.** Nothing in the app changed; the work was in `claude` directly. Port42's code was read, not
   built or run.
+- **Gordon's own interactive login** shows "Login expired" in a fresh terminal with the default config. I did not look
+  into it or change his config.
 
 ## Work items (to file once Gordon passes this)
 
-1. **Feature, dev lead:** a Port42 mod in the skills plugin directory that reports `session.start`, `turn.start`,
+1. **Feature, dev lead:** a Port42 mod in its own plugin directory, passed by the shim only after the person allows it (section 6), that reports `session.start`, `turn.start`,
    `turn.complete` (with `answer`) and `tool.check` to the app, with the settings hooks kept as the fallback and a
    version check.
-2. **Feature, dev lead:** deliver chat messages with `$.prompt.submit` when the mod is loaded, typing as the fallback.
-3. **Issue, tracer:** measure typed delivery against `$.prompt.submit` over a hundred wakes on Dev9, loaded and idle,
+2. **Feature, dev lead:** the consent card and its re-ask on a changed `hooks:` and `calls:` list, on the shared permission card.
+3. **Feature, dev lead:** deliver chat messages with `$.prompt.submit` when the mod is loaded, typing as the fallback.
+4. **Issue, tracer:** measure typed delivery against `$.prompt.submit` over a hundred wakes on Dev9, loaded and idle,
    with a real login.
-4. **Issue, scribe:** the companion brief and the `port42` skill say how a session is told which path delivered a
-   message, once item 2 lands.
+5. **Issue, scribe:** the companion brief and the `port42` skill say how a session is told which path delivered a
+   message, once item 3 lands.
 
 ## Reproduce
 
@@ -171,4 +216,5 @@ process cost is small and is not, by itself, a reason to move.**
     python3 spikes/claude-mods/logger.py &            # collects the events
     cd /tmp && claude -p --plugin-dir <repo>/spikes/claude-mods/p42-mod --setting-sources "" --tools "" "Reply with the single word OK."
     python3 spikes/claude-mods/shimcost.py             # the settings-hook cost
-    python3 spikes/claude-mods/pty_run.py 40           # the interactive submit; needs a real login to finish a turn
+    P42_CFG=<isolated config dir> P42_PERM=default P42_TYPE='...' python3 spikes/claude-mods/pty_run.py 40
+        # the interactive run; needs an isolated config with the key approved, or a real login

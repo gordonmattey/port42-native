@@ -1,0 +1,32 @@
+{"kind": "marker-cfg", "at": 1}
+{"kind": "session.start", "at": 1791043611042}
+{"kind": "submit.requested", "at": 1791043615053}
+{"kind": "turn.start", "at": 1791043615120, "turnId": "b50c492f-b032-445b-bed2-8b696f34b955", "text": "The p42-probe plugin sent a message:\nReply with exactly the "}
+{"kind": "turn.complete", "at": 1791043617704, "reason": "answer", "answer": "PONG", "ms": 2614, "usage": {"input_tokens": 2, "output_tokens": 62, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 15805, "model": "claude-opus-5-5"}}
+{"kind": "prompt.submit", "at": 1791043618839, "origin": {"kind": "composer"}, "text": "Reply with exactly the word TYPED and nothing else."}
+{"kind": "turn.start", "at": 1791043618854, "turnId": "d23b8161-85a7-4596-b38c-cff56a264c01", "text": "Reply with exactly the word TYPED and nothing else."}
+{"kind": "turn.complete", "at": 1791043620219, "reason": "answer", "answer": "TYPED", "ms": 1455, "usage": {"input_tokens": 2, "output_tokens": 6, "cache_read_input_tokens": 15805, "cache_creation_input_tokens": 3703, "model": "claude-opus-5-5"}}
+{"kind": "session.end", "at": 1791043656691, "reason": "prompt_input_exit"}
+{"kind": "marker-tools", "at": 1}
+{"kind": "session.start", "at": 1791043670842}
+{"kind": "submit.requested", "at": 1791043674850}
+{"kind": "turn.start", "at": 1791043674880, "turnId": "4b5dd914-05c5-4778-94ec-1f4d0ed5a0c3", "text": "The p42-probe plugin sent a message:\nReply with exactly the "}
+{"kind": "turn.complete", "at": 1791043676616, "reason": "answer", "answer": "PONG", "ms": 1754, "usage": {"input_tokens": 2, "output_tokens": 5, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 15921, "model": "claude-opus-5-5"}}
+{"kind": "prompt.submit", "at": 1791043679212, "origin": {"kind": "composer"}, "text": "Use the Bash tool to run exactly: echo hello-from-bash . The"}
+{"kind": "turn.start", "at": 1791043679269, "turnId": "7af7e3c8-e9ff-47b9-a7f5-36030de20f94", "text": "Use the Bash tool to run exactly: echo hello-from-bash . The"}
+{"kind": "tool.call", "at": 1791043681574, "tool": "Bash", "keys": ["command", "description", "tool", "tool_use_id"]}
+{"kind": "tool.check", "at": 1791043681594, "tool": "Bash", "decision": "allow"}
+{"kind": "turn.complete", "at": 1791043684981, "reason": "answer", "answer": "I ran the command and it printed `hello-from-bash`.\n\ndone", "ms": 5817, "usage": {"input_tokens": 4, "output_tokens": 107, "cache_read_input_tokens": 35333, "cache_creation_input_tokens": 3611, "model": "claude-opus-5-5"}}
+{"kind": "session.end", "at": 1791043711359, "reason": "prompt_input_exit"}
+{"kind": "marker-ask", "at": 1}
+{"kind": "session.start", "at": 1791043717904}
+{"kind": "submit.requested", "at": 1791043721914}
+{"kind": "turn.start", "at": 1791043721979, "turnId": "64c18d96-ad6c-4b61-9ff8-0fe065f5a6e5", "text": "The p42-probe plugin sent a message:\nReply with exactly the "}
+{"kind": "turn.complete", "at": 1791043723792, "reason": "answer", "answer": "PONG", "ms": 1845, "usage": {"input_tokens": 2, "output_tokens": 5, "cache_read_input_tokens": 15921, "cache_creation_input_tokens": 0, "model": "claude-opus-5-5"}}
+{"kind": "prompt.submit", "at": 1791043725830, "origin": {"kind": "composer"}, "text": "Use the Bash tool to run exactly: touch /tmp/mods-spike/askm"}
+{"kind": "turn.start", "at": 1791043725843, "turnId": "8f3421df-0d3d-4a9b-83d1-9c7a90cfb564", "text": "Use the Bash tool to run exactly: touch /tmp/mods-spike/askm"}
+{"kind": "tool.call", "at": 1791043728201, "tool": "Bash", "keys": ["command", "description", "tool", "tool_use_id"]}
+{"kind": "tool.check", "at": 1791043728241, "tool": "Bash", "decision": "ask"}
+{"kind": "classic.Notification", "at": 1791043734261, "message": "Claude needs your permission"}
+{"kind": "turn.complete", "at": 1791043748577, "reason": "answer", "answer": "", "ms": 22752, "usage": {"input_tokens": 2, "output_tokens": 94, "cache_read_input_tokens": 15921, "cache_creation_input_tokens": 3494, "model": "claude-opus-5-5"}}
+{"kind": "session.end", "at": 1791043748686, "reason": "other"}
