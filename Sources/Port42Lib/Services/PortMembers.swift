@@ -82,8 +82,8 @@ extension AppState {
             routeChat(key: key, entry: entry, fromAnotherInstance: true)
             return
         }
-        let mentioned = AgentRouter.findTargetAgents(content: entry.text, agents: companions, spaceAgentIds: [],
-                                                     localOwner: currentUser?.displayName)
+        let mentioned = AgentRouter.findTargetAgents(content: routingText(entry.text, key: key), agents: companions,
+                                                     spaceAgentIds: [], localOwner: currentUser?.displayName)
         let allowed = Set(mentioned.filter { mayCrossWake($0.id, from: entry.fromId, port: key) }.map(\.id))
         routeChat(key: key, entry: entry, fromAnotherInstance: true, allowed: allowed)
         let title = portWindows.panels.first { $0.udid == key || $0.id == key }?.title ?? "a shared port"
@@ -103,15 +103,16 @@ extension AppState {
         guard !chosen.isEmpty, let row = mirroredRemote(tile), let key = mirrorChatKey(tile) else { return }
         for c in chosen { addPortMember(c.id, port: key) }
         let rights = ShareWords.rights(row.rights)
-        let there = row.knownAs.map { " There you are known as \"<name> (\($0))\"." } ?? ""
+        let there = row.knownAs.map { " You show there as \"<name> (\($0))\"." } ?? ""
         for c in chosen {
             // Bringing a companion in is the person's authorization to work with the other side's agents on this
             // port (Gordon, 2026-10-02): without it, an agent rightly declines a request from another machine's
             // agent, and the two wait on each other.
             let intro = "You are on '\(row.title)', a port \(row.hostName) shares with this machine (port \(key)). "
-                + "Its chat is shared with \(row.hostName)'s machine: reply in that chat, and @mention their agents by the "
-                + "names shown there.\(there.replacingOccurrences(of: "<name>", with: c.displayName)) You can \(rights). "
-                + "Your person brought you here to work with \(row.hostName)'s agents on this port: their requests about "
+                + "Its chat is shared with \(row.hostName): reply in that chat. Everyone there is shown with their machine, "
+                + "as \"name (machine)\"; @mention anyone by the name before the brackets, as @name."
+                + "\(there.replacingOccurrences(of: "<name>", with: c.displayName)) You can \(rights). "
+                + "Your person brought you here to work with the agents on \(row.hostName) on this port: their requests about "
                 + "this port are part of your job, within those rights. Anything outside this port still needs your person. "
                 + "Have a look at it and say hello in its chat."
             deliverMirrored([c], tile: tile, key: key, text: intro, fromName: "Port42", fromId: "port42")
@@ -125,7 +126,7 @@ extension AppState {
             let mine = portMemberIds(key)
             let names = companions.filter { mine.contains($0.id) }.map(\.displayName)
             let here = names.isEmpty ? "@mention a companion to bring it in" : "your companions here: " + names.joined(separator: ", ")
-            return "shared chat with \(row.hostName)'s machine · \(here)"
+            return "shared chat with \(row.hostName) · \(here)"
         }
         guard let s = sharing[key], !s.people.isEmpty else { return nil }
         return "shared chat with " + s.people.map(\.name).joined(separator: ", ") + " · their agents can be here too"
@@ -143,5 +144,66 @@ extension AppState {
         let first = ChatRouting.replyDestination(asked: asked, ownTerminalChat: ownTerminalChat)
         let others = (chatReplyAlso.removeValue(forKey: key) ?? []).filter { $0 != first }
         return [first] + others
+    }
+
+    // MARK: One name in a shared chat (Phase 6)
+
+    /// The label this machine's people and agents carry in `key`'s chat while it is shared with another machine,
+    /// else nil.
+    func sharedSelfLabel(_ key: String) -> String? {
+        guard let s = sharing[key], !s.people.isEmpty else { return nil }
+        return selfLabel
+    }
+
+    /// This machine's name, unless a machine it shares with already goes by it here: then with the start of this
+    /// one's peer id, so a post from there never reads as one from here (NAU-04).
+    var selfLabel: String {
+        let name = machineName
+        let taken = ((try? db.allClients()) ?? []).contains { $0.kind == .peer && $0.name.lowercased() == name.lowercased() }
+        return taken ? "\(name) \((localPeerID ?? "").prefix(4))" : name
+    }
+
+    /// An entry as it leaves a shared chat: to a port's page, an agent, another machine, or the transcript.
+    func outward(_ e: PortChatEntry, key: String) -> PortChatEntry {
+        ChatRouting.labeled(e, local: sharedSelfLabel(key))
+    }
+
+    /// The other machine's authors in `key`'s chat, as shown there: on a port this machine shares, the guests'
+    /// (labelled when stored); on a tile, the host's.
+    func otherMachineAuthors(_ key: String) -> [String] {
+        let notMine: (PortChatEntry) -> Bool = { $0.fromId != ChatRouting.port42SenderId && $0.fromKind != "system" }
+        if let tile = portWindows.panels.first(where: { $0.udid == key })?.id, mirroredRemote(tile) != nil {
+            let mine = (localPeerID ?? "") + "/"
+            return (chats.entries[key] ?? []).filter { notMine($0) && !$0.fromId.hasPrefix(mine) }.map(\.fromName)
+        }
+        return ((try? db.chatEntries(chat: key, after: 0, limit: 200)) ?? []).filter { notMine($0) && $0.fromId.contains("/") }
+            .map(\.fromName)
+    }
+
+    /// What routing here reads of a post in a shared chat: a mention of one of this machine's companions with any
+    /// machine after it is that companion (6.3). Any other chat's post is read as written.
+    func routingText(_ text: String, key: String) -> String {
+        let tile = portWindows.panels.first(where: { $0.udid == key })?.id
+        guard sharedSelfLabel(key) != nil || tile.flatMap(mirroredRemote) != nil else { return text }
+        return ChatRouting.localizedMentions(text, local: companions.map(\.displayName), remote: otherMachineAuthors(key))
+    }
+
+    /// An agent's post in a chat this machine shares that names someone who is not there: Port42 says so in the
+    /// chat, with who is (6.4). A person sees the same under the composer before sending; an agent never did, and
+    /// waited on a mention that had reached nobody.
+    func noteWrongMentions(key: String, entry: PortChatEntry) {
+        guard entry.fromKind == Principal.Kind.companion.rawValue, let label = sharedSelfLabel(key) else { return }
+        let entries = (try? db.chatEntries(chat: key, after: 0, limit: 200)) ?? []
+        let authors = entries.filter { $0.fromId != ChatRouting.port42SenderId && $0.fromKind != "system" }
+            .map { ChatRouting.labeled($0, local: label).fromName }
+        let known = companions.map(\.displayName) + authors + [currentUser?.displayName].compactMap { $0 }
+        let wrong = ChatRouting.unmatchedMentions(routingText(entry.text, key: key), known: known)
+        guard !wrong.isEmpty else { return }
+        var here: [String] = []
+        for a in authors where !here.contains(a) { here.append(a) }
+        let example = here.first(where: { $0 != ChatRouting.labeled(entry, local: label).fromName })
+            .map { " Mention by the name before the brackets: \(CompanionName.mention(ChatRouting.plainName($0)))." } ?? ""
+        postSystemChatLine(key: key, text: "Nobody in this chat is called " + wrong.map { "@" + $0 }.joined(separator: ", ")
+                                            + ". Here: " + here.joined(separator: ", ") + "." + example)
     }
 }

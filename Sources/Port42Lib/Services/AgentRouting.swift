@@ -105,6 +105,9 @@ public enum CompanionProtocol {
 
 public enum MentionParser {
 
+    /// What a mention is, raw: `@`, then a letter or an escape, then letters, digits, `-` or escapes.
+    public static let pattern = #"(?<![a-zA-Z0-9.%])@((?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
+
     /// Extract @mentions from message content.
     /// Supports both `@Name` and namespaced `@Name@Owner` formats.
     /// Ignores email addresses (word@domain). Deduplicates results.
@@ -112,7 +115,6 @@ public enum MentionParser {
         // Match @Name or @Name@Owner (but not email: requires non-word char before @). A name may carry
         // percent escapes (`@app%20dev`, see `CompanionName.mention`); the result is decoded, so it
         // compares equal to the companion's name as typed.
-        let pattern = #"(?<![a-zA-Z0-9.%])@((?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let range = NSRange(content.startIndex..., in: content)

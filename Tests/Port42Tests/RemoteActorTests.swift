@@ -93,7 +93,8 @@ struct RemoteActorTests {
         let o = try #require(try await w.state.runBridgeMethod("whoami", principal: me, args: BridgeArgs([:])).toJSONObject() as? [String: Any])
         let elsewhere = try #require(o["elsewhere"] as? [[String: Any]])
         #expect(elsewhere.map { $0["name"] as? String } == ["wise-tern (Ada)"], "a person, or nobody, was listed as a companion")
-        #expect(elsewhere.first?["mention"] as? String == "@wise-tern%20%28Ada%29" && elsewhere.first?["port"] as? String == key)
+        // By the plain name: a shared chat routes it to the same agent (two agents, Phase 6.3).
+        #expect(elsewhere.first?["mention"] as? String == "@wise-tern" && elsewhere.first?["port"] as? String == key)
     }
 
     @Test("a mention of a companion on another instance never wakes this instance's companion of the same name")

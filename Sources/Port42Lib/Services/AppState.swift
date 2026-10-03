@@ -988,7 +988,8 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             self.recordTurnsInFlight()
             self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
-                                   payload: .object(["presence": .array(self.presence.entries(chat).map { $0.bridgeValue(detail: false) })]))
+                                   payload: .object(["presence": .array(self.presence.entries(chat).map {
+                                       $0.bridgeValue(detail: false, label: self.sharedSelfLabel(chat)) })]))
         }
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in

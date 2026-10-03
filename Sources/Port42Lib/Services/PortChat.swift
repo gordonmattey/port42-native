@@ -108,7 +108,7 @@ extension AppState {
         chats.received(key, entry)
         noticeMention(key: key, entry: entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
-                          kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
+                          kind: PortEventKind.chat.wire, payload: outward(entry, key: key).bridgeValue)
         // A caller on another machine wakes this machine's companions only when its invite says so:
         // a companion runs with this machine's terminal, and a wake spends this user's model.
         if route, p.kind != .remote {
@@ -116,6 +116,7 @@ extension AppState {
         } else if route, remoteRights(of: p.id, onPort: key).contains(.wakeAgents) {
             routeRemotePost(key: key, entry: entry, from: p)
         }
+        if route { noteWrongMentions(key: key, entry: entry) }
         return entry
     }
 
@@ -173,7 +174,10 @@ extension AppState {
     /// never add one to a space (a space's members can act on every port in it).
     /// `allowed`: when set, only these companions (by id) are woken; a post from another instance wakes only
     /// the mentioned companions the person allowed it to (two agents, decision 3).
-    func routeChat(key: String, entry: PortChatEntry, fromAnotherInstance: Bool = false, allowed: Set<String>? = nil) {
+    func routeChat(key: String, entry posted: PortChatEntry, fromAnotherInstance: Bool = false, allowed: Set<String>? = nil) {
+        // In a shared chat, a mention of a companion here by its name as the other machine shows it is that companion.
+        let entry = PortChatEntry(seq: posted.seq, at: posted.at, text: routingText(posted.text, key: key),
+                                  fromId: posted.fromId, fromName: posted.fromName, fromKind: posted.fromKind)
         let panel = portWindows.panels.first { $0.udid == key || $0.id == key }
         let own = panel?.terminalConfig?.companionName
         let spaceId = panel?.spaceId ?? (spaces.contains { $0.id == key } ? key : currentSpace?.id)
@@ -372,23 +376,73 @@ public enum ChatRouting {
     /// Whether `text` mentions `name`, however it was spelled (escaped or not, any case).
     public static func mentions(_ text: String, name: String) -> Bool {
         let want = name.lowercased()
-        return MentionParser.extractMentions(from: text).contains { String($0.dropFirst()).lowercased() == want }
+        return MentionParser.extractMentions(from: text).contains {
+            let n = String($0.dropFirst()).lowercased()
+            return n == want || plainName(n) == want
+        }
     }
 
     /// The mentions in `text` that match no one here, so the chat can say so rather than drop them.
+    /// A name in a shared chat is `alba (Gordon's MacBook Pro)`: a mention of either form, or of the name with
+    /// the wrong machine, is someone here.
     public static func unmatchedMentions(_ text: String, known: [String]) -> [String] {
-        let names = Set(known.map { $0.lowercased() } + ["all"])
+        let names = Set(known.map { $0.lowercased() } + known.map { plainName($0).lowercased() } + ["all"])
         var out: [String] = []
         for m in MentionParser.extractMentions(from: text) {
             let n = String(m.dropFirst())
-            if !names.contains(n.lowercased()), !out.contains(n) { out.append(n) }
+            if !names.contains(n.lowercased()), !names.contains(plainName(n).lowercased()), !out.contains(n) { out.append(n) }
+        }
+        return out
+    }
+
+    // MARK: Names in a shared chat (two agents, Phase 6)
+
+    /// A name as a shared chat shows it, `alba (Gordon's MacBook Pro)`: the name, and the machine it is on.
+    public static func splitLabel(_ s: String) -> (name: String, label: String?) {
+        guard s.hasSuffix(")"), let open = s.range(of: " (", options: .backwards) else { return (s, nil) }
+        let name = String(s[..<open.lowerBound])
+        let label = String(s[open.upperBound..<s.index(before: s.endIndex)])
+        return name.isEmpty || label.isEmpty ? (s, nil) : (name, label)
+    }
+
+    /// The name without its machine: what to @mention.
+    public static func plainName(_ s: String) -> String { splitLabel(s).name }
+
+    /// An entry as a chat shared with another machine shows it: a local author with this machine's name beside
+    /// theirs, as the other machine's are beside theirs. Another machine's author, Port42's notices, and every
+    /// entry of a chat that is not shared (`label` nil) are unchanged.
+    public static func labeled(_ e: PortChatEntry, local label: String?) -> PortChatEntry {
+        guard let label, !e.fromName.isEmpty, !e.fromId.contains("/"), e.fromId != port42SenderId,
+              e.fromKind != "system" else { return e }
+        return PortChatEntry(seq: e.seq, at: e.at, text: e.text, fromId: e.fromId,
+                             fromName: "\(e.fromName) (\(label))", fromKind: e.fromKind)
+    }
+
+    /// A post in a shared chat, as routing on this machine reads it: `@alba` with a machine after it (escaped,
+    /// `@alba%20%28gordon11%29`) is this machine's alba, unless an author from the other machine is called
+    /// exactly that. An agent cannot know how the other side labels a name, so it guesses, and a wrong guess used
+    /// to reach nobody (bram wrote alba's name with his own machine, 2026-10-02). `local`: this machine's
+    /// companions; `remote`: the other machine's authors in this chat, as shown.
+    public static func localizedMentions(_ text: String, local: [String], remote: [String]) -> String {
+        guard let regex = try? NSRegularExpression(pattern: MentionParser.pattern) else { return text }
+        let mine = Set(local.map { $0.lowercased() })
+        let theirs = Set(remote.map { $0.lowercased() })
+        var out = text
+        for m in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let r = Range(m.range, in: out) else { continue }
+            let raw = String(out[r].dropFirst())
+            let decoded = raw.removingPercentEncoding ?? raw
+            let (name, label) = splitLabel(decoded)
+            guard label != nil, mine.contains(name.lowercased()), !theirs.contains(decoded.lowercased()) else { continue }
+            out.replaceSubrange(r, with: CompanionName.mention(name))
         }
         return out
     }
 
     public static func complete(_ draft: String, with name: String) -> String {
         guard mentionQuery(in: draft) != nil, let at = draft.lastIndex(of: "@") else { return draft }
-        return String(draft[..<at]) + CompanionName.mention(name) + " "
+        // By the plain name: `bram`, not `bram (Sam's laptop)`, which a shared chat routes to the same agent.
+        return String(draft[..<at]) + CompanionName.mention(plainName(name)) + " "
     }
 
     /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
@@ -487,7 +541,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             Principal.companion(id: $0.id, displayName: $0.displayName, spaceId: p.spaceId)
         } ?? p
         let entry = try appState.postToChat(key: k, text: text, from: from)
-        return .object(["ok": .bool(true), "entry": entry.bridgeValue])
+        return .object(["ok": .bool(true), "entry": appState.outward(entry, key: k).bridgeValue])
     }
 
     r["whoami"] = BridgeMethod(permission: nil,
@@ -516,7 +570,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
             let elsewhere = appState.companionsElsewhere(space: sid)
             if !elsewhere.isEmpty {
                 o["elsewhere"] = .array(elsewhere.map { e in
-                    .object(["name": .string(e.name), "mention": .string(CompanionName.mention(e.name)),
+                    .object(["name": .string(e.name), "mention": .string(CompanionName.mention(ChatRouting.plainName(e.name))),
                              "port": .string(e.port)])
                 })
             }
@@ -545,7 +599,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let limit = max(1, min(args.int("limit") ?? PortChat.defaultReadLimit, PortChat.maxReadLimit))
         let entries = try appState.db.chatEntries(chat: k, after: args.int("after") ?? 0, limit: limit)
         let last = try appState.db.lastChatSeq(chat: k)
-        return .object(["entries": .array(entries.map(\.bridgeValue)), "last": .int(last)])
+        return .object(["entries": .array(entries.map { appState.outward($0, key: k).bridgeValue }), "last": .int(last)])
     }
 
     r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
@@ -560,7 +614,8 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let k = try key(args)
         // What it is doing names files and commands on this Mac; another machine hears only the kind.
         let detail = p.kind != .remote
-        return .object(["presence": .array(appState.presence.entries(k).map { $0.bridgeValue(detail: detail) })])
+        let label = appState.sharedSelfLabel(k)
+        return .object(["presence": .array(appState.presence.entries(k).map { $0.bridgeValue(detail: detail, label: label) })])
     }
 }
 

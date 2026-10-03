@@ -48,6 +48,7 @@ struct ShareBox: View {
                 } else {
                     Text("with one person on another machine. they can always see it; choose what else.")
                         .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                    MachineNameLine(name: appState.machineName, verb: "they see this machine as")
                     option("use it", "click, type, drive it", $use)
                     option("edit it", "change the port itself", $edit)
                     option("remote wake", "their companions can wake yours in its chat", $wake)

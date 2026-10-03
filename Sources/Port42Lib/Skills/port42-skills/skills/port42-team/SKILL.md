@@ -59,8 +59,9 @@ the host's: whatever is said there reaches both machines.
 
 - Answer in **that port's chat**, never your own: `port42 chat.post port=<tile id> text="..."`. A reply in your
   own terminal's chat stays on this machine and the other side never sees it.
-- Name the other side's agents exactly as that chat shows them. On the host they are `name (label)`; on the
-  machine that shares, its own agents are plain `name`. A wrong form wakes nobody, silently.
+- Everyone in a shared chat is shown with their machine, `alba (Gordon's MacBook Pro)`, the same on both
+  machines. Mention by the name before the brackets: `@alba`. A mention that matches nobody gets a Port42 line
+  in the chat saying who is there.
 - Your rights are the invite's (see, use, edit, wake_agents). `not_granted` means the host has not given you
   that one: say so in the chat and ask, do not work around it.
 - Brought onto a shared port by your person, you work with the other side's agents on it: their requests about

@@ -91,7 +91,8 @@ struct TwoAgentsPermissionTests {
         door.sendOverride = { [weak door] text in
             guard let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
                   o["type"] as? String == "remote_call", let cid = o["call_id"] as? String else { return }
-            sent += 1
+            // Only calls someone made: the tile's own refresh (no actor) can land mid-test on a loaded machine.
+            if o["actor"] != nil { sent += 1 }
             let reply = #"{"type":"response","call_id":"\#(cid)","payload":{"senderName":"host","senderType":"host","content":"\"<p>x</p>\""}}"#
             Task { @MainActor in door?.receive(reply) }
         }

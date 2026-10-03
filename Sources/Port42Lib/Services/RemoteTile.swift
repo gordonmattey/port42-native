@@ -87,7 +87,7 @@ extension AppState {
         guard mirrorStatus[tile] != nil else {
             let refusal = BridgeError(
                 code: .hostOffline,
-                message: "This tile mirrors '\(row.title)' on \(row.hostName)'s machine and is not connected "
+                message: "This tile mirrors '\(row.title)' on \(row.hostName) and is not connected "
                        + "to it yet, so '\(method)' was not run here. It connects once Port42's gateway "
                        + "is up; call again then.")
             return Task { ["error": refusal.message, "code": refusal.code] }
@@ -253,7 +253,7 @@ extension AppState {
             }
             guard let h = try await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
                                                     args: ["id": row.portKey]) as? String else {
-                throw BridgeError(code: .noSurface, message: "\(row.hostName)'s port sent nothing to copy")
+                throw BridgeError(code: .noSurface, message: "the port on \(row.hostName) sent nothing to copy")
             }
             (html, title, home) = (h, row.title, portWindows.panels.first { $0.id == id }?.spaceId)
         } else {
@@ -298,10 +298,20 @@ extension AppState {
     /// A mention in the host's chat of one of this instance's companions wakes it, when the tile's switch
     /// is on; its reply goes to the tile's chat, so to the host (`postReply`). A companion never wakes
     /// for its own post.
+    ///
+    /// The companions brought onto the tile (its members) wake for their plain name too, or their name with any
+    /// machine but one the host's authors go by (Phase 6.3): an agent on the host cannot know this machine's label.
+    /// A post this machine made comes back as the host's event and is skipped: it woke its companions as it was
+    /// posted (`wakeOwnCompanions`).
     func wakeMentioned(tile: String, key: String, entry: PortChatEntry) {
         guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else { return }
-        let targets = mirroredMentions(entry.text, knownAs: knownAs)
-            .filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
+        if let me = localPeerID, entry.fromId.hasPrefix(me + "/") { return }
+        let members = portMemberIds(key)
+        let plain = Set(MentionParser.extractMentions(from: routingText(entry.text, key: key)).map { String($0.dropFirst()).lowercased() })
+        let exact = mirroredMentions(entry.text, knownAs: knownAs)
+        let targets = companions.filter { c in
+            exact.contains { $0.id == c.id } || (members.contains(c.id) && plain.contains(c.displayName.lowercased()))
+        }.filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
         // The host's agent wakes one of ours only once the person allowed it (decision 3); a yes makes it the tile's member.
         let byAgent = entry.fromKind == Principal.Kind.companion.rawValue
         let ready = targets.filter { !byAgent || mayCrossWake($0.id, from: entry.fromId, port: key) }
@@ -321,7 +331,7 @@ extension AppState {
     /// machine waking them. Never the sender itself.
     func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String, sender: String? = nil) {
         guard let tile = portWindows.panels.first(where: { $0.udid == key })?.id else { return }
-        let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
+        let named = Set(MentionParser.extractMentions(from: routingText(text, key: key)).map { String($0.dropFirst()).lowercased() })
         let targets = companions.filter { named.contains($0.displayName.lowercased()) && $0.id != sender }
         // The person bringing their own companion in by name makes it the tile's member (decision 2).
         for c in targets { addPortMember(c.id, port: key) }
@@ -335,7 +345,7 @@ extension AppState {
               let spaceId = panel.spaceId ?? currentSpace?.id else { return }
         let entry = PortChatEntry(seq: 0, at: Date(), text: text, fromId: fromId, fromName: fromName, fromKind: "human")
         // The source says the port is someone else's, shared here, so the companion answers in its chat.
-        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName)'s machine: reply in this port's chat" } ?? ""
+        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName): reply in this port's chat" } ?? ""
         let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel) + shared,
                                             text: entry.text)
         let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))

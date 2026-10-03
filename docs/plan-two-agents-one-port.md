@@ -106,6 +106,28 @@ companions, the invite and the accept (through the accept box path once it exist
 a chat post with a check on both sides. Run after each phase; all eight steps and the new ones (bring a
 companion, a mention stays on the port, an outsider agent on the guest is refused) pass before release.
 
+**Phase 6. Addressing and machine names** (Gordon, 2026-10-02: yes to all four, the readable form). Found in the
+realistic run: the same agent had a different name on each machine (plain on its own, `name (label)` on the
+other), so `bram` addressed `alba` with his own machine's label and woke nobody; the label was a person's
+display name reused as a machine's, alongside `knownAs` and the peer label; a mention that matched nobody did
+nothing.
+- **6.1 One name per machine.** `machineName`: the one set in Settings, else this Mac's name (with the dev
+  profile on a dev instance, "Gordon's MacBook Pro dev6"). It is what this machine joins as (the host's label
+  for it), what an invite says the host is, and the label beside its people and agents in a shared chat.
+  Wording reads "on Gordon's MacBook Pro", not "on Gordon's machine". A name the host already uses gains four
+  characters of the peer id, as before.
+- **6.2 One name in a shared chat, the same on both machines.** While a port is shared, the host serves every
+  author with its machine: its own people and agents as `alba (Gordon's MacBook Pro)` in `chat.read`, chat
+  events, `chat.post`'s answer, presence that leaves the Mac, and its own transcript. Another machine's were
+  already labelled. Storage is unchanged; the label is applied on the way out.
+- **6.3 Mentions by the plain name.** In a shared chat `@alba` reaches the one alba; `@alba` with any label
+  after it reaches her too unless the label is another machine's in this chat. The host matches its own
+  companions; the guest wakes the companions it brought onto the tile (members). `whoami`'s `elsewhere` gives
+  the plain mention; the intro and `port42-team` say to address by the name before the brackets.
+- **6.4 A wrong mention is said.** An agent's post in a shared chat naming someone who is not there gets a
+  Port42 line in that chat: "nobody here is called X; in this chat: ...". The composer's hint knows the chat's
+  authors, so a person sees the same before sending.
+
 ## Not in this
 
 Ports across spaces on one machine (#238, #249); sharing a whole space; the relay rate cap (#122).

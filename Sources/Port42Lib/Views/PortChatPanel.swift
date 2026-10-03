@@ -80,7 +80,9 @@ struct PortChatPanel: View {
     }
 
     var body: some View {
-        let list = chats.entries[key] ?? []
+        // A shared chat shows this machine's people and agents with its name, as the other machine does (6.2).
+        let label = appState.sharedSelfLabel(key)
+        let list = (chats.entries[key] ?? []).map { ChatRouting.labeled($0, local: label) }
         VStack(spacing: 0) {
             // A shared port's chat says so, with whom, and how to bring your companion in (two agents, Phase 4).
             if let shared = appState.sharedChatLabel(key) {
