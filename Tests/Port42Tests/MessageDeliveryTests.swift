@@ -101,7 +101,9 @@ struct MessageDeliveryTests {
         c.teardown()
     }
 
-    @Test("after SessionStart, a message waits while the CLI is still drawing, and goes once its screen is quiet")
+    @Test("after SessionStart, a message waits while the CLI is still drawing, and goes once its screen is quiet",
+          .enabled(if: ProcessInfo.processInfo.environment["PORT42_TIMING_TESTS"] == "1",
+                   "a timing test (waits on a quiet screen in wall-clock time): it runs in the timing pass, scripts/test-gate.sh"))
     func waitsForQuietScreen() async throws {
         let (c, writes, _) = starting()
         var t = Date(timeIntervalSince1970: 1_000)              // time passes only when this test says

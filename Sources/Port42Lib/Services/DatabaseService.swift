@@ -1253,12 +1253,14 @@ public final class DatabaseService {
     }
 
     public func deleteRemotePort(peerKey: String, portKey: String) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM remote_ports WHERE peerKey = ? AND portKey = ?", arguments: [peerKey, portKey])
         }
     }
 
     public func setRemotePortWakes(peerKey: String, portKey: String, wakes: Bool) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET wakes = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [wakes, peerKey, portKey])
@@ -1267,6 +1269,7 @@ public final class DatabaseService {
 
     /// Record the name the other instance knows this one by.
     public func setRemotePortKnownAs(peerKey: String, portKey: String, knownAs: String) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET knownAs = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [knownAs, peerKey, portKey])
@@ -1274,6 +1277,7 @@ public final class DatabaseService {
     }
 
     public func upsertRemotePort(_ r: RemotePortRow) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO remote_ports (peerKey, portKey, title, rights, relays, hostName, addedAt)
@@ -1287,6 +1291,7 @@ public final class DatabaseService {
 
     /// Record which local tile mirrors a remote port.
     public func setRemotePortTile(peerKey: String, portKey: String, localPort: String?) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET localPort = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [localPort, peerKey, portKey])
@@ -1294,7 +1299,26 @@ public final class DatabaseService {
     }
 
     /// The local tile for each remote port that has one: tile id → (peer, port).
+    // Kept in memory (two agents, the 20 s freezes): every bridge call from every port page asks whether its
+    // port is a tile of someone else's (`mirroredRemote`), and reading these on the main thread each time
+    // queued behind the database and stalled gateway calls (sampled on Dev6, 2026-10-02). Every write to
+    // `remote_ports` goes through the functions above, and each forgets the cache.
+    private let remoteCacheLock = NSLock()
+    nonisolated(unsafe) private var remoteTilesCache: [String: (peerKey: String, portKey: String)]?
+    nonisolated(unsafe) private var remoteRowsCache: [RemotePortRow]?
+    private func forgetRemoteCache() {
+        remoteCacheLock.lock(); remoteTilesCache = nil; remoteRowsCache = nil; remoteCacheLock.unlock()
+    }
+
     public func remotePortTiles() throws -> [String: (peerKey: String, portKey: String)] {
+        remoteCacheLock.lock(); let cached = remoteTilesCache; remoteCacheLock.unlock()
+        if let cached { return cached }
+        let loaded = try loadRemotePortTiles()
+        remoteCacheLock.lock(); remoteTilesCache = loaded; remoteCacheLock.unlock()
+        return loaded
+    }
+
+    private func loadRemotePortTiles() throws -> [String: (peerKey: String, portKey: String)] {
         try dbQueue.read { db in
             var out: [String: (String, String)] = [:]
             for r in try Row.fetchAll(db, sql: "SELECT peerKey, portKey, localPort FROM remote_ports WHERE localPort IS NOT NULL") {
@@ -1305,6 +1329,14 @@ public final class DatabaseService {
     }
 
     public func remotePorts() throws -> [RemotePortRow] {
+        remoteCacheLock.lock(); let cached = remoteRowsCache; remoteCacheLock.unlock()
+        if let cached { return cached }
+        let loaded = try loadRemotePorts()
+        remoteCacheLock.lock(); remoteRowsCache = loaded; remoteCacheLock.unlock()
+        return loaded
+    }
+
+    private func loadRemotePorts() throws -> [RemotePortRow] {
         try dbQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM remote_ports ORDER BY addedAt").map { r in
                 RemotePortRow(peerKey: r["peerKey"], portKey: r["portKey"], title: r["title"],

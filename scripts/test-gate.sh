@@ -14,7 +14,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-TIMING_FILTER="OffscreenTimerTests|HiddenTimerTests"
+TIMING_FILTER="OffscreenTimerTests|HiddenTimerTests|MessageDeliveryTests"
 
 # run <label> <swift test args...>: one pass, its summary line on success, its failures otherwise.
 run() {
