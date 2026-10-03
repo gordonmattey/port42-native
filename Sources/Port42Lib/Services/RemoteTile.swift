@@ -313,16 +313,9 @@ extension AppState {
         let targets = companions.filter { c in
             exact.contains { $0.id == c.id } || (members.contains(c.id) && plain.contains(c.displayName.lowercased()))
         }.filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
-        // The host's agent wakes one of ours only once the person allowed it (decision 3); a yes makes it the tile's member.
-        let byAgent = entry.fromKind == Principal.Kind.companion.rawValue
-        let ready = targets.filter { !byAgent || mayCrossWake($0.id, from: entry.fromId, port: key) }
-        deliverMirrored(ready, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
-        for c in targets where !ready.contains(where: { $0.id == c.id }) {
-            Task { @MainActor [weak self] in
-                guard let self, await self.askCrossWake(c, from: entry.fromId, fromName: entry.fromName, port: key, portTitle: row.title) else { return }
-                self.deliverMirrored([c], tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
-            }
-        }
+        // The tile's wake switch, set when the person accepted, is their yes to the host's people and agents alike
+        // (Gordon, 2026-10-03: no second card).
+        deliverMirrored(targets, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
     }
 
     /// A post by anyone on this machine in a tile of someone else's port wakes this machine's companions it
@@ -346,7 +339,9 @@ extension AppState {
               let spaceId = panel.spaceId ?? currentSpace?.id else { return }
         let entry = PortChatEntry(seq: 0, at: Date(), text: text, fromId: fromId, fromName: fromName, fromKind: "human")
         // The source says the port is someone else's, shared here, so the companion answers in its chat.
-        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName): reply in this port's chat" } ?? ""
+        // Not "reply in this port's chat": agents took it as an order to post by hand, and each answer came twice
+        // (Gordon, 2026-10-03). The reply goes there by itself, as from any chat.
+        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName); your reply goes to this port's chat" } ?? ""
         let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel) + shared,
                                             text: entry.text)
         let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))

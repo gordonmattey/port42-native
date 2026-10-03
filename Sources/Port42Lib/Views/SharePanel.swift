@@ -54,7 +54,7 @@ struct SharePillButton: View {
     private var help: String {
         switch pill {
         case .shared: return "Who this port is shared with. Click to change it."
-        case .theirs(let host, true): return "\(host)'s port, live from their machine. Click for what you can do."
+        case .theirs(let host, true): return "\(host)'s port, live from their computer. Click for what you can do."
         case .theirs(let host, false): return "\(host) cannot be reached. This shows the port as it last was; it reconnects on its own."
         case .ended(let host): return "\(host) stopped sharing this port with you. It shows the port as it last was; a new invite brings it back."
         }
@@ -159,13 +159,13 @@ struct ShareGuestPanel: View {
                     Text("fork a copy").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.accent)
                 }
                 .buttonStyle(.plain)
-                .help("A copy of this port on your machine, yours to change. The original stays theirs.")
+                .help("A copy of this port on your computer, yours to change. The original stays theirs.")
             }
             Button { appState.leaveRemotePort(tile: tileId); onDone() } label: {
                 Text("leave: close it here").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Closes it here and forgets it on this machine. They can invite you again.")
+            .help("Closes it here and forgets it on this computer. They can invite you again.")
         }
     }
 }
@@ -205,7 +205,7 @@ struct PortSpacesPopover: View {
             }
             if canMove {
                 Divider().opacity(0.4)
-                pick("another machine…", icon: "arrow.up.forward.app") { onPick(.machine) }
+                pick("another computer…", icon: "arrow.up.forward.app") { onPick(.machine) }
             }
         }
         .padding(.vertical, 4)

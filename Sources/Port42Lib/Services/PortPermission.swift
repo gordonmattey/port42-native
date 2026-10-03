@@ -113,7 +113,7 @@ public enum PortPermission: String, Hashable {
         case .share:
             return (
                 title: "Share a Port",
-                message: "This wants to make invite links that let someone on another machine open one of your ports. Allow?"
+                message: "This wants to make invite links that let someone on another computer open one of your ports. Allow?"
             )
         case .deleteSpace:
             return (
@@ -127,8 +127,8 @@ public enum PortPermission: String, Hashable {
             )
         case .crossWake:
             return (
-                title: "An Agent From Another Machine",
-                message: "An agent on another machine wants to wake one of your companions on a shared port. It runs here, in your terminal, on your model. Allow?"
+                title: "An Agent From Another Computer",
+                message: "An agent on another computer wants to wake one of your companions on a shared port. It runs here, in your terminal, on your model. Allow?"
             )
         case .changeSharing:
             return (

@@ -245,7 +245,7 @@ extension AppState {
             return
         case .never:
             throw BridgeError(code: .notGranted,
-                              message: "\(method) is not available to a caller on another machine. "
+                              message: "\(method) is not available to a caller on another computer. "
                                      + "Your invite covers one port: reading it, using it or editing it.")
         case .port(let param, let right):
             guard let raw = args.string(param), let key = remotePortKey(raw),

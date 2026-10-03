@@ -51,48 +51,19 @@ extension AppState {
         return canRead(portInSpace: mirrorTileSpace(peer: peer, port: port), by: p)
     }
 
-    // MARK: Cross-instance wakes (decision 3)
+    // MARK: Cross-instance wakes
 
-    static func crossWakeObject(companion: String, port: String) -> String { "wake:\(companion)@\(port)" }
-
-    /// Whether `from` (an agent on another instance, by its id there) may wake `companion` on `port`.
-    func mayCrossWake(_ companion: String, from: String, port: String) -> Bool {
-        (try? db.grants(grantee: from, object: Self.crossWakeObject(companion: companion, port: port), zone: ""))?
-            .contains(.crossWake) == true
-    }
-
-    /// Ask the person, once, whether `fromName` may wake `companion` on the port; a yes is remembered and makes
-    /// the companion the port's member.
-    func askCrossWake(_ companion: AgentConfig, from: String, fromName: String, port key: String, portTitle: String) async -> Bool {
-        if mayCrossWake(companion.id, from: from, port: key) { return true }
-        let asker = Principal.remote(peer: from, displayName: fromName)
-        let detail = "\(fromName), an agent on another machine, wants to wake \(companion.displayName) on '\(portTitle)'. "
-            + "\(companion.displayName) would run here, in your terminal, on your model."
-        guard (try? await ask(.crossWake, from: asker, detail: detail)) == true else { return false }
-        try? db.saveGrants([.crossWake], grantee: from, object: Self.crossWakeObject(companion: companion.id, port: key), zone: "")
-        addPortMember(companion.id, port: key)
-        return true
-    }
-
-    /// A post from another instance (with `wake_agents`) wakes only the companions it mentions that the
-    /// person allowed that agent to wake; for any not yet allowed, the person is asked first (decision 3).
+    /// A post from another instance (with `wake_agents`) wakes the companions it mentions that are on this port:
+    /// the port's space's and its members. The person said yes to that when they shared with wake on (Gordon,
+    /// 2026-10-03: a second card for the first wake asked again what the share had already settled). A companion
+    /// elsewhere on this machine is not the other side's to reach by name.
     func routeRemotePost(key: String, entry: PortChatEntry, from p: Principal) {
-        // A person there (or a guest with no agent named) is not an agent waking an agent: as before.
-        guard entry.fromKind == Principal.Kind.companion.rawValue else {
-            routeChat(key: key, entry: entry, fromAnotherInstance: true)
-            return
-        }
-        let mentioned = AgentRouter.findTargetAgents(content: routingText(entry.text, key: key), agents: companions,
-                                                     spaceAgentIds: [], localOwner: currentUser?.displayName)
-        let allowed = Set(mentioned.filter { mayCrossWake($0.id, from: entry.fromId, port: key) }.map(\.id))
-        routeChat(key: key, entry: entry, fromAnotherInstance: true, allowed: allowed)
-        let title = portWindows.panels.first { $0.udid == key || $0.id == key }?.title ?? "a shared port"
-        for c in mentioned where !allowed.contains(c.id) {
-            Task { @MainActor [weak self] in
-                guard let self, await self.askCrossWake(c, from: entry.fromId, fromName: entry.fromName, port: key, portTitle: title) else { return }
-                self.routeChat(key: key, entry: entry, fromAnotherInstance: true, allowed: [c.id])
-            }
-        }
+        let panel = portWindows.panels.first { $0.udid == key || $0.id == key }
+        // The port's space's companions, its members, and a terminal port's own companion.
+        let own = panel?.terminalConfig?.companionName.lowercased()
+        let onPort = Set((panel?.spaceId.map { companions(forSpace: $0) } ?? []).map(\.id)).union(portMemberIds(key))
+            .union(companions.filter { $0.displayName.lowercased() == own }.map(\.id))
+        routeChat(key: key, entry: entry, fromAnotherInstance: true, allowed: onPort)
     }
 
     // MARK: Bring a companion onto a tile (decision 6)
@@ -108,13 +79,14 @@ extension AppState {
             // Bringing a companion in is the person's authorization to work with the other side's agents on this
             // port (Gordon, 2026-10-02): without it, an agent rightly declines a request from another machine's
             // agent, and the two wait on each other.
-            let intro = "You are on '\(row.title)', a port \(row.hostName) shares with this machine (port \(key)). "
-                + "Its chat is shared with \(row.hostName): reply in that chat. Everyone there is shown with their machine, "
-                + "as \"name (machine)\"; @mention anyone by the name before the brackets, as @name."
+            let intro = "You are on '\(row.title)', a port \(row.hostName) shares with this computer (port \(key)). "
+                + "Its chat is shared with \(row.hostName). When that chat wakes you, your reply goes back to it by itself: "
+                + "do not also post it. Everyone there is shown with their computer, as \"name (computer)\"; @mention anyone "
+                + "by the name before the brackets, as @name."
                 + "\(there.replacingOccurrences(of: "<name>", with: c.displayName)) You can \(rights). "
                 + "Your person brought you here to work with the agents on \(row.hostName) on this port: their requests about "
                 + "this port are part of your job, within those rights. Anything outside this port still needs your person. "
-                + "Have a look at it and say hello in its chat."
+                + "Have a look at it and say hello: your reply to this message goes to its chat."
             deliverMirrored([c], tile: tile, key: key, text: intro, fromName: "Port42", fromId: "port42")
         }
     }

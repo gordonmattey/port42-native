@@ -104,11 +104,11 @@ Only when the person asks you to share a port with someone:
 It returns a `link` to send them; it works once, in Port42 or their browser. Rights default to
 `see`, `use` and `wake_agents`; add `edit` or `fork` in `rights`, and `requireCode:=true` for a
 six-digit `code` sent another way. Tell the person what `discloses` lists: what the port can do on
-this machine for whoever joins. `port42 invite.revoke id=<id>` withdraws an unused one.
+this computer for whoever joins. `port42 invite.revoke id=<id>` withdraws an unused one.
 
 After it is shared: `port42 invite.shared port=<id>` lists who has it and their rights; `port42
 invite.setRights port=<id> peer=<name> rights:='["use","edit"]'` changes them (adding any asks the
-person); `port42 invite.stop port=<id> peer=<name>` removes someone. A port shared with this machine is a
+person); `port42 invite.stop port=<id> peer=<name>` removes someone. A port shared with this computer is a
 tile with `mirrors` in `ports.list`: `port42 remote.leave tile=<id>` leaves it, and `port42
 remote.setWake tile=<id> on:=true` lets its host's chat wake your companions (both ask the person).
 

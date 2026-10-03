@@ -44,8 +44,10 @@ struct TwoAgentsUXTests {
         #expect(w.state.isPortMember(bram.id, port: key), "the companion was not brought onto the tile")
         #expect(w.state.chatReplyTargets["bram"] == key, "the companion was not told, or its reply would not reach the port's chat")
         let told = (w.state.pendingTerminalInjections.values.flatMap { $0 }).joined()
-        #expect(told.contains("Shared board") && told.contains("reply in that chat") && told.contains("shared from Gordon") && told.contains("work with the agents on Gordon on this port"),
+        #expect(told.contains("Shared board") && told.contains("your reply goes back to it by itself") && told.contains("do not also post it") && told.contains("shared from Gordon") && told.contains("work with the agents on Gordon on this port"),
                 "the companion was not told where it is: \(told)")
+        #expect(told.contains("your reply goes to this port's chat") && !told.contains("reply in this port's chat"),
+                "the wake line reads as an order to post by hand, so each answer comes twice: \(told)")
         #expect(w.state.sharedChatLabel(key)?.contains("bram") == true, "the shared chat does not list the companion")
     }
 

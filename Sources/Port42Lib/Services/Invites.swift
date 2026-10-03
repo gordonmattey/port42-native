@@ -125,7 +125,7 @@ extension AppState {
     func createInvite(port: String, rights: [RemoteRight], life: TimeInterval, requireCode: Bool,
                       by p: Principal) throws -> CreatedInvite {
         if port == PortChat.desktopKey || port == PortObject.machinePortKey {
-            throw BridgeError.badArg("port 0 is this machine itself and is never shared")
+            throw BridgeError.badArg("port 0 is this computer itself and is never shared")
         }
         if spaces.contains(where: { $0.id == port }) {
             throw BridgeError.badArg("an invite shares one port, not a space")
@@ -250,7 +250,7 @@ extension AppState {
 @MainActor
 func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["invite.create"] = BridgeMethod(permission: nil, paramNames: ["port", "rights", "expiresIn", "requireCode"],
-        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+        description: "Make an invite link that lets one person on another computer open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two computers (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this computer; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -301,7 +301,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["invite.list"] = BridgeMethod(permission: nil,
-        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
+        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two computers (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         // APP-01: a caller sees only the invites it may manage.
         let rows = ((try? appState.db.allInvites()) ?? []).filter { appState.mayManage($0, by: p) }
@@ -671,17 +671,17 @@ extension AppState {
             switch right {
             case .see:        return "see it"
             case .use:        return "use it and post in its chat"
-            case .edit:       return "change its code, which then runs on this machine"
+            case .edit:       return "change its code, which then runs on this computer"
             case .wakeAgents: return "wake your agents from its chat"
             case .fork:       return "take a copy"
             case .move:       return "take it over (it closes here)"
             }
         }
         let reachLine = reach.isEmpty
-            ? "It reaches nothing else on this machine."
-            : "It can use \(reach.map(\.rawValue).joined(separator: ", ")) on this machine, "
+            ? "It reaches nothing else on this computer."
+            : "It can use \(reach.map(\.rawValue).joined(separator: ", ")) on this computer, "
               + "and whoever you let in can make it do so."
-        return "Share '\(title)' with another machine. They could \(can.joined(separator: ", ")). \(reachLine)"
+        return "Share '\(title)' with another computer. They could \(can.joined(separator: ", ")). \(reachLine)"
     }
 
     /// Ask a caller to share a port or open one (see `invite.create`, `invite.accept`). A yes is kept

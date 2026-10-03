@@ -1238,12 +1238,12 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["space.current"] = BridgeMethod(permission: nil, paramNames: ["space_id", "port"],
-        description: "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another machine: the shared port's own space, named by `port`.",
+        description: "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another computer: the shared port's own space, named by `port`.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "space_id": ["type": "string", "description": "Optional space id to inspect. Defaults to the currently selected space."],
-                "port": ["type": "string", "description": "From another machine: the shared port whose space to read."],
+                "port": ["type": "string", "description": "From another computer: the shared port whose space to read."],
             ]
         ]) { p, args in
         let sid = p.kind == .remote ? try appState.remotePortSpace(args.string("port")) : args.string("space_id")
@@ -1456,12 +1456,12 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id", "port"],
-        description: "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want). From another machine: the companions of the shared port's own space, named by `port`.",
+        description: "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want). From another computer: the companions of the shared port's own space, named by `port`.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "space_id": ["type": "string", "description": "Omit for your own space (the default). A space id targets that space. \"*\" returns the whole-instance roster."],
-                "port": ["type": "string", "description": "From another machine: the shared port whose space to list."],
+                "port": ["type": "string", "description": "From another computer: the shared port whose space to list."],
             ]
         ]) { p, args in
         let sid = p.kind == .remote ? try appState.remotePortSpace(args.string("port"))

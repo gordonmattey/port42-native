@@ -40,43 +40,26 @@ struct TwoAgentsPermissionTests {
         #expect(!(try w.state.db.getAgentsForSpace(spaceId: w.space.id).map(\.id).contains(alba.id)))
     }
 
-    @Test("another instance's agent wakes one of yours only after the person says yes, once (decision 3)")
-    func crossWakeCard() async throws {
+    @Test("another instance's agent wakes a companion on the shared port with no card; one not on the port stays asleep")
+    func noSecondCard() async throws {
         let w = try makeParityWorld()
         let alba = try companion(w, "alba", in: w.space)
-        let panelId = try #require(w.state.spawnNativeTerminalPort(
+        _ = try #require(w.state.spawnNativeTerminalPort(
             command: "true", cwd: NSTemporaryDirectory(), spaceId: w.space.id, title: "alba",
             companionName: "alba", companionId: alba.id, systemPrompt: nil, postCard: false))
-        _ = panelId
+        let away = Space.create(name: "away"); try w.state.db.saveSpace(away); w.state.spaces.append(away)
+        _ = try companion(w, "cora", in: away)
         let id = try board(w, in: w.space)
         let peer = "peer-gordon11"
         w.state.grantRemoteRights([.see, .use, .wakeAgents], to: peer, onPort: id)
         let bram = Principal.remote(peer: peer, displayName: "gordon11").acting(as: RemoteActor(id: "B1", name: "bram", kind: .companion))
-        w.state.pendingTerminalInjections = [:]
         w.state.chatReplyTargets = [:]
-
-        _ = try w.state.postToChat(key: id, text: "@alba what do you think", from: bram)
-        for _ in 0..<400 where w.state.permissions.current == nil { await Task.yield() }
-        #expect(w.state.permissions.current?.permission == .crossWake, "no card before another machine's agent woke yours")
-        #expect(w.state.chatReplyTargets["alba"] == nil, "alba woke before the person said yes")
-        w.state.permissions.resolveCurrent(granted: true)
-        for _ in 0..<400 where w.state.chatReplyTargets["alba"] == nil { await Task.yield() }
-        #expect(w.state.chatReplyTargets["alba"] == id, "the yes did not wake alba")
-
-        w.state.chatReplyTargets = [:]
-        _ = try w.state.postToChat(key: id, text: "@alba and again", from: bram)
-        #expect(w.state.permissions.current == nil, "asked again for the same agent, companion and port")
-        #expect(w.state.chatReplyTargets["alba"] == id, "the remembered yes did not wake alba")
-
-        // Another agent there is its own pair: asked again, and a no wakes nobody.
-        w.state.chatReplyTargets = [:]
-        let cora = Principal.remote(peer: peer, displayName: "gordon11").acting(as: RemoteActor(id: "C1", name: "cora", kind: .companion))
-        _ = try w.state.postToChat(key: id, text: "@alba hello", from: cora)
-        for _ in 0..<400 where w.state.permissions.current == nil { await Task.yield() }
-        #expect(w.state.permissions.current?.permission == .crossWake)
-        w.state.permissions.resolveCurrent(granted: false)
+        _ = try w.state.postToChat(key: id, text: "@alba what do you think, and @cora?", from: bram)
         for _ in 0..<50 { await Task.yield() }
-        #expect(w.state.chatReplyTargets["alba"] == nil, "a no still woke alba")
+        #expect(w.state.permissions.current == nil, "asked again what sharing with wake on already settled")
+        #expect(w.state.chatReplyTargets["alba"] == id, "the companion on the port did not wake")
+        #expect(w.state.chatReplyTargets["cora"] == nil, "a companion in another space woke from the other computer")
+        _ = alba
     }
 
     static let me = "25njqamcweflpvkl73j4szahhihoc4xt3ktcgjnpaingr5yhkena"

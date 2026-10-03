@@ -173,7 +173,7 @@ extension AppState {
     /// `fromAnotherInstance`: the post came from another machine. Its mentions wake companions here, but
     /// never add one to a space (a space's members can act on every port in it).
     /// `allowed`: when set, only these companions (by id) are woken; a post from another instance wakes only
-    /// the mentioned companions the person allowed it to (two agents, decision 3).
+    /// the companions on the port (`routeRemotePost`).
     func routeChat(key: String, entry posted: PortChatEntry, fromAnotherInstance: Bool = false, allowed: Set<String>? = nil) {
         // In a shared chat, a mention of a companion here by its name as the other machine shows it is that companion.
         let entry = PortChatEntry(seq: posted.seq, at: posted.at, text: routingText(posted.text, key: key),
@@ -574,7 +574,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["whoami"] = BridgeMethod(permission: nil,
-        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
+        description: "Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other computers met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         var o: [String: BridgeValue] = ["name": .string(p.displayName), "kind": .string(p.kind.rawValue)]
         var spaceId = p.spaceId
@@ -613,7 +613,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["chat.read"] = BridgeMethod(permission: nil, paramNames: ["port", "after", "limit"],
-        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another machine, names this machine's agents on it as the chat shows them, whether or not they have posted.",
+        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -634,7 +634,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
-        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind (\"editing a file\"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
+        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind (\"editing a file\"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
         inputSchema: [
             "type": "object",
             "properties": [

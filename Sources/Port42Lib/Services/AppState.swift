@@ -798,7 +798,7 @@ public final class AppState: ObservableObject {
                 message: "\(here) does not know who is asking: this call carries no credential. "
                        + "If Port42 started your session, your own token path is in "
                        + "$PORT42_TOKEN_FILE — send `Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")`. "
-                       + "If it did not, ask the person at this machine to add a client in "
+                       + "If it did not, ask the person at this computer to add a client in "
                        + "Port42 Settings → Access. Do not use another tool's token file: the grant "
                        + "would land on that tool, not on you.")
         }
@@ -841,7 +841,7 @@ public final class AppState: ObservableObject {
             throw BridgeError(
                 code: .authRevoked,
                 message: "'\(client.name)' was revoked on \(here), so this token no longer works. "
-                       + "That was a deliberate act by the person at this machine — ask them before "
+                       + "That was a deliberate act by the person at this computer — ask them before "
                        + "retrying. They can restore it in Settings → Access.")
         }
         guard !retired else {

@@ -42,13 +42,13 @@ struct ShareBox: View {
                 result(made)
             } else {
                 if moving {
-                    Text("to one person on another machine. when they open the link it becomes theirs and closes here.")
+                    Text("to one person on another computer. when they open the link it becomes theirs and closes here.")
                         .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("with one person on another machine. they can always see it; choose what else.")
+                    Text("with one person on another computer. they can always see it; choose what else.")
                         .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
-                    MachineNameLine(name: appState.machineName, verb: "they see this machine as")
+                    MachineNameLine(name: appState.machineName, verb: "they see this computer as")
                     option("use it", "click, type, drive it", $use)
                     option("edit it", "change the port itself", $edit)
                     option("remote wake", "their companions can wake yours in its chat", $wake)

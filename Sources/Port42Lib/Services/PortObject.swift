@@ -99,7 +99,7 @@ public enum PortGrantDisplay {
         // A site a companion may use in a browser port (browser use, #177): named by its host.
         if object.hasPrefix("site:") { return String(object.dropFirst("site:".count)) }
         if object.hasPrefix("share:") {
-            return object.dropFirst("share:".count).contains("/") ? "a port on another machine" : "one port"
+            return object.dropFirst("share:".count).contains("/") ? "a port on another computer" : "one port"
         }
         guard let slash = object.firstIndex(of: "/") else { return "a port" }
         let peer = String(object[object.startIndex..<slash])

@@ -127,7 +127,7 @@ public struct SignOutSheet: View {
     private var remoteAccessSection: some View {
         if tab == .remote {
             VStack(alignment: .leading, spacing: 10) {
-                Text("How other machines reach this Port42. Nothing here opens your Mac to the internet: it connects out to each relay, and the relay pairs it with the people you invite.")
+                Text("How other computers reach this Port42. Nothing here opens your Mac to the internet: it connects out to each relay, and the relay pairs it with the people you invite.")
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
@@ -141,14 +141,14 @@ public struct SignOutSheet: View {
                     .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textPrimary)
                     .textSelection(.enabled)
 
-                Text("THIS MACHINE'S NAME")
+                Text("THIS COMPUTER'S NAME")
                     .font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
                     .padding(.top, 6)
                 TextField(AppState.defaultMachineName(person: appState.currentUser?.displayName), text: $machineName)
                     .textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .padding(6).background(Color.white.opacity(0.04))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                Text("This machine's name to people on other machines: beside you and your companions in a shared port's chat, and on the invites you send. Empty uses your name, as \"<name>'s Port42\". A machine you share with sees a new name the next time it connects.")
+                Text("This computer's name to people on other computers: beside you and your companions in a shared port's chat, and on the invites you send. Empty uses your name, as \"<name>'s Port42\". A computer you share with sees a new name the next time it connects.")
                     .font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -512,7 +512,7 @@ public struct SignOutSheet: View {
         let shared = appState.sharedPorts()
         let invites = appState.openInvites()
         if !shared.isEmpty || !invites.isEmpty {
-            Text("SHARED WITH OTHER MACHINES")
+            Text("SHARED WITH OTHER COMPUTERS")
                 .font(Port42Theme.mono(9)).tracking(2)
                 .foregroundStyle(Port42Theme.textSecondary)
                 .padding(.top, 4)

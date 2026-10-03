@@ -137,7 +137,6 @@ struct TwoAgentsAddressingTests {
         let alba = try companion(w, "alba")
         let id = try board(w)
         w.state.grantRemoteRights([.see, .use, .wakeAgents], to: Self.peer, onPort: id)
-        try w.state.db.saveGrants([.crossWake], grantee: Self.peer + "/B-bram", object: AppState.crossWakeObject(companion: alba.id, port: id), zone: "")
         w.state.chatReplyTargets = [:]
         _ = try w.state.postToChat(key: id, text: "@alba%20%28gordon11%29 your turn", from: bram())
         #expect(w.state.chatReplyTargets["alba"] == id, "the mention with the wrong machine woke nobody")

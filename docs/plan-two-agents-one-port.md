@@ -140,6 +140,16 @@ nothing.
 - **The guest's @ picker** offers the host's agents on the port from the moment it joins: `chat.read` names
   them on a shared port.
 
+**Phase 8. From the second hand-run** (2026-10-03).
+- **No second wake card.** Sharing with wake on (host) and accepting with wake on (guest) are the person's yes
+  for the other side's people and agents alike. From another computer, a mention wakes only the companions on
+  that port: its space's, its members, and a terminal port's own.
+- **Each answer once.** The wake line and the intro said "reply in this port's chat"; agents posted by hand and
+  their reply was delivered too. They now say the reply goes there by itself, and not to post it as well.
+- **"computer", not "machine"**, in everything a person or an agent reads (Gordon).
+- **Cards are logged** with who asked, the answer and how long it took.
+- **The freeze is Dev6's main thread** (calls waited 5 to 40 s for it; Dev11 had none). Next: sample at onset.
+
 ## Not in this
 
 Ports across spaces on one machine (#238, #249); sharing a whole space; the relay rate cap (#122).

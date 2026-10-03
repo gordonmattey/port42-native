@@ -159,7 +159,12 @@ extension AppState {
     /// can raise a card goes through here, so none of them hangs while Port42 is locked, and a caller
     /// can tell "locked, retry after unlock" from a no.
     func ask(_ perm: PortPermission, from principal: Principal, detail: String? = nil) async throws -> Bool {
-        switch await permissions.decide(perm, from: principal, detail: detail) {
+        // Which card, for whom, and the answer: a card nobody captured can be found later (Gordon, 2026-10-03).
+        let asked = Date()
+        let outcome = await permissions.decide(perm, from: principal, detail: detail)
+        p42log("[card] %@ for %@: %@ after %.0fs%@", perm.rawValue, principal.displayName, String(describing: outcome),
+               Date().timeIntervalSince(asked), detail.map { " (\($0.prefix(120)))" } ?? "")
+        switch outcome {
         case .granted: return true
         case .denied:  return false
         case .locked:  throw BridgeError.locked(perm.rawValue)

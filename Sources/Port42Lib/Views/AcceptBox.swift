@@ -30,7 +30,7 @@ struct AcceptBox: View {
                 KeyCap(label: "esc") { link = nil }
             }
             if let c = coupon {
-                Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their machine."
+                Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their computer."
                             : "\(c.hostName) is sharing a port with you. it opens here.")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
