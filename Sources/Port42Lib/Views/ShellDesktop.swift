@@ -1509,7 +1509,29 @@ struct ShellPortHost: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        // Don't reclaim the view if it moved to another container (tile/focus/rail reparenting).
+        // Don't reclaim the view if it moved to another container (tile/focus/rail reparenting), which is in
+        // a window on screen. Do take it back when the window it went to is closed or hidden: closing a
+        // second window used to leave this tile's port blank (the space background showing through) until
+        // the person left the space and came back (#189, Gordon, 2026-10-02).
+        guard Self.shouldReclaim(hostedHere: view.superview === container,
+                                 viewWindowVisible: view.window?.isVisible ?? false,
+                                 containerWindowVisible: container.window?.isVisible ?? false) else { return }
+        view.removeFromSuperview()
+        container.addSubview(view)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+    }
+
+    /// Whether a host takes its view back: it is not here, the window it is in is gone or hidden, and this
+    /// host is on screen. A view in another visible window (a tile, focus, the rail, the off-screen host for
+    /// browser use) is left where it is.
+    nonisolated static func shouldReclaim(hostedHere: Bool, viewWindowVisible: Bool, containerWindowVisible: Bool) -> Bool {
+        !hostedHere && !viewWindowVisible && containerWindowVisible
     }
 }
 

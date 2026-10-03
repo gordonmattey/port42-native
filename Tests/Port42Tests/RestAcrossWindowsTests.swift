@@ -101,4 +101,15 @@ struct RestAcrossWindowsTests {
         #expect(main.spaceId == nil, "the laptop shows the other display's space: one space in two windows")
         #expect(other.spaceId == spaces[1].id)
     }
+
+    @Test("a tile takes its port back from a closed or hidden window, and only then")
+    func reclaimFromClosedWindow() {
+        #expect(ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: false, containerWindowVisible: true),
+                "a port left in a closed window stayed blank here")
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: true, containerWindowVisible: true),
+                "a port live in another open window (or the off-screen host) was pulled away")
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: true, viewWindowVisible: false, containerWindowVisible: true))
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: false, containerWindowVisible: false),
+                "a host that is not on screen took the port")
+    }
 }
