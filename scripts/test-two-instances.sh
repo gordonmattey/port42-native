@@ -86,7 +86,9 @@ function render() {
     col.appendChild(i); root.appendChild(col);
   });
 }
-window.addCard = (text, col) => { cards.push({ text, col: col || 0 }); return save(); };
+window.addCard = async (text, col) => { await load(); cards.push({ text, col: col || 0 }); return save(); };
+// A shared board: the other side's writes arrive as storage events, so load them (the manual's pattern).
+port42.on('storage', async ({ key }) => { if (key === 'cards') await load(); });
 load();
 </script>
 HTML
@@ -155,14 +157,17 @@ done
 echo "== history names both agents"
 echo "$SEEN_AUTHORS" | grep -q "$BRAM (" && echo "$SEEN_AUTHORS" | grep -q "$ALBA" && pass "history names $BRAM (from there) and $ALBA" || fail "history authors: $SEEN_AUTHORS"
 
-echo "== the board's data: a card added through the page survives a reload on both sides"
-A port.exec id=$BOARD token="$(token_of $BOARD)" js='return window.addCard ? window.addCard("card-'"$RUN"'", 0).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
-sleep 5
+echo "== the board's data: cards added on each side show on the other, and survive a reload"
+A port.exec id=$BOARD token="$(token_of $BOARD)" js='return window.addCard ? window.addCard("host-card-'"$RUN"'", 0).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
+B port.exec id=$TILE js='return window.addCard ? window.addCard("guest-card-'"$RUN"'", 1).then(()=>"ok") : "no addCard"' >/dev/null 2>&1
+sleep 8
+t=0; until B port.getDom id=$TILE 2>/dev/null | grep -q "host-card-$RUN" || [ $t -ge 60 ]; do sleep 5; t=$((t+5)); done
+B port.getDom id=$TILE | grep -q "host-card-$RUN" && pass "the host's card shows on the guest's tile" || fail "the guest's tile does not show the host's card"
+t=0; until A port.getDom id=$BOARD 2>/dev/null | grep -q "guest-card-$RUN" || [ $t -ge 60 ]; do sleep 5; t=$((t+5)); done
+A port.getDom id=$BOARD | grep -q "guest-card-$RUN" && pass "the guest's card shows on the host" || fail "the host does not show the guest's card"
 A port.manage id=$BOARD action=reload token="$(token_of $BOARD)" >/dev/null 2>&1
 sleep 6
-A port.getDom id=$BOARD | grep -q "card-$RUN" && pass "the card survived a reload on the host" || fail "the card was lost on reload (or the agents removed addCard)"
-t=0; until B port.getDom id=$TILE 2>/dev/null | grep -q "card-$RUN" || [ $t -ge 60 ]; do sleep 5; t=$((t+5)); done
-B port.getDom id=$TILE | grep -q "card-$RUN" && pass "the card shows on the guest's tile" || fail "the guest's tile does not show the card"
+H=$(A port.getDom id=$BOARD); echo "$H" | grep -q "host-card-$RUN" && echo "$H" | grep -q "guest-card-$RUN" && pass "both cards survive a reload on the host" || fail "a card was lost on reload"
 
 echo "== host takes edit away"
 PEER=$(A invite.shared port=$BOARD | field "d[0]['peer']")
