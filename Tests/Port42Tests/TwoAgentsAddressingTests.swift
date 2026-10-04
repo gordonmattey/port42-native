@@ -387,3 +387,13 @@ struct TwoAgentsAddressingTests {
         #expect(w.state.chatReplyTargets["bram"] == key, "a post made before the stream was live never woke bram")
     }
 }
+
+@Suite("#257: Port42 is never napped")
+struct AppNapTests {
+    @Test("preventing App Nap holds an activity, once, for the life of the app")
+    func prevented() {
+        AppNap.prevent()
+        AppNap.prevent()
+        #expect(AppNap.isPrevented)
+    }
+}

@@ -43,7 +43,13 @@ public final class AppState: ObservableObject {
     }()
 
     @Published public var spaces: [Space] = []
-    @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
+    @Published public var currentSpace: Space? {
+        didSet {
+            refreshSpaceCompanions()
+            // The person is here now: this space's waiting terminals start next (#223).
+            if currentSpace?.id != oldValue?.id { terminalStarts.prefer(space: currentSpace?.id) }
+        }
+    }
     @Published public var currentUser: AppUser?
     @Published public var isSetupComplete = false {
         didSet {
@@ -191,6 +197,16 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// The restored terminals waiting their turn to start, and the ones starting (#223).
+    public lazy var terminalStarts: TerminalStarts = {
+        let starts = TerminalStarts()
+        starts.hasStarted = { [weak self] id in self?.terminalControllers[id]?.cliRunning == true }
+        // A tile shows waiting until its terminal starts: the shell redraws when the queue moves (a few times,
+        // at launch).
+        terminalStartsSink = starts.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        return starts
+    }()
+    private var terminalStartsSink: AnyCancellable?
     /// Whether this instance is registered on its relays (GW-16): only while it shares something.
     @Published public internal(set) var relayHosting = false
     /// Where the decision goes; the gateway in the app, a recorder in tests.
@@ -693,7 +709,10 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
-        if !AppState.isTestProcess { MainProbe.start() }
+        if !AppState.isTestProcess {
+            MainProbe.start()
+            AppNap.prevent()
+        }
         // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
         // loading now rather than when someone first holds space: loading takes seconds, and the first hold
         // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
@@ -1410,7 +1429,9 @@ public final class AppState: ObservableObject {
             guard let companion = companions.first(where: {
                 $0.displayName.caseInsensitiveCompare(turn.companion) == .orderedSame && $0.openInTerminal
             }) else { continue }
+            // Its terminal's space: a running one's, or a waiting one's saved config (#223), then the current space.
             let spaceId = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) })?.config.spaceId
+                ?? portWindows.panels.first(where: { terminal($0.terminalConfig, isFor: companion) })?.terminalConfig?.spaceId
                 ?? currentSpace?.id ?? turn.chat
             let line = ChatRouting.terminalLine(sender: "port42", source: nil, text: Self.resumeText)
             p42log("[Port42] resuming %@'s turn in %@ after a restart", companion.displayName, turn.chat)
@@ -1465,6 +1486,12 @@ public final class AppState: ObservableObject {
         let key = companion.displayName.lowercased()
         // Already has a live controller → nothing to do.
         if terminalControllers.values.contains(where: { terminal($0.config, isFor: companion) }) {
+            return
+        }
+        // Restored and waiting its turn (#223): it is needed now, so it starts now.
+        if let waiting = portWindows.panels.first(where: { terminal($0.terminalConfig, isFor: companion) && terminalStarts.isWaiting($0.id) }) {
+            p42log("[Port42] starting waiting terminal for '%@' now: it is needed", key)
+            terminalStarts.startNow(waiting.id)
             return
         }
         // A panel already exists for this companion: restore it if backgrounded (minimized),

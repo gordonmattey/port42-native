@@ -1425,6 +1425,18 @@ struct ShellTileBody: View {
                              })   // address bar + page
         } else if let panel = tile.panel, let v = appState.portWindows.hostView(for: panel.id) {
             ShellPortHost(view: v, bridge: panel.bridge, probeId: panel.id)   // web OR terminal — one host
+        } else if let panel = tile.panel, panel.portType == "terminal", appState.terminalStarts.isWaiting(panel.id) {
+            // #223: restored and waiting its turn to start; a click starts it now. It was a black rectangle.
+            ZStack {
+                Color.black
+                VStack(spacing: 6) {
+                    Image(systemName: "hourglass").font(.system(size: 18)).foregroundStyle(shell.accent)
+                    Text("waiting to start").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                    Text("click to start it now").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { appState.terminalStarts.startNow(panel.id) }
         } else {
             Color.black
         }
