@@ -693,7 +693,10 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
-        if !AppState.isTestProcess { MainProbe.start() }
+        if !AppState.isTestProcess {
+            MainProbe.start()
+            AppNap.prevent()
+        }
         // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
         // loading now rather than when someone first holds space: loading takes seconds, and the first hold
         // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.

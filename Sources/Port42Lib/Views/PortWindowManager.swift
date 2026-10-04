@@ -1867,6 +1867,7 @@ class PortWebViewContainer: NSView {
         // WKWebView doesn't reliably fire JS window.resize on frame changes via Auto Layout.
         // Dispatch it from native so existing viewportJS listeners pick it up.
         if let webView = subviews.first as? WKWebView {
+            PageCalls.note(webView.title ?? "a port", "resize")
             webView.evaluateJavaScript("window.dispatchEvent(new Event('resize'))") { _, _ in }
         }
     }

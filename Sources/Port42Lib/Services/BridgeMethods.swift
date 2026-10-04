@@ -256,6 +256,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             guard let script = PortBridge.dataEventScript(data) else {
                 throw BridgeError.badArg("could not serialize data to JSON")
             }
+            PageCalls.note(wv.title ?? id, "push")
             _ = try? await wv.evaluateJavaScript(script)
             return .object(["ok": .bool(true)])
         case .unknown:

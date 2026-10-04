@@ -226,6 +226,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     @MainActor
     public func pushToken(_ callId: Int, _ token: String) {
         let escaped = escapeJSString(token)
+        PageCalls.note(pageCallName, "token")
         webView?.evaluateJavaScript("port42._tokenCallback(\(callId), \"\(escaped)\")") { _, _ in }
     }
 
@@ -245,9 +246,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let data = SafeJSON.data(envelope, options: [.fragmentsAllowed]),
               let json = String(data: data, encoding: .utf8) else {
             let escaped = escapeJSString((envelope["error"] as? String) ?? "error")
+            PageCalls.note(pageCallName, "reject")
             webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
             return
         }
+        PageCalls.note(pageCallName, "reject")
         webView?.evaluateJavaScript("port42._reject(\(callId), \(json))") { _, _ in }
     }
 
@@ -259,6 +262,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let json = value.toJSONObject()
         let jsonData = SafeJSON.data(json, options: [.fragmentsAllowed])
         let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+        PageCalls.note(pageCallName, "resolve")
         webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))") { _, _ in }
     }
 
@@ -384,6 +388,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 // resolve path above.
                 let jsonData = SafeJSON.data(value, options: [.fragmentsAllowed])
                 let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+                PageCalls.note(pageCallName, "resolve")
                 _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
             }
         }
@@ -520,6 +525,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     func deliverData(_ data: Any) {
         guard let script = Self.dataEventScript(data) else { return }
         if let scriptSink { scriptSink(script); return }
+        PageCalls.note(pageCallName, "data")
         webView?.evaluateJavaScript(script) { _, _ in }
     }
 
@@ -535,6 +541,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let jsonData = SafeJSON.data(data.toJSONObject(),
                                                         options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+        PageCalls.note(pageCallName, "emit " + event)
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
         // Phase L1: mirror the event on the port's Notify topic so subscribers see it too — this is the
         // browser attach point (browser.load/redirect/error push to the owner port), and also covers
@@ -557,9 +564,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                                                    kind: event, payload: data)
     }
 
+    /// This port as the page-call count names it (#257): its title, else its id.
+    var pageCallName: String { title ?? messageId ?? "a port" }
+
     /// Send heartbeat to keep connection status alive
     @MainActor
     public func pushHeartbeat() {
+        PageCalls.note(pageCallName, "heartbeat")
         webView?.evaluateJavaScript("port42._heartbeat()") { _, _ in }
     }
 
