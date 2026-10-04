@@ -333,7 +333,7 @@ struct TwoAgentsAddressingTests {
         w.state.addPortMember(bram.id, port: key)
         let row = try #require(w.state.mirroredRemote(tile))
         func post(_ seq: Int, _ text: String) -> [String: Any] {
-            ["seq": seq, "at": 0.0, "text": text, "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]
+            ["seq": seq, "at": Date().timeIntervalSince1970, "text": text, "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]
         }
         hostAnswersChat(w, [post(1, "@bram an old ask, long done")])
         w.state.chatReplyTargets = [:]
@@ -347,6 +347,16 @@ struct TwoAgentsAddressingTests {
         w.state.chatReplyTargets = [:]
         await w.state.loadMirrorChat(tile: tile, row: row)
         #expect(w.state.chatReplyTargets["bram"] == nil, "a caught-up mention woke bram again")
+
+        // An ask from before the window is history: a tile back after a long time away does not act on it.
+        w.state.chatReplyTargets = [:]
+        let old = Date().addingTimeInterval(-2 * 3600).timeIntervalSince1970
+        hostAnswersChat(w, [post(1, "@bram an old ask, long done"), post(2, "@bram missed while the link was down"),
+                            ["seq": 3, "at": old, "text": "@bram from two hours ago",
+                             "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]])
+        await w.state.loadMirrorChat(tile: tile, row: row)
+        #expect(w.state.chatReplyTargets["bram"] == nil, "a two-hour-old ask woke bram")
+        #expect(w.state.mirrorSeenSeq[tile] == 3, "the last post seen is not kept for the next launch")
     }
 
     @Test("a tile restored at launch is not shown online until its host has answered")
@@ -365,7 +375,7 @@ struct TwoAgentsAddressingTests {
         w.state.addPortMember(bram.id, port: key)
         let row = try #require(w.state.mirroredRemote(tile))
         w.state.mirrorSeenSeq[tile] = 1
-        hostAnswersChat(w, [["seq": 2, "at": 0.0, "text": "@bram posted before the stream was live",
+        hostAnswersChat(w, [["seq": 2, "at": Date().timeIntervalSince1970, "text": "@bram posted before the stream was live",
                              "from": ["id": "u-gordon", "name": "Gordon (Gordon's Mac)", "kind": "human"]]])
         w.state.chatReplyTargets = [:]
         w.state.mirrorEvent(tile: tile, row: row, ["kind": "subscribed", "topic": "port:P", "payload": [String: Any]()])

@@ -101,8 +101,15 @@ public final class AppState: ObservableObject {
     var mirrorHostTokens: [String: String] = [:]
     /// The machine name this instance last told each host it holds tiles of, by peer: told once per name.
     var toldMachineName: [String: String] = [:]
-    /// The newest post each tile has seen from its host's chat, by tile: what a reconnect catches up from.
-    var mirrorSeenSeq: [String: Int] = [:]
+    /// The newest post each tile has seen from its host's chat, by tile: what a reconnect catches up from. Kept
+    /// across launches, so posts made while this Port42 was closed or starting are delivered when it is back.
+    var mirrorSeenSeq: [String: Int] {
+        get { (UserDefaults.standard.dictionary(forKey: Self.mirrorSeenKey) as? [String: Int]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.mirrorSeenKey) }
+    }
+    static let mirrorSeenKey = "PORT42_MIRROR_SEEN"
+    /// How far back a returning tile catches up: an ask older than this is history, not something to act on now.
+    static var mirrorCatchUpWindow: TimeInterval = 30 * 60
     /// The focused chat composer's Tab: completes the @name being typed and says whether it did. The window's key
     /// monitor calls it, because the multi-line field takes Tab as "next field" before the composer sees it.
     var composerTab: (() -> Bool)?

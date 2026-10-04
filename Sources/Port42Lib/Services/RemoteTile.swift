@@ -418,7 +418,8 @@ extension AppState {
         // Posts made while the link was down reached nobody here (Gordon's and wren's, 2026-10-03, while the relay
         // dropped the session): wake for what they named now. On a first load there is nothing to catch up on.
         if let seen = mirrorSeenSeq[tile] {
-            for entry in entries where entry.seq > seen { wakeMentioned(tile: tile, key: key, entry: entry) }
+            let since = Date().addingTimeInterval(-Self.mirrorCatchUpWindow)
+            for entry in entries where entry.seq > seen && entry.at > since { wakeMentioned(tile: tile, key: key, entry: entry) }
         }
         mirrorSeenSeq[tile] = max(mirrorSeenSeq[tile] ?? 0, entries.map(\.seq).max() ?? 0)
         // And who is on it right now, so a tile opened mid-turn shows it. A host older than presence in
