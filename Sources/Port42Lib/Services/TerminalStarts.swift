@@ -85,6 +85,7 @@ public final class TerminalStarts: ObservableObject {
 
     private func begin(_ entry: Entry) {
         starting[entry.id] = Date()
+        p42log("[starts] %@ (%d waiting, %d starting)", entry.id, waiting.count, starting.count)
         entry.start()
         check()
     }
