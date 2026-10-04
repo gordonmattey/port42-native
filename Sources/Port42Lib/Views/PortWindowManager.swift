@@ -328,6 +328,11 @@ public final class PortWindowManager: ObservableObject {
         do {
             let saved = try db.fetchPortPanels()
             for row in saved { restorePanel(from: row, appState: appState) }
+            // The restored terminals start in order, the current space's first, a few at a time (#223).
+            if let app = appState as? AppState {
+                app.terminalStarts.order(current: app.currentSpace?.id, visited: app.lastReadDates)
+                app.terminalStarts.pump()
+            }
             if !saved.isEmpty {
                 p42log("[Port42] Restored %d port panels from database", saved.count)
             }
@@ -407,10 +412,19 @@ public final class PortWindowManager: ObservableObject {
             if panel.portType != "terminal" {
                 createPortWebView(for: panel)
             } else if panel.portType == "terminal" {
-                // A terminal was on a desktop at shutdown — rebuild its controller + hoisted
-                // Ghostty surface now so its tile has a live shell to host again. The process
-                // itself is gone across a restart, so this relaunches the startup command.
-                rebuildTiledTerminal(panel, app: appState)
+                // A terminal was on a desktop at shutdown. Its process is gone across a restart, so its
+                // startup command runs again, in its turn (#223): the port waits, and the start queue brings
+                // it up, the current space's first, a few at a time, or at once when something needs it.
+                if let app = appState as? AppState {
+                    let spaces = Set([panel.spaceId].compactMap { $0} + panel.adoptedSpaceIds)
+                    app.terminalStarts.enqueue(.init(id: panel.id, spaces: spaces, everywhere: panel.pinnedEverywhere,
+                                                     start: { [weak self, weak app] in
+                        guard let self, let app, let live = self.panels.first(where: { $0.id == panel.id }) else { return }
+                        self.rebuildTiledTerminal(live, app: app)
+                    }))
+                } else {
+                    rebuildTiledTerminal(panel, app: appState)
+                }
             }
     }
 

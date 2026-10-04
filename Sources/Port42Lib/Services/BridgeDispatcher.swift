@@ -74,6 +74,9 @@ extension AppState {
         try await requireTerminalTarget(method.terminalTarget, args: args, principal: principal,
                                         pregrant: pregrant, standing: false)
 
+        // A terminal still waiting its turn after a launch is started for a call that needs it (#223).
+        await startWaitingTerminal(named: [method.writesTarget, method.terminalTarget].map { $0.flatMap(args.string) })
+
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
@@ -632,6 +635,7 @@ extension AppState {
         // APP-04: subscribing to a terminal is reading its output, which needs `.terminal`.
         try await requireTerminalTarget(method.terminalTarget, args: args, principal: principal,
                                         pregrant: pregrant, standing: method.endless)
+        await startWaitingTerminal(named: [method.writesTarget, method.terminalTarget].map { $0.flatMap(args.string) })
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
         // with its own rules; a write is a write whichever registry serves it.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
