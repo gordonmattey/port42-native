@@ -300,7 +300,7 @@ struct CrossSpacePortsTests {
         #expect(CrossSpaceAsk.preset == [.see])
         #expect(CrossSpaceAsk.offered == [.see, .use, .edit, .wakeAgents, .fork])
         #expect(!CrossSpaceAsk.spaceWide.contains(.edit))
-        #expect(CrossSpaceAsk.accessibilityLabel(.edit, needs: .use) == "Edit, change its code and name, a stronger right")
+        #expect(CrossSpaceAsk.accessibilityLabel(.edit, needs: .use) == "Edit, change its code and name")
         #expect(CrossSpaceAsk.allowLabel([], wholeSpace: false) == "Allow, nothing ticked")
         #expect(CrossSpaceAsk.allowLabel([.see, .use], wholeSpace: true)
                 == "Allow see, use, and see and use on every port in the space")

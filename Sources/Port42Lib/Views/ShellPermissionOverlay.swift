@@ -160,21 +160,18 @@ struct CrossSpaceCardBody: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
 
+            // Port42's own option style, as the share box draws it ([x] in the accent), not the system checkbox
+            // (Gordon, 2026-10-03: the card's colors and boxes did not match the others).
             ForEach(CrossSpaceAsk.offered, id: \.self) { right in
-                Toggle(isOn: binding(right)) {
+                option(binding(right)) {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 6) {
                             Text(CrossSpaceAsk.name(right))
-                                .font(Port42Theme.monoBold(11))
+                                .font(Port42Theme.mono(12))
                                 .foregroundStyle(Port42Theme.textPrimary)
-                            if CrossSpaceAsk.isStrong(right) {
-                                Text("stronger")
-                                    .font(Port42Theme.mono(9))
-                                    .foregroundStyle(Color.orange.opacity(0.9))
-                            }
                             if right == ask.needs, right != .see {
                                 Text("this call needs it")
-                                    .font(Port42Theme.mono(9))
+                                    .font(Port42Theme.mono(10))
                                     .foregroundStyle(accent)
                             }
                         }
@@ -184,23 +181,21 @@ struct CrossSpaceCardBody: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .toggleStyle(.checkbox)
                 .accessibilityLabel(CrossSpaceAsk.accessibilityLabel(right, needs: ask.needs))
             }
 
             Divider().overlay(Port42Theme.border)
 
-            Toggle(isOn: $wholeSpace) {
+            option($wholeSpace) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(ask.spaceBoxLabel)
-                        .font(Port42Theme.mono(11))
+                        .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.textPrimary)
                     Text("See and use only. Edit is only ever given port by port.")
                         .font(Port42Theme.mono(10))
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
             }
-            .toggleStyle(.checkbox)
             .accessibilityLabel("\(ask.spaceBoxLabel). See and use only.")
 
             Text("Kept until you change it in Settings, Access.")
@@ -237,6 +232,21 @@ struct CrossSpaceCardBody: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 2)
         }
+    }
+
+    /// One box on the card, as the share box draws its options: `[x]` in the accent when on, `[ ]` when off.
+    private func option<Label: View>(_ on: Binding<Bool>, @ViewBuilder label: () -> Label) -> some View {
+        Button { on.wrappedValue.toggle() } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(on.wrappedValue ? "[x]" : "[ ]").font(Port42Theme.mono(12))
+                    .foregroundStyle(on.wrappedValue ? accent : Port42Theme.textSecondary)
+                label()
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on.wrappedValue ? [.isSelected] : [])
     }
 
     private func binding(_ right: RemoteRight) -> Binding<Bool> {

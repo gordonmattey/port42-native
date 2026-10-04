@@ -121,7 +121,6 @@ public struct CrossSpaceAsk: Equatable {
     /// call waiting on the card needs it.
     public static func accessibilityLabel(_ r: RemoteRight, needs: RemoteRight) -> String {
         var parts = [name(r), meaning(r)]
-        if isStrong(r) { parts.append("a stronger right") }
         if r == needs { parts.append("this call needs it") }
         return parts.joined(separator: ", ")
     }
