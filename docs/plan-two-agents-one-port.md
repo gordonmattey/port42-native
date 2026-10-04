@@ -1,5 +1,7 @@
 # Plan: two instances, an agent on each side, working on one shared port
 
+**Shipped in 1.0.8** (2026-10-03, build 2596): Phases 1 to 8, the link fixes and #258. Open: #257 (the freeze; measurements shipped, fix not built).
+
 Status: test run 2026-10-02 (all eight steps), fix scoped, decisions made (below), not built. Gordon: "the most valuable thing to get
 working is port sharing between two instances where my agent is talking with the other agent on a shared
 port." Branch to come: `lead/two-agents`.
