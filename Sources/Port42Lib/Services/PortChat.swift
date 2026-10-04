@@ -343,7 +343,8 @@ public enum ChatRouting {
     /// there (people, and another machine's companions), once each, newest first. Never Port42 itself or
     /// the person reading.
     public static func mentionable(companions: [String], people: [String] = [], entries: [PortChatEntry],
-                                   me: String?, myName: String? = nil, peopleIds: Set<String> = []) -> [String] {
+                                   me: String?, myName: String? = nil, peopleIds: Set<String> = [],
+                                   ownPeer: String? = nil) -> [String] {
         // Never the person reading, by id or by name: you cannot @ yourself (GM, 2026-09-28).
         var seen = Set<String>(myName.map { [$0.lowercased()] } ?? [])
         var out: [String] = []
@@ -356,7 +357,11 @@ public enum ChatRouting {
         people.forEach(add)
         // A person already listed in `people` posts under a longer label ("gordon (gordon 3xpo)" for
         // "gordon 3xpo"); their posts would list them twice. Their companions' posts still count.
+        // On a tile, this computer's own people and agents post back as "juno (this computer)": they are already
+        // listed by name, and were offered twice (Gordon, 2026-10-03). `ownPeer`: this computer's peer id.
+        let mine = ownPeer.map { $0 + "/" }
         for e in entries.reversed() where e.fromId != port42SenderId && e.fromId != me
+            && !(mine.map { e.fromId.hasPrefix($0) } ?? false)
             && !(e.fromKind == "human" && peopleIds.contains(peerOf(e.fromId))) { add(e.fromName) }
         return out
     }

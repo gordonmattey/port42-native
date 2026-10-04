@@ -50,6 +50,10 @@ struct SharedChatNameTests {
         #expect(ChatRouting.complete("hi @br", with: "bram (Sam's laptop)") == "hi @bram ")
         #expect(ChatRouting.unmatchedMentions("@bram%20%28wrong%29 and @zed", known: ["bram (Sam's laptop)"]) == ["zed"])
         #expect(ChatRouting.mentions("@Gordon%20%28Mac%29 look", name: "Gordon"))
+        // A tile's own computer's agent, posting back from the host, is offered once, by its plain name.
+        let back = PortChatEntry(seq: 1, at: Date(), text: "hi", fromId: "PEER/juno-id", fromName: "juno (Sam's Port42)", fromKind: "companion")
+        let theirs = PortChatEntry(seq: 2, at: Date(), text: "hi", fromId: "wren-id", fromName: "wren (Gordon's Port42)", fromKind: "companion")
+        #expect(ChatRouting.mentionable(companions: ["juno"], entries: [back, theirs], me: nil, ownPeer: "PEER") == ["juno", "wren (Gordon's Port42)"])
     }
 
     @Test("a machine is called \"<its person>'s Port42\" until its person names it")
