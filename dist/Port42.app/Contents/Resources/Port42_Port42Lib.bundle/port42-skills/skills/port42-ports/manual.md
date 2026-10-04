@@ -490,11 +490,11 @@ BRIDGE API REFERENCE:
                              call again to ask again) · os_denied (macOS refused it: they allow
                              Port42 in System Settings > Privacy & Security) · access_denied (a
                              path they never picked: they pick a file) · not_granted (you are on
-                             another machine and your invite does not cover this; the host sends
-                             a new one) · invite_invalid (the invite is used, expired, withdrawn
-                             or needs the right code; ask for a new one) · budget_spent (an
-                             imagine team's version budget: the lead posts DONE, or the person
-                             raises it)
+                             another computer and your invite does not cover this; the host
+                             sends a new one) · invite_invalid (the invite is used, expired,
+                             withdrawn or needs the right code; ask for a new one) ·
+                             budget_spent (an imagine team's version budget: the lead posts
+                             DONE, or the person raises it)
       ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                              client in Settings -> Access and you send it as `Authorization:
                              Bearer <token>`) · auth_revoked (it knew you and the user withdrew
@@ -571,9 +571,10 @@ BRIDGE API REFERENCE:
     emit an envelope indistinguishable from one the system sent. Match on the prefixed name.
 
     The system kinds you may also receive on a port's topic:
-      audio.data · audio.transcription · browser.error · browser.load · browser.redirect
-      camera.frame · chat · companion.activity · console · driver · filedrop · message
-      presence · presentation · push · screen.frame · state · storage · terminal.output
+      access · audio.data · audio.transcription · browser.error · browser.load
+      browser.redirect · camera.frame · chat · companion.activity · console · driver
+      filedrop · message · presence · presentation · push · screen.frame · state · storage
+      subscribed · terminal.output
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):
@@ -1010,6 +1011,16 @@ FINDING PORTS:
     "_" means wherever the port is; port42://space/SPACE_ID/PORT_ID names its space. A port
     shared from another machine is port42://PEER_ID/PORT_ID and opens only if its invite was
     accepted here. A title is not an address. Setting location from a script is refused.
+
+  A PORT IN ANOTHER SPACE:
+    Your page reaches a port in another space only if the person grants it. Name the target by its
+    id (a title never resolves across spaces). The first call raises a card naming both ports, with
+    the rights sharing uses: see (its source, page, console, chat and state), use (push to it, post
+    in its chat), edit (update, patch, restore or rename it), wake_agents (your posts wake that
+    space's companions) and fork (take a copy). See is ticked by default. Until granted, or if denied, the target is not_found; granted something else, the call
+    is permission_denied naming the right it needs. A terminal is never reachable, and port.exec is
+    not_found whatever is granted. port.subscribe needs no grant. The person reviews and revokes
+    these grants in Settings → Access.
 
 SENDING INPUT TO A TERMINAL PORT:
 

@@ -1,6 +1,6 @@
 # port42-devices reference
 
-The methods for the machine: terminal, screen, camera, audio, files, browser, automation, network. Generated from the running app's registry; do not edit.
+The methods for the computer: terminal, screen, camera, audio, files, browser, automation, network. Generated from the running app's registry; do not edit.
 Call any of them with `port42 <method> key=value` (`key:=<json>` for numbers, booleans,
 arrays and objects; `key=@<file>` for a file's contents).
 
