@@ -21,11 +21,14 @@ public enum SharePill: Equatable {
     case shared(people: Int, invites: Int)
     /// A tile mirroring someone else's port.
     case theirs(host: String, online: Bool)
+    /// A tile whose host stopped sharing it with this machine.
+    case ended(host: String)
 
     public var label: String {
         switch self {
         case .shared(let n, let i): return n > 0 ? "shared · \(n)" : (i == 1 ? "invite sent" : "\(i) invites sent")
         case .theirs(let h, let on): return on ? "\(h)'s" : "\(h)'s · offline"
+        case .ended(let h): return "\(h)'s · no longer shared"
         }
     }
 }
@@ -35,12 +38,19 @@ public struct MirrorStatus: Equatable {
     public var online: Bool
     /// Whether a mention in the host's chat may wake this instance's companions (4.6c).
     public var wakes: Bool = false
+    /// The host stopped sharing the port with this machine (it said so: an `access` event).
+    public var ended: Bool = false
 }
 
 extension AppState {
 
     /// Methods a mirrored tile answers for itself: they are about this desktop, not the port.
     static let mirrorLocalMethods: Set<String> = ["presentation", "port.info", "user.get"]
+    /// What a page says about itself, which on a copy is said about the copy: its card's lines (`state.set`) and
+    /// its own feed (`port.publish`). They went to the host, which refuses both to another computer, so every
+    /// shared page logged rejections and the agents there patched each one (Gordon, 2026-10-03: fix it here).
+    /// Run on this computer, and only about the tile itself: a copy never names another port here.
+    static let mirrorSelfMethods: Set<String> = ["state.set", "port.publish"]
     /// Calls a shared port's page makes that the host answers for that port, so the copy names it: its
     /// storage, and the space and companions it reads at start (4.7b). `user.get` is the viewer, here.
     static func namesItsPort(_ method: String) -> Bool {
@@ -79,10 +89,20 @@ extension AppState {
     /// local terminals. A mirror that is not forwarding now has its calls refused, never run locally.
     func mirroredCall(_ method: String, fromTile tile: String, args: [Any]) -> Task<Any, Never>? {
         guard !Self.mirrorLocalMethods.contains(method), let row = mirroredRemote(tile) else { return nil }
+        if Self.mirrorSelfMethods.contains(method) {
+            let names = bridgeRegistry[method]?.paramNames ?? []
+            let named = BridgeArgs(positional: args, names: names).dictionary
+            if let other = named["port"] as? String, other != tile,
+               portWindows.panels.first(where: { $0.id == other || $0.udid == other })?.id != tile {
+                let refusal = BridgeError(code: .notGranted, message: "a copy of a shared port speaks only for itself")
+                return Task { ["error": refusal.message, "code": refusal.code] }
+            }
+            return nil
+        }
         guard mirrorStatus[tile] != nil else {
             let refusal = BridgeError(
                 code: .hostOffline,
-                message: "This tile mirrors '\(row.title)' on \(row.hostName)'s machine and is not connected "
+                message: "This tile mirrors '\(row.title)' on \(row.hostName) and is not connected "
                        + "to it yet, so '\(method)' was not run here. It connects once Port42's gateway "
                        + "is up; call again then.")
             return Task { ["error": refusal.message, "code": refusal.code] }
@@ -135,7 +155,8 @@ extension AppState {
     /// restored tile would otherwise run what it saved last time.
     func startMirror(tile: String, fresh: Bool = false) {
         guard remoteMirrors[tile] == nil, let row = mirroredRemote(tile) else { return }
-        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: true, wakes: row.wakes)
+        // Online once the host has answered (below), not before: the tile said online through a dropped link.
+        mirrorStatus[tile] = MirrorStatus(hostName: row.hostName, online: fresh, wakes: row.wakes)
         remoteMirrors[tile] = Task { @MainActor [weak self] in
             var first = true
             var failures = 0
@@ -146,6 +167,7 @@ extension AppState {
                 let reached = (first && fresh) ? true : await self.refreshMirror(tile: tile, row: row)
                 first = false
                 self.mirrorStatus[tile]?.online = reached
+                if reached { await self.tellMachineName(row: row) }
                 await self.loadMirrorChat(tile: tile, row: row)
                 do {
                     _ = try await self.door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.subscribe",
@@ -190,15 +212,39 @@ extension AppState {
 
     func mirrorEvent(tile: String, row: DatabaseService.RemotePortRow, _ event: Any) {
         guard let o = event as? [String: Any], let kind = o["kind"] as? String else { return }
+        // Every event from the host carries its token: the one this tile's writes are checked against.
+        if let token = o[PortActivity.tokenKey] as? String { mirrorHostTokens[tile] = token }
         switch kind {
         case PortEventKind.state.wire:
             Task { @MainActor in await self.refreshMirror(tile: tile, row: row) }
         case PortEventKind.chat.wire:
             // The tile's chat is the host's: each post there is shown here as it lands, stored only there.
             if let key = mirrorChatKey(tile), let entry = PortChatEntry.fromEvent(o["payload"]) {
+                p42log("[mirror] %@: chat %d from %@", row.title, entry.seq, entry.fromName)
+                mirrorSeenSeq[tile] = max(mirrorSeenSeq[tile] ?? 0, entry.seq)
                 chats.received(key, entry)
                 noticeMention(key: key, entry: entry)
                 wakeMentioned(tile: tile, key: key, entry: entry)
+            }
+        case PortEventKind.subscribed.wire:
+            // The host now sends every post: read what was posted since this tile last saw its chat, and wake for it.
+            Task { @MainActor in await self.loadMirrorChat(tile: tile, row: row) }
+        case PortEventKind.access.wire:
+            // The host changed what this machine may do here: shown at once, and kept on the tile.
+            let p = o["payload"] as? [String: Any]
+            guard let peer = p?["peer"] as? String, peer == localPeerID else { break }
+            let rights = ((p?["rights"] as? [String]) ?? []).compactMap(RemoteRight.init(rawValue:))
+            var updated = row
+            updated = DatabaseService.RemotePortRow(peerKey: row.peerKey, portKey: row.portKey, title: row.title, rights: rights,
+                                                    relays: row.relays, hostName: row.hostName, knownAs: row.knownAs, wakes: row.wakes)
+            try? db.upsertRemotePort(updated)
+            let key = mirrorChatKey(tile)
+            if rights.isEmpty {
+                mirrorStatus[tile]?.ended = true
+                mirrorStatus[tile]?.online = false
+                if let key { postSystemChatLine(key: key, text: "\(row.hostName) stopped sharing this port with you. It stays as it last was; a new invite brings it back.") }
+            } else if let key {
+                postSystemChatLine(key: key, text: "\(row.hostName) changed what you can do here: you can \(ShareWords.rights(rights)).")
             }
         case PortEventKind.presence.wire:
             // Who is working in the host's chat, as the host sees it (presence in the API).
@@ -229,7 +275,7 @@ extension AppState {
             }
             guard let h = try await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
                                                     args: ["id": row.portKey]) as? String else {
-                throw BridgeError(code: .noSurface, message: "\(row.hostName)'s port sent nothing to copy")
+                throw BridgeError(code: .noSurface, message: "the port on \(row.hostName) sent nothing to copy")
             }
             (html, title, home) = (h, row.title, portWindows.panels.first { $0.id == id }?.spaceId)
         } else {
@@ -274,29 +320,58 @@ extension AppState {
     /// A mention in the host's chat of one of this instance's companions wakes it, when the tile's switch
     /// is on; its reply goes to the tile's chat, so to the host (`postReply`). A companion never wakes
     /// for its own post.
+    ///
+    /// The companions brought onto the tile (its members) wake for their plain name too, or their name with any
+    /// machine but one the host's authors go by (Phase 6.3): an agent on the host cannot know this machine's label.
+    /// A post this machine made comes back as the host's event and is skipped: it woke its companions as it was
+    /// posted (`wakeOwnCompanions`).
     func wakeMentioned(tile: String, key: String, entry: PortChatEntry) {
-        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else { return }
-        let targets = mirroredMentions(entry.text, knownAs: knownAs)
-            .filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
+        guard let row = mirroredRemote(tile), row.wakes, let knownAs = row.knownAs else {
+            p42log("[mirror] %@: a post from %@ wakes nobody here (wake off, or not known there yet)",
+                   mirroredRemote(tile)?.title ?? tile, entry.fromName)
+            return
+        }
+        if let me = localPeerID, entry.fromId.hasPrefix(me + "/") { return }
+        let members = portMemberIds(key)
+        let plain = Set(MentionParser.extractMentions(from: routingText(entry.text, key: key)).map { String($0.dropFirst()).lowercased() })
+        let exact = mirroredMentions(entry.text, knownAs: knownAs)
+        let targets = companions.filter { c in
+            exact.contains { $0.id == c.id } || (members.contains(c.id) && plain.contains(c.displayName.lowercased()))
+        }.filter { "\($0.displayName) (\(knownAs))".lowercased() != entry.fromName.lowercased() }
+        // The tile's wake switch, set when the person accepted, is their yes to the host's people and agents alike
+        // (Gordon, 2026-10-03: no second card).
+        if !plain.isEmpty {
+            p42log("[mirror] %@: %@ named %@; waking %@ (members here: %d)", row.title, entry.fromName,
+                   plain.sorted().joined(separator: ", "), targets.map(\.displayName).joined(separator: ", "), members.count)
+        }
         deliverMirrored(targets, tile: tile, key: key, text: entry.text, fromName: entry.fromName, fromId: entry.fromId)
     }
 
-    /// The person's own post in a tile of someone else's port wakes their own companions by plain name.
-    /// No switch: it is the person asking their own companion, not the other machine waking it.
-    func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String) {
+    /// A post by anyone on this machine in a tile of someone else's port wakes this machine's companions it
+    /// names by their plain names, as on any port here: the person, a script, or one companion handing off to
+    /// another (Gordon, 2026-10-02: only the person's typed post did, so agents on one side could not reach
+    /// each other in a shared chat). No switch: it is this machine asking its own companions, not the other
+    /// machine waking them. Never the sender itself.
+    func wakeOwnCompanions(key: String, text: String, fromName: String, fromId: String, sender: String? = nil) {
         guard let tile = portWindows.panels.first(where: { $0.udid == key })?.id else { return }
-        let named = Set(MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() })
-        let targets = companions.filter { named.contains($0.displayName.lowercased()) }
+        let named = Set(MentionParser.extractMentions(from: routingText(text, key: key)).map { String($0.dropFirst()).lowercased() })
+        let targets = companions.filter { named.contains($0.displayName.lowercased()) && $0.id != sender }
+        // The person bringing their own companion in by name makes it the tile's member (decision 2).
+        for c in targets { addPortMember(c.id, port: key) }
         deliverMirrored(targets, tile: tile, key: key, text: text, fromName: fromName, fromId: fromId)
     }
 
     /// Hand a post in a mirrored chat to this machine's companions; their replies go to the host's chat.
-    private func deliverMirrored(_ targets: [AgentConfig], tile: String, key: String, text: String,
+    func deliverMirrored(_ targets: [AgentConfig], tile: String, key: String, text: String,
                                  fromName: String, fromId: String) {
         guard !targets.isEmpty, let panel = portWindows.panels.first(where: { $0.id == tile }),
               let spaceId = panel.spaceId ?? currentSpace?.id else { return }
         let entry = PortChatEntry(seq: 0, at: Date(), text: text, fromId: fromId, fromName: fromName, fromKind: "human")
-        let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel),
+        // The source says the port is someone else's, shared here, so the companion answers in its chat.
+        // Not "reply in this port's chat": agents took it as an order to post by hand, and each answer came twice
+        // (Gordon, 2026-10-03). The reply goes there by itself, as from any chat.
+        let shared = mirroredRemote(tile).map { ", shared from \($0.hostName); your reply goes to this port's chat" } ?? ""
+        let line = ChatRouting.terminalLine(sender: entry.fromName, source: chatSourceLabel(key: key, panel: panel) + shared,
                                             text: entry.text)
         let members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
         for c in targets where c.openInTerminal {
@@ -337,7 +412,16 @@ extension AppState {
               let out = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "chat.read",
                                                    args: ["port": row.portKey]) as? [String: Any],
               let list = out["entries"] as? [Any] else { return }
-        chats.replace(key, list.compactMap(PortChatEntry.fromEvent))
+        let entries = list.compactMap(PortChatEntry.fromEvent)
+        chats.replace(key, entries)
+        mirrorAgents[key] = (out["agents"] as? [String]) ?? []
+        // Posts made while the link was down reached nobody here (Gordon's and wren's, 2026-10-03, while the relay
+        // dropped the session): wake for what they named now. On a first load there is nothing to catch up on.
+        if let seen = mirrorSeenSeq[tile] {
+            let since = Date().addingTimeInterval(-Self.mirrorCatchUpWindow)
+            for entry in entries where entry.seq > seen && entry.at > since { wakeMentioned(tile: tile, key: key, entry: entry) }
+        }
+        mirrorSeenSeq[tile] = max(mirrorSeenSeq[tile] ?? 0, entries.map(\.seq).max() ?? 0)
         // And who is on it right now, so a tile opened mid-turn shows it. A host older than presence in
         // the API has no `presence.list`; the tile then shows presence from the next event on.
         if let now = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "presence.list",
@@ -352,7 +436,38 @@ extension AppState {
     func refreshMirror(tile: String, row: DatabaseService.RemotePortRow) async -> Bool {
         guard let html = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.getHtml",
                                                     args: ["id": row.portKey]) as? String else { return false }
-        _ = await portWindows.updatePort(idOrTitle: tile, html: html)
+        _ = await portWindows.updatePort(idOrTitle: tile, html: html, skipVersionSnapshot: true)
+        // The host's token for its port, so this tile's reads hand out the one its writes are checked against.
+        if let list = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "ports.list", args: [:]) as? [[String: Any]],
+           let token = list.first(where: { $0["id"] as? String == row.portKey })?["token"] as? String {
+            mirrorHostTokens[tile] = token
+        }
+        await refreshMirrorHistory(tile: tile, row: row)
         return true
+    }
+
+    /// The host's history of its port, for this tile's history picker: one history, both sides.
+    func refreshMirrorHistory(tile: String, row: DatabaseService.RemotePortRow) async {
+        guard let list = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: "port.history",
+                                                    args: ["id": row.portKey]) as? [[String: Any]] else { return }
+        let iso = ISO8601DateFormatter()
+        mirrorHistory[tile] = list.compactMap { v in
+            guard let n = v["version"] as? Int else { return nil }
+            return PortVersionSummary(id: Int64(n), portUdid: row.portKey, version: n, createdBy: v["createdBy"] as? String,
+                                      createdAt: (v["createdAt"] as? String).flatMap(iso.date(from:)) ?? Date(),
+                                      metaVersion: nil, saveCount: nil)
+        }.sorted { $0.version > $1.version }
+    }
+}
+
+extension AppState {
+    /// The person restores a version of someone else's port from its tile: the host restores it (edit needed).
+    func restoreMirroredVersion(tile: String, version: Int) async throws {
+        guard let user = currentUser else { throw BridgeError.badArg("no signed-in person") }
+        var args: [String: Any] = ["id": tile, "version": version]
+        if let token = mirrorHostTokens[tile] { args[PortActivity.expectParam] = token }
+        _ = try await runBridgeMethod("port.restore", principal: .human(id: user.id, displayName: user.displayName,
+                                                                       spaceId: currentSpace?.id),
+                                      args: BridgeArgs(args))
     }
 }

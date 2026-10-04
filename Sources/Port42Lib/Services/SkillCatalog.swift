@@ -20,7 +20,7 @@ public enum SkillCatalog {
         Skill(name: "port42-ports", title: "making and changing ports"),
         Skill(name: "port42-compose", title: "ports feeding ports, and reacting to them"),
         Skill(name: "port42-team", title: "working with other agents"),
-        Skill(name: "port42-devices", title: "the machine: terminal, screen, camera, audio, files, browser, automation, network"),
+        Skill(name: "port42-devices", title: "the computer: terminal, screen, camera, audio, files, browser, automation, network"),
     ]
 
     /// The one skill a method belongs to, or nil when it has no home yet (a gate failure).

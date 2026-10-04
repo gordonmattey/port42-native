@@ -101,4 +101,49 @@ struct RestAcrossWindowsTests {
         #expect(main.spaceId == nil, "the laptop shows the other display's space: one space in two windows")
         #expect(other.spaceId == spaces[1].id)
     }
+
+    @Test("a tile takes its port back from a closed or hidden window, and only then")
+    func reclaimFromClosedWindow() {
+        #expect(ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: false, containerWindowVisible: true),
+                "a port left in a closed window stayed blank here")
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: true, containerWindowVisible: true),
+                "a port live in another open window (or the off-screen host) was pulled away")
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: true, viewWindowVisible: false, containerWindowVisible: true))
+        #expect(!ShellPortHost.shouldReclaim(hostedHere: false, viewWindowVisible: false, containerWindowVisible: false),
+                "a host that is not on screen took the port")
+    }
+
+    @Test("a port born in a space another window shows raises no peek in this one (tiles went transparent)")
+    func noPeekForASpaceShownElsewhere() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two"), Space.create(name: "three")]
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        let other = ShellState(appState: state)
+        other.isDisplayWindow = true
+        other.show(spaceId: spaces[1].id)
+        main.handlePortCreated(id: "p2", spaceId: spaces[1].id, title: "browser")
+        #expect(main.peekingPorts.isEmpty, "a port the other window shows was peeked here, taking its live view")
+        main.handleNeedsAttention(id: "p2", spaceId: spaces[1].id, title: "growth")
+        #expect(main.peekingPorts.isEmpty, "a companion the other window shows was peeked here")
+        main.handlePortCreated(id: "p3", spaceId: spaces[2].id, title: "elsewhere")
+        #expect(main.peekingPorts.map(\.id) == ["p3"], "a port in a space no window shows no longer peeks")
+    }
+
+    @Test("a peek never takes the live view of a port another window shows as a tile")
+    func peekNeverStealsATile() throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let spaces = [Space.create(name: "one"), Space.create(name: "two")]
+        state.spaces = spaces
+        state.selectSpace(spaces[0])
+        let main = ShellState(appState: state)
+        let other = ShellState(appState: state)
+        other.isDisplayWindow = true
+        other.show(spaceId: spaces[1].id)
+        _ = state.portWindows.registerTiledPort(id: "tile", html: "<title>t</title>", spaceId: spaces[1].id,
+                                                createdBy: nil, title: "t", position: CGPoint(x: 10, y: 10))
+        #expect(other.hostsLive("tile"), "the window that shows the tile does not host it")
+        #expect(!main.hostsLive("tile"), "a peek in another window would take the tile's live view")
+    }
 }

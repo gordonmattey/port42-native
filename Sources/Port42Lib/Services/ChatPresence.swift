@@ -44,8 +44,10 @@ public struct ChatPresence: Equatable {
 
     /// `detail: false` for anything that can leave this Mac: another machine's `presence.list`, and the
     /// `presence` event, which remote subscribers hear too.
-    public func bridgeValue(detail: Bool) -> BridgeValue {
-        var o: [String: BridgeValue] = ["name": .string(name), "since": .int(Int(since.timeIntervalSince1970))]
+    /// `label`: this machine's name, beside the companion's in a chat shared with another machine (two agents, 6.2).
+    public func bridgeValue(detail: Bool, label: String? = nil) -> BridgeValue {
+        let shown = label.map { "\(name) (\($0))" } ?? name
+        var o: [String: BridgeValue] = ["name": .string(shown), "since": .int(Int(since.timeIntervalSince1970))]
         if let doing { o["doing"] = .string(detail ? doing.detail : doing.summary) }
         switch state {
         case .received: o["state"] = .string("received")

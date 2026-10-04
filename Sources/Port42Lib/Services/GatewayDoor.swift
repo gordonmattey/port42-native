@@ -228,14 +228,15 @@ public final class GatewayDoor: NSObject, ObservableObject {
     private func receiveLoop() {
         guard let ws = webSocket else { return }
         ws.receive { [weak self] result in
+            let arrived = Date()
             Task { @MainActor in
                 guard let self, ws === self.webSocket else { return }
                 switch result {
                 case .success(.string(let text)):
-                    self.receive(text)
+                    self.receive(text, arrived: arrived)
                     self.receiveLoop()
                 case .success(.data(let data)):
-                    if let text = String(data: data, encoding: .utf8) { self.receive(text) }
+                    if let text = String(data: data, encoding: .utf8) { self.receive(text, arrived: arrived) }
                     self.receiveLoop()
                 case .success:
                     self.receiveLoop()
@@ -248,7 +249,8 @@ public final class GatewayDoor: NSObject, ObservableObject {
     }
 
     /// One inbound frame. Internal so tests can drive the door without a gateway.
-    func receive(_ text: String) {
+    /// `arrived`: when the frame came off the socket, so a slow call says how long it waited for the main thread.
+    func receive(_ text: String, arrived: Date = Date()) {
         guard let data = text.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(DoorEnvelope.self, from: data) else {
             p42log("[door] undecodable frame")
@@ -264,7 +266,7 @@ public final class GatewayDoor: NSObject, ObservableObject {
             p42log("[door] open as host \(envelope.senderId ?? "?")")
             if let peer = envelope.selfPeer, !peer.isEmpty { onSelfPeer?(peer) }
         case "call":
-            handleCall(envelope)
+            handleCall(envelope, arrived: arrived)
         case "cancel":
             // The caller gave up, by the gateway's timeout or by leaving (#247): stop its call, which
             // withdraws any card it waits on, so a late Allow acts for nobody.
@@ -282,7 +284,11 @@ public final class GatewayDoor: NSObject, ObservableObject {
     private var inflight: [String: Task<Void, Never>] = [:]
     static func inflightKey(_ sender: String?, _ callId: String) -> String { "\(sender ?? "")|\(callId)" }
 
-    private func handleCall(_ envelope: DoorEnvelope) {
+    /// How long a call may take before the door logs where it spent the time (the freezes, 2026-10-03): waiting
+    /// for the main thread after it arrived, or in its method. The gateway logs its side under the same call id.
+    static let slowCall: TimeInterval = 2
+
+    private func handleCall(_ envelope: DoorEnvelope, arrived: Date = Date()) {
         guard let callId = envelope.callId, let method = envelope.method,
               let senderId = envelope.senderId else { return }
         let key = Self.inflightKey(senderId, callId)
@@ -292,8 +298,14 @@ public final class GatewayDoor: NSObject, ObservableObject {
         }
         inflight[key] = Task { @MainActor in
             defer { self.inflight[key] = nil }
+            let began = Date()
+            let waited = began.timeIntervalSince(arrived)
             await PermissionCoordinator.$awaitingPerson.withValue(pending) {
                 await self.runCall(envelope, callId: callId, method: method, senderId: senderId)
+            }
+            let ran = Date().timeIntervalSince(began)
+            if waited + ran > Self.slowCall {
+                p42log("[door] slow call %@ %@: waited %.1fs for the main thread, ran %.1fs", method, callId, waited, ran)
             }
         }
     }

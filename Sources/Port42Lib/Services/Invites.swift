@@ -125,7 +125,7 @@ extension AppState {
     func createInvite(port: String, rights: [RemoteRight], life: TimeInterval, requireCode: Bool,
                       by p: Principal) throws -> CreatedInvite {
         if port == PortChat.desktopKey || port == PortObject.machinePortKey {
-            throw BridgeError.badArg("port 0 is this machine itself and is never shared")
+            throw BridgeError.badArg("port 0 is this computer itself and is never shared")
         }
         if spaces.contains(where: { $0.id == port }) {
             throw BridgeError.badArg("an invite shares one port, not a space")
@@ -157,7 +157,7 @@ extension AppState {
         refreshSharing()
         let coupon = InviteCoupon(host: host, relays: relays, port: key, rights: rights.map(\.rawValue),
                                   nonce: nonce, exp: Int(expires.timeIntervalSince1970),
-                                  hostName: currentUser?.displayName ?? "Port42", portTitle: panel.title,
+                                  hostName: machineName, portTitle: panel.title,
                                   code: requireCode)
         keepInviteLink(id: id, link: coupon.link, code: code)
         return CreatedInvite(id: id, coupon: coupon, code: code, discloses: portMachineGrants(key))
@@ -234,9 +234,9 @@ extension AppState {
             if row.redeemedBy == nil { try db.markInviteRedeemed(id: row.id, by: peer) }
             else { try db.markInviteRedeemedAgain(id: row.id, by: peer) }
             refreshSharing()
-            let shown = rights.map(\.rawValue).sorted().joined(separator: ", ")
+            // In plain words, read on both machines (Gordon, 2026-10-03: the rights' wire names made no sense).
             postSystemChatLine(key: row.portKey,
-                               text: "\(label) joined from another machine (\(shown)). "
+                               text: "\(label) joined this port. They can \(ShareWords.sentence(Array(rights))). "
                                    + "To stop sharing, click 'shared' on the port.")
         }
         return .object(["port": .string(row.portKey), "title": .string(panel.title), "knownAs": .string(label),
@@ -250,7 +250,7 @@ extension AppState {
 @MainActor
 func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["invite.create"] = BridgeMethod(permission: nil, paramNames: ["port", "rights", "expiresIn", "requireCode"],
-        description: "Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
+        description: "Make an invite link that lets one person on another computer open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two computers (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this computer; whoever you let in can make it do so. Port 0 and spaces cannot be shared.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -301,7 +301,7 @@ func registerInviteMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["invite.list"] = BridgeMethod(permission: nil,
-        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
+        description: "The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two computers (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { p, _ in
         // APP-01: a caller sees only the invites it may manage.
         let rows = ((try? appState.db.allInvites()) ?? []).filter { appState.mayManage($0, by: p) }
@@ -548,6 +548,14 @@ extension AppState {
         let host = !out.isEmpty
         if host != relayHosting {
             relayHosting = host
+            // Leaving: give the last notice (an `access` event) a moment to cross before the relays go.
+            if !host, relayLeaveDelay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + relayLeaveDelay) { [weak self] in
+                    guard let self, !self.relayHosting else { return }
+                    self.onRelayHosting(false)
+                }
+                return
+            }
             onRelayHosting(host)
         }
     }
@@ -555,7 +563,7 @@ extension AppState {
     /// What the sharing pill in a tile's chrome says, if anything: a port of this instance that is
     /// shared or has an invite out, or a tile mirroring someone else's port.
     public func sharePill(tile id: String, key: String?) -> SharePill? {
-        if let m = mirrorStatus[id] { return .theirs(host: m.hostName, online: m.online) }
+        if let m = mirrorStatus[id] { return m.ended ? .ended(host: m.hostName) : .theirs(host: m.hostName, online: m.online) }
         guard let key, let s = sharing[key], !s.people.isEmpty || s.openInvites > 0 else { return nil }
         return .shared(people: s.people.count, invites: s.openInvites)
     }
@@ -588,17 +596,64 @@ extension AppState {
     func peerLabel(_ name: String, peer: String) -> String {
         let taken = Set(((try? db.allClients()) ?? []).filter { $0.kind == .peer && $0.peerKey != peer }
                             .map { $0.name.lowercased() })
-            .union([currentUser?.displayName.lowercased()].compactMap { $0 })
+            .union([currentUser?.displayName.lowercased(), machineName.lowercased()].compactMap { $0 })
         return taken.contains(name.lowercased()) ? "\(name) \(peer.prefix(4))" : name
     }
 
-    /// The name this instance gives when it joins another: the machine's own name if the person set one
-    /// in Settings, else theirs.
-    var joiningName: String {
+    // MARK: A machine's name changes (Phase 6, Gordon 2026-10-03)
+
+    /// Between instances only, like `invite.redeem`: not in the registry, so no person or agent calls it.
+    static let renameMethod = "invite.rename"
+
+    /// A machine this one shares with says its name now. Its label here follows (deduplicated as at enrolment),
+    /// so a person renamed in Settings reads by the new name in every chat from then on; what was already said
+    /// keeps the name it was said under. Answers with the label and this machine's own name, so the other side
+    /// can show both.
+    func renamePeer(peer: String, args: Any?) -> [String: Any] {
+        let typed = (((args as? [String: Any])?["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty, let client = try? db.client(peerKey: peer), client.kind == .peer else {
+            return ["error": "a name is needed", "code": BridgeErrorCode.missingArg.wire]
+        }
+        let label = client.name.lowercased() == typed.lowercased() ? client.name : peerLabel(String(typed.prefix(40)), peer: peer)
+        if label != client.name {
+            try? db.upsertPeerClient(id: client.id, name: label, peerKey: peer)
+            // A cached executor holds the principal, and with it the old name.
+            for key in remoteExecutors.keys where key.hasPrefix("remote:\(peer)/") { remoteExecutors[key] = nil }
+            refreshSharing()
+            p42log("[invite] %@ is now %@", client.name, label)
+        }
+        return ["knownAs": label, "host": machineName]
+    }
+
+    /// Tell a host this machine's name, once per name, when its tile connects: the host labels this machine's
+    /// people and agents with it. And learn the host's own name now, which an invite only carried once.
+    func tellMachineName(row: DatabaseService.RemotePortRow) async {
+        let name = machineName
+        guard toldMachineName[row.peerKey] != name else { return }
+        guard let out = try? await door.remoteCall(to: row.peerKey, relays: row.relays, method: Self.renameMethod,
+                                                   args: ["name": name]) as? [String: Any],
+              let knownAs = out["knownAs"] as? String else { return }   // a host from before this: as it was
+        toldMachineName[row.peerKey] = name
+        try? db.setRemoteNames(peerKey: row.peerKey, hostName: (out["host"] as? String) ?? row.hostName, knownAs: knownAs)
+    }
+
+    /// The name this instance gives when it joins another: its machine name.
+    var joiningName: String { machineName }
+
+    /// This machine's one name to other machines (two agents, Phase 6.1): what it joins as, what its invites
+    /// say the host is, and the label beside its people and agents in a shared chat. The name the person set in
+    /// Settings (the only place it is edited, Gordon 2026-10-03), else "<their name>'s Port42".
+    var machineName: String {
         let set = (UserDefaults.standard.string(forKey: Self.machineNameKey) ?? "").trimmingCharacters(in: .whitespaces)
-        return set.isEmpty ? (currentUser?.displayName ?? "a Port42") : set
+        return set.isEmpty ? Self.defaultMachineName(person: currentUser?.displayName) : String(set.prefix(40))
     }
     static let machineNameKey = "PORT42_MACHINE_NAME"
+
+    /// "Gordon's Port42": what a machine is called until its person names it (Gordon, 2026-10-03).
+    nonisolated static func defaultMachineName(person: String?) -> String {
+        let name = (person ?? "").trimmingCharacters(in: .whitespaces)
+        return String((name.isEmpty ? "Port42" : "\(name)'s Port42").prefix(40))
+    }
 
     /// The grant object for sharing one port: a local port's key, or `<peer>/<port>` for one elsewhere.
     static func shareObject(port: String) -> String { "share:" + port }
@@ -616,17 +671,17 @@ extension AppState {
             switch right {
             case .see:        return "see it"
             case .use:        return "use it and post in its chat"
-            case .edit:       return "change its code, which then runs on this machine"
+            case .edit:       return "change its code, which then runs on this computer"
             case .wakeAgents: return "wake your agents from its chat"
             case .fork:       return "take a copy"
             case .move:       return "take it over (it closes here)"
             }
         }
         let reachLine = reach.isEmpty
-            ? "It reaches nothing else on this machine."
-            : "It can use \(reach.map(\.rawValue).joined(separator: ", ")) on this machine, "
+            ? "It reaches nothing else on this computer."
+            : "It can use \(reach.map(\.rawValue).joined(separator: ", ")) on this computer, "
               + "and whoever you let in can make it do so."
-        return "Share '\(title)' with another machine. They could \(can.joined(separator: ", ")). \(reachLine)"
+        return "Share '\(title)' with another computer. They could \(can.joined(separator: ", ")). \(reachLine)"
     }
 
     /// Ask a caller to share a port or open one (see `invite.create`, `invite.accept`). A yes is kept
@@ -691,6 +746,13 @@ extension AppState {
         return (target.peer, target.port, param)
     }
 
+    /// The space of the tile that mirrors a port on another instance here (nil if it has no tile).
+    func mirrorTileSpace(peer: String, port: String) -> String? {
+        let links = (try? db.remotePortTiles()) ?? [:]
+        guard let tile = links.first(where: { $0.value.peerKey == peer && $0.value.portKey == port })?.key else { return nil }
+        return portWindows.panels.first { $0.id == tile }?.spaceId
+    }
+
     /// What a tile shows, as opposed to the port it shows: its page, its console, its code, whether it
     /// is on screen. `port.exec` and `presentation` are never sent to another instance anyway.
     static let windowMethods: Set<String> = ["port.getDom", "port.console", "port.exec", "presentation"]
@@ -720,22 +782,44 @@ extension AppState {
         }
         var forwarded = args.dictionary
         forwarded[target.param] = target.port
-        let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
-                                            actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
-        return BridgeValue.fromJSONObject(out)
+        let tile = ((try? db.remotePortTiles()) ?? [:]).first { $0.value.peerKey == target.peer && $0.value.portKey == target.port }?.key
+        do {
+            let out = try await door.remoteCall(to: target.peer, relays: row.relays, method: method, args: forwarded,
+                                                actor: caller.flatMap(remoteActor(for:)), onStream: onStream)
+            // Every answer from the host carries its token: keep it for this tile's reads.
+            if let tile, let token = (out as? [String: Any])?["token"] as? String { mirrorHostTokens[tile] = token }
+            // A post in the tile's chat from anyone here also wakes the companions here it names (by plain name).
+            if method == "chat.post", let caller, caller.kind != .remote, let text = args.string("text"),
+               let key = mirrorTileKey(peer: target.peer, port: target.port) {
+                let who = AppState.chatAuthor(caller)
+                wakeOwnCompanions(key: key, text: text, fromName: who.name, fromId: who.id, sender: companion(actingAs: caller)?.id)
+            }
+            return BridgeValue.fromJSONObject(out)
+        } catch let e as BridgeError {
+            if let tile, let current = e.details["current"] { mirrorHostTokens[tile] = current }
+            // A host with nothing left to share leaves its relays, so "not connected" is also what stopping
+            // sharing looks like from here: say both (two agents, finding 5).
+            if e.code == BridgeErrorCode.hostOffline.rawValue {
+                throw BridgeError(code: .hostOffline,
+                                  message: "\(row.hostName)'s Port42 is not reachable: it is offline, or it no longer shares this port with you",
+                                  details: e.details)
+            }
+            throw e
+        }
     }
 }
 
 @MainActor
 func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
-    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code", "remoteWake"],
-        description: "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.",
+    r["invite.accept"] = BridgeMethod(permission: nil, paramNames: ["link", "code", "remoteWake", "companions"],
+        description: "Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later. companions: names of your companions to bring onto the tile; only companions brought onto it act on it, and each is told what it is.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "link": ["type": "string", "description": "The invite link (https://tele.port42.ai/#…)."],
                 "code": ["type": "string", "description": "The six-digit code, if the invite needs one."],
                 "remoteWake": ["type": "boolean", "description": "Let their chat wake your companions for this port (default true)."],
+                "companions": ["type": "array", "items": ["type": "string"], "description": "Your companions to bring onto the tile (by name)."] as [String: Any],
             ],
             "required": ["link"],
         ]) { p, args in
@@ -762,7 +846,13 @@ func registerAcceptMethods(into r: inout BridgeRegistry, appState: AppState) {
         let tile = try? await appState.openRemoteTile(peer: joined.address.peerID ?? "", port: joined.address.portId)
         var out: [String: BridgeValue] = ["address": .string(joined.address.canonical), "title": .string(joined.title),
                                           "rights": .array(joined.rights.map { .string($0.rawValue) })]
-        if let tile { out["tile"] = .string(tile) }
+        if let tile {
+            out["tile"] = .string(tile)
+            let names = Set(((args.array("companions") as? [String]) ?? []).map { $0.lowercased() })
+            let chosen = appState.companions.filter { names.contains($0.displayName.lowercased()) }
+            appState.bringOnto(tile: tile, companions: chosen)
+            if !chosen.isEmpty { out["companions"] = .array(chosen.map { .string($0.displayName) }) }
+        }
         return .object(out)
     }
 }

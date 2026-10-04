@@ -40,8 +40,8 @@ struct RemoteActorTests {
 
         let theirPerson = there.acting(as: RemoteActor(id: "u-ada", name: "Ada", kind: .human))
         let e2 = try w.state.postToChat(key: key, text: "alpha, go", from: theirPerson)
-        // Named as themselves, and marked as remote (NAU-04): never the bare name a local post has.
-        #expect(e2.fromName == "Ada (remote)" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves, from there")
+        // Named as themselves, with their machine (NAU-04, Phase 6): never the bare name a local post has.
+        #expect(e2.fromName == "Ada (Ada)" && e2.fromId == "\(Self.peer)/u-ada", "the person there was not named as themselves, from there")
         #expect(e2.fromId != w.state.currentUser?.id, "a claim of human became this instance's person")
         #expect(w.state.chatReplyTargets["alpha"] == key, "the person there, with wake_agents, did not wake the port's companion")
         withExtendedLifetime(w.state) {}
@@ -93,7 +93,8 @@ struct RemoteActorTests {
         let o = try #require(try await w.state.runBridgeMethod("whoami", principal: me, args: BridgeArgs([:])).toJSONObject() as? [String: Any])
         let elsewhere = try #require(o["elsewhere"] as? [[String: Any]])
         #expect(elsewhere.map { $0["name"] as? String } == ["wise-tern (Ada)"], "a person, or nobody, was listed as a companion")
-        #expect(elsewhere.first?["mention"] as? String == "@wise-tern%20%28Ada%29" && elsewhere.first?["port"] as? String == key)
+        // By the plain name: a shared chat routes it to the same agent (two agents, Phase 6.3).
+        #expect(elsewhere.first?["mention"] as? String == "@wise-tern" && elsewhere.first?["port"] as? String == key)
     }
 
     @Test("a mention of a companion on another instance never wakes this instance's companion of the same name")

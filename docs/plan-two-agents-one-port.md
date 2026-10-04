@@ -106,6 +106,50 @@ companions, the invite and the accept (through the accept box path once it exist
 a chat post with a check on both sides. Run after each phase; all eight steps and the new ones (bring a
 companion, a mention stays on the port, an outsider agent on the guest is refused) pass before release.
 
+**Phase 6. Addressing and machine names** (Gordon, 2026-10-02: yes to all four, the readable form). Found in the
+realistic run: the same agent had a different name on each machine (plain on its own, `name (label)` on the
+other), so `bram` addressed `alba` with his own machine's label and woke nobody; the label was a person's
+display name reused as a machine's, alongside `knownAs` and the peer label; a mention that matched nobody did
+nothing.
+- **6.1 One name per machine.** `machineName`: the one set in Settings, else this Mac's name (with the dev
+  profile on a dev instance, "Gordon's MacBook Pro dev6"). It is what this machine joins as (the host's label
+  for it), what an invite says the host is, and the label beside its people and agents in a shared chat.
+  Wording reads "on Gordon's MacBook Pro", not "on Gordon's machine". A name the host already uses gains four
+  characters of the peer id, as before.
+- **6.2 One name in a shared chat, the same on both machines.** While a port is shared, the host serves every
+  author with its machine: its own people and agents as `alba (Gordon's MacBook Pro)` in `chat.read`, chat
+  events, `chat.post`'s answer, presence that leaves the Mac, and its own transcript. Another machine's were
+  already labelled. Storage is unchanged; the label is applied on the way out.
+- **6.3 Mentions by the plain name.** In a shared chat `@alba` reaches the one alba; `@alba` with any label
+  after it reaches her too unless the label is another machine's in this chat. The host matches its own
+  companions; the guest wakes the companions it brought onto the tile (members). `whoami`'s `elsewhere` gives
+  the plain mention; the intro and `port42-team` say to address by the name before the brackets.
+- **6.4 A wrong mention is said.** An agent's post in a shared chat naming someone who is not there gets a
+  Port42 line in that chat: "nobody here is called X; in this chat: ...". The composer's hint knows the chat's
+  authors, so a person sees the same before sending.
+
+**Phase 7. From the first hand-run** (Gordon typing both people, 2026-10-03).
+- **Freezes:** calls to the host took 18 to 30 s during setup and about 190 times overnight, with the gateway and,
+  in most samples, the app's main thread idle. Every call slower than 2 s now logs where it spent the time, on
+  both sides under one call id: handed to the app, waiting for the main thread, or in its method.
+- **A machine is "<name>'s Port42"** until its person names it in Settings (the only place it is edited). A
+  tile tells its host this machine's name when it connects, and the host's label follows it; what was said
+  before keeps the old name. People read as "Gordon (Gordon's Port42)", never "(remote)".
+- **The joined line** says in words what they can do. **The wrong-mention line** fires only for a near miss of
+  an agent's name, and names the one meant; a person in the story ("@sam") is left alone.
+- **The guest's @ picker** offers the host's agents on the port from the moment it joins: `chat.read` names
+  them on a shared port.
+
+**Phase 8. From the second hand-run** (2026-10-03).
+- **No second wake card.** Sharing with wake on (host) and accepting with wake on (guest) are the person's yes
+  for the other side's people and agents alike. From another computer, a mention wakes only the companions on
+  that port: its space's, its members, and a terminal port's own.
+- **Each answer once.** The wake line and the intro said "reply in this port's chat"; agents posted by hand and
+  their reply was delivered too. They now say the reply goes there by itself, and not to post it as well.
+- **"computer", not "machine"**, in everything a person or an agent reads (Gordon).
+- **Cards are logged** with who asked, the answer and how long it took.
+- **The freeze is Dev6's main thread** (calls waited 5 to 40 s for it; Dev11 had none). Next: sample at onset.
+
 ## Not in this
 
 Ports across spaces on one machine (#238, #249); sharing a whole space; the relay rate cap (#122).

@@ -83,6 +83,12 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     /// the whole list, empty when nobody is. `doing` is only the kind ("editing a file"), since another
     /// machine sharing the port hears this too; `presence.list` on this Mac gives the file or command.
     case presence
+    /// What one machine may now do on this shared port changed: `{peer, rights}`, sent by the host just
+    /// before it takes effect, so the guest can show it (an empty list: no longer shared).
+    case access
+    /// The first event of a `port.subscribe` stream: from here on nothing the port emits is missed, so read what
+    /// you need to catch up on now (a tile reads its host's chat).
+    case subscribed
 
     /// The name on the wire.
     public var wire: String { rawValue }

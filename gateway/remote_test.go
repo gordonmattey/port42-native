@@ -174,3 +174,26 @@ func TestAMessagePastTheCapIsRefused(t *testing.T) {
 	}
 	t.Fatalf("a message past the cap was reassembled")
 }
+
+// A guest that leaves mid-subscription: its call is cancelled on the host, so the host stops streaming into
+// a session that is gone.
+func TestAGuestThatLeavesHasItsCallsCancelledOnTheHost(t *testing.T) {
+	ctx, host, _, guest, _ := remoteWorld(t, testAttestKey)
+	guestSend(t, ctx, guest, Envelope{Type: "call", Method: "port.subscribe", CallID: "sub-1"})
+	call := host()
+	if call.Method != "port.subscribe" {
+		t.Fatalf("the host got %+v", call)
+	}
+	guest.Close()
+	deadline := time.After(3 * time.Second)
+	got := make(chan Envelope, 1)
+	go func() { got <- host() }()
+	select {
+	case env := <-got:
+		if env.Type != "cancel" || env.CallID != "sub-1" || env.SenderID != call.SenderID {
+			t.Fatalf("the host was told %+v, not to cancel the guest's call", env)
+		}
+	case <-deadline:
+		t.Fatal("the host was never told the guest left, so its subscription streams on")
+	}
+}

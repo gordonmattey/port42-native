@@ -80,8 +80,19 @@ struct PortChatPanel: View {
     }
 
     var body: some View {
-        let list = chats.entries[key] ?? []
+        // A shared chat shows this machine's people and agents with its name, as the other machine does (6.2).
+        let label = appState.sharedSelfLabel(key)
+        let list = (chats.entries[key] ?? []).map { ChatRouting.labeled($0, local: label) }
         VStack(spacing: 0) {
+            // A shared port's chat says so, with whom, and how to bring your companion in (two agents, Phase 4).
+            if let shared = appState.sharedChatLabel(key) {
+                Text(shared)
+                    .font(Port42Theme.mono(9)).foregroundStyle(accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(accent.opacity(0.08))
+                    .accessibilityLabel(shared)
+            }
             // The transcript: yours on the right, others on the left, one selectable text
             // (ChatTranscript). While it scrolls, a pill shows the time of the top message in view.
             ZStack(alignment: .top) {
@@ -143,11 +154,12 @@ struct PortChatPanel: View {
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .focused($inputFocused)
                     .onSubmit(send)
-                    // Tab completes the @name being typed to the first suggestion.
-                    .onKeyPress(.tab) {
-                        guard let first = suggestions.first else { return .ignored }
-                        draft = ChatRouting.complete(draft, with: first)
-                        return .handled
+                    // Tab completes the @name being typed to the first suggestion. The field takes Tab as "next
+                    // field" before this sees it, so the window's key monitor calls the same completion
+                    // (`composerTab`) while this field has the keyboard (Gordon, 2026-10-03: Tab did nothing).
+                    .onKeyPress(.tab) { completeMention() ? .handled : .ignored }
+                    .onChange(of: inputFocused) { _, focused in
+                        appState.composerTab = focused ? { completeMention() } : nil
                     }
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill").font(.system(size: 14))
@@ -179,6 +191,13 @@ struct PortChatPanel: View {
         .onChange(of: key) { _, newKey in draft = chats.draft(newKey) }
     }
 
+    /// Complete the @name being typed to the first suggestion; false when there is nothing to complete.
+    private func completeMention() -> Bool {
+        guard let first = suggestions.first else { return false }
+        draft = ChatRouting.complete(draft, with: first)
+        return true
+    }
+
     /// Companions matching the @name being typed, up to five.
     /// Everyone who can be mentioned here: this instance's companions, then everyone who has posted in
     /// this chat (the other person in a shared port, and their companions).
@@ -187,7 +206,8 @@ struct PortChatPanel: View {
                                 people: appState.chatPeople(key: key),
                                 entries: chats.entries[key] ?? [], me: appState.currentUser?.id,
                                 myName: appState.currentUser?.displayName,
-                                peopleIds: appState.chatPeopleIds(key: key))
+                                peopleIds: appState.chatPeopleIds(key: key),
+                                ownPeer: appState.localPeerID)
     }
 
     /// Names matching the @name being typed, up to five.

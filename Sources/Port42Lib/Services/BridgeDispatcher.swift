@@ -37,6 +37,11 @@ extension AppState {
         }
         // A port on ANOTHER instance: the call goes there, as this instance (nautilus Phase 4, 4.6).
         if let target = remoteTarget(canonical, principal: principal, args: args) {
+            // The tile is a port in a space here: a caller reaches it as any port (APP-10), and a companion only
+            // as one of the tile's members (two agents, decision 2), before anything is sent to the other instance.
+            guard mayUseTile(peer: target.peer, port: target.port, by: principal) else {
+                throw BridgeError.notFound("port '\(args.string(target.param) ?? target.port)'")
+            }
             return try await forwardRemote(canonical, to: target, args: args, as: principal)
         }
         // A caller on another machine reaches only what it was granted (nautilus Phase 4, 4.1).
@@ -73,6 +78,7 @@ extension AppState {
         // no point recording a driver or moving a port's token for a call about to be denied.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
                                             needsLiveSurface: method.needsLiveSurface,
+                                            replacesCode: method.replacesState,
                                             args: args, principal: principal)
 
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
@@ -155,7 +161,12 @@ extension AppState {
     /// can raise a card goes through here, so none of them hangs while Port42 is locked, and a caller
     /// can tell "locked, retry after unlock" from a no.
     func ask(_ perm: PortPermission, from principal: Principal, detail: String? = nil) async throws -> Bool {
-        switch await permissions.decide(perm, from: principal, detail: detail) {
+        // Which card, for whom, and the answer: a card nobody captured can be found later (Gordon, 2026-10-03).
+        let asked = Date()
+        let outcome = await permissions.decide(perm, from: principal, detail: detail)
+        p42log("[card] %@ for %@: %@ after %.0fs%@", perm.rawValue, principal.displayName, String(describing: outcome),
+               Date().timeIntervalSince(asked), detail.map { " (\($0.prefix(120)))" } ?? "")
+        switch outcome {
         case .granted: return true
         case .denied:  return false
         case .locked:  throw BridgeError.locked(perm.rawValue)
@@ -212,7 +223,7 @@ extension AppState {
     /// RETURNS the port's key, or nil for a read. **Not the token** — the caller reads that after
     /// the body has run, because a write's own effects land during the body. See `tokenAfter(_:)`.
     @discardableResult
-    func applyWriteSideEffects(writesTarget: String?, needsLiveSurface: Bool = false,
+    func applyWriteSideEffects(writesTarget: String?, needsLiveSurface: Bool = false, replacesCode: Bool = false,
                                args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
            let ref = resolvePortRef(raw), let key = PortRef.key(ref) {
@@ -226,8 +237,9 @@ extension AppState {
             // can see the port, and a refusal carries it back. Authorization is THIS check and the
             // permission gate; a caller holding a perfectly valid token for a port outside its scope
             // is refused here all the same. Never let a write rely on the token to keep anyone out.
-            // #238: or the one port in another space the cross-space gate admitted for this call.
-            guard canRead(portInSpace: portSpaceId(ref), by: principal) || admitsCrossSpace(key, by: principal) else {
+            // Its space, one of its members (two agents, decision 1), or the one port in another space the
+            // cross-space gate admitted for this call (#238).
+            guard canReach(ref, by: principal) || admitsCrossSpace(key, by: principal) else {
                 throw BridgeError.notFound("port '\(raw)'")
             }
             // LIVENESS — before CAS and before the token moves.
@@ -258,7 +270,11 @@ extension AppState {
             // mandatory for the one surface that cannot tolerate a splice.
             if let expected = args.string(PortActivity.expectParam) {
                 let current = portInput.token(for: key)
-                guard expected == current else {
+                // A tile of someone else's port hands out the host's token (two agents, finding 1); a write that
+                // runs in the tile's own page (port.exec) takes that token too.
+                let handedOut = ref.id.flatMap { mirrorHostTokens[$0] }
+                guard expected == current || expected == handedOut
+                        || (replacesCode && Self.noCodeWriteSince(expected, current: current, lastCode: codeWriteSeq[key])) else {
                     // The error CARRIES `current`. Without it a caller only learns that it lost,
                     // not what to compose against — so the retry would be a guess, and a naive
                     // caller could never converge. With it: write → conflict → write, once.
@@ -314,9 +330,18 @@ extension AppState {
                 actorName: Self.chatAuthor(principal).name,
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
+            if replacesCode { codeWriteSeq[key] = portInput.seq(for: key) }
             return key
         }
         return nil
+    }
+
+    /// A code write composed against `expected` still lands when the port has only had other activity since
+    /// (card adds, chat, storage): no code write happened after it (Gordon, decision 4). Same epoch only.
+    nonisolated static func noCodeWriteSince(_ expected: String, current: String, lastCode: Int?) -> Bool {
+        let e = expected.split(separator: ":"), c = current.split(separator: ":")
+        guard e.count == 2, c.count == 2, e[0] == c[0], let seq = Int(e[1]), let now = Int(c[1]), seq <= now else { return false }
+        return seq >= (lastCode ?? 0)
     }
 
     /// The port's token AFTER a write's body has run — the value the caller gets back.
@@ -611,6 +636,7 @@ extension AppState {
         // with its own rules; a write is a write whichever registry serves it.
         let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
                                             needsLiveSurface: method.needsLiveSurface,
+                                            replacesCode: method.replacesState,
                                             args: args, principal: principal)
 
         let value = try await method.run(principal, args, yield)

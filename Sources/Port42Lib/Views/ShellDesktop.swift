@@ -418,6 +418,7 @@ struct ShellTile: View {
     @State private var showVersions = false
     @State private var showMore = false
     @State private var showSpaces = false
+    @State private var showCompanions = false
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
     /// The port's console, opened from its title bar (it used to be a ">" drawn inside the page).
@@ -471,12 +472,23 @@ struct ShellTile: View {
     /// action builds the popover with the OLD empty list, which is why the first open showed nothing.
     @ViewBuilder
     private var versionPicker: some View {
-        PortVersionsPopover(accent: shell.accent,
-                            fetchGrouped: { appState.portWindows.fetchVersionSummaries(tile.id) },
-                            fetchAllSaves: { appState.portWindows.fetchSaveList(tile.id) }) { version in
-            appState.portWindows.restoreVersion(tile.id, version: version)
+        // A tile of someone else's port shows the host's history and restores there (one history).
+        let mirrored = appState.mirroredRemote(tile.id) != nil
+        return PortVersionsPopover(accent: shell.accent,
+                            fetchGrouped: { mirrored ? (appState.mirrorHistory[tile.id] ?? []) : appState.portWindows.fetchVersionSummaries(tile.id) },
+                            fetchAllSaves: { mirrored ? (appState.mirrorHistory[tile.id] ?? []) : appState.portWindows.fetchSaveList(tile.id) }) { version in
             showVersions = false
-            appState.toastMessage = "Restored version \(version)"
+            if mirrored {
+                Task { @MainActor in
+                    do {
+                        try await appState.restoreMirroredVersion(tile: tile.id, version: version)
+                        appState.toastMessage = "Restored version \(version)"
+                    } catch { appState.toastMessage = "Could not restore: \(error.localizedDescription)" }
+                }
+            } else {
+                appState.portWindows.restoreVersion(tile.id, version: version)
+                appState.toastMessage = "Restored version \(version)"
+            }
         }
     }
 
@@ -861,6 +873,7 @@ struct ShellTile: View {
                             }
                         } : nil,
                         onSpaces: tile.panel == nil ? nil : { showMore = false; showSpaces = true },
+                        onCompanions: appState.mirroredRemote(tile.id) == nil ? nil : { showMore = false; showCompanions = true },
                         opacity: tile.panel?.opacity ?? 1,
                         onOpacity: { level in
                             if let id = tile.panel?.id { appState.portWindows.setOpacity(id: id, level) }
@@ -880,6 +893,9 @@ struct ShellTile: View {
                         })
                 }
                 .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+                .popover(isPresented: $showCompanions, arrowEdge: .bottom) {
+                    TileCompanionsPopover(appState: appState, tile: tile.panel?.id ?? tile.id, accent: shell.accent)
+                }
                 .popover(isPresented: $showSpaces, arrowEdge: .bottom) {
                     PortSpacesPopover(
                         accent: shell.accent,
@@ -1559,7 +1575,29 @@ struct ShellPortHost: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        // Don't reclaim the view if it moved to another container (tile/focus/rail reparenting).
+        // Don't reclaim the view if it moved to another container (tile/focus/rail reparenting), which is in
+        // a window on screen. Do take it back when the window it went to is closed or hidden: closing a
+        // second window used to leave this tile's port blank (the space background showing through) until
+        // the person left the space and came back (#189, Gordon, 2026-10-02).
+        guard Self.shouldReclaim(hostedHere: view.superview === container,
+                                 viewWindowVisible: view.window?.isVisible ?? false,
+                                 containerWindowVisible: container.window?.isVisible ?? false) else { return }
+        view.removeFromSuperview()
+        container.addSubview(view)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+    }
+
+    /// Whether a host takes its view back: it is not here, the window it is in is gone or hidden, and this
+    /// host is on screen. A view in another visible window (a tile, focus, the rail, the off-screen host for
+    /// browser use) is left where it is.
+    nonisolated static func shouldReclaim(hostedHere: Bool, viewWindowVisible: Bool, containerWindowVisible: Bool) -> Bool {
+        !hostedHere && !viewWindowVisible && containerWindowVisible
     }
 }
 
@@ -1835,6 +1873,8 @@ struct PortMorePopover: View {
     /// Which spaces it lives in (GM, 2026-09-30): move its home, also show it elsewhere, take a copy
     /// shown here off this desktop, or hand it to another machine. One row, so the menu stays short.
     var onSpaces: (() -> Void)? = nil
+    /// A tile of someone else's port: which of your companions are on it (two agents, decision 6).
+    var onCompanions: (() -> Void)? = nil
     /// Where the port is pinned now, and the action that changes it (GM, 2026-09-27).
     /// This port's body opacity and how to change it (#195).
     var opacity: Double = 1
@@ -1867,6 +1907,9 @@ struct PortMorePopover: View {
             }
             if let onFork {
                 row("Fork: a copy", icon: "arrow.triangle.branch", action: onFork)
+            }
+            if let onCompanions {
+                row("Companions…", icon: "person.2", action: onCompanions)
             }
             if let onSpaces {
                 row("Spaces…", icon: "square.stack", action: onSpaces)

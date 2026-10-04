@@ -31,6 +31,14 @@ public final class DatabaseService {
         config.prepareDatabase { db in
             _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
             try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            // Any statement over 100 ms says so (the freezes, 2026-10-03): the one connection serializes every
+            // read and write, so a slow one holds up the main thread's reads behind it.
+            db.trace(options: .profile) { event in
+                if case let .profile(statement, duration) = event, duration > 0.1 {
+                    p42log("[db] slow statement %.2fs on %@: %@", duration, Thread.isMainThread ? "main" : "background",
+                           String(statement.sql.prefix(160)))
+                }
+            }
         }
         dbQueue = try DatabaseQueue(path: path, configuration: config)
         try migrate()
@@ -1010,7 +1018,40 @@ public final class DatabaseService {
             try db.alter(table: "port_panels") { t in t.add(column: "opacity", .double).notNull().defaults(to: 1) }
         }
 
+        migrator.registerMigration("v70-port-members") { db in
+            // Two agents, one port (docs/plan-two-agents-one-port.md, decisions 1 and 2): the companions a port
+            // has, apart from its space's. A mention in a port's chat adds one here; on a tile of someone else's
+            // port only these act on it.
+            try db.create(table: "port_members", ifNotExists: true) { t in
+                t.column("portKey", .text).notNull()
+                t.column("agentId", .text).notNull()
+                t.column("addedAt", .datetime).notNull()
+                t.primaryKey(["portKey", "agentId"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    // MARK: - Port members (two agents, one port)
+
+    public func addPortMember(agentId: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO port_members (portKey, agentId, addedAt) VALUES (?, ?, ?)",
+                           arguments: [portKey, agentId, Date()])
+        }
+    }
+
+    public func removePortMember(agentId: String, portKey: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM port_members WHERE portKey = ? AND agentId = ?", arguments: [portKey, agentId])
+        }
+    }
+
+    public func portMembers(portKey: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT agentId FROM port_members WHERE portKey = ?", arguments: [portKey]))
+        }
     }
 
     // MARK: - Clients (slice-02 half two, D1)
@@ -1220,12 +1261,14 @@ public final class DatabaseService {
     }
 
     public func deleteRemotePort(peerKey: String, portKey: String) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM remote_ports WHERE peerKey = ? AND portKey = ?", arguments: [peerKey, portKey])
         }
     }
 
     public func setRemotePortWakes(peerKey: String, portKey: String, wakes: Bool) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET wakes = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [wakes, peerKey, portKey])
@@ -1234,13 +1277,25 @@ public final class DatabaseService {
 
     /// Record the name the other instance knows this one by.
     public func setRemotePortKnownAs(peerKey: String, portKey: String, knownAs: String) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET knownAs = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [knownAs, peerKey, portKey])
         }
     }
 
+    /// One instance's names, on every port of its this one holds: what it calls itself now, and what it knows
+    /// this one by (two agents, Phase 6: a machine's name can change).
+    public func setRemoteNames(peerKey: String, hostName: String, knownAs: String) throws {
+        defer { forgetRemoteCache() }
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE remote_ports SET hostName = ?, knownAs = ? WHERE peerKey = ?",
+                           arguments: [hostName, knownAs, peerKey])
+        }
+    }
+
     public func upsertRemotePort(_ r: RemotePortRow) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO remote_ports (peerKey, portKey, title, rights, relays, hostName, addedAt)
@@ -1254,6 +1309,7 @@ public final class DatabaseService {
 
     /// Record which local tile mirrors a remote port.
     public func setRemotePortTile(peerKey: String, portKey: String, localPort: String?) throws {
+        defer { forgetRemoteCache() }
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE remote_ports SET localPort = ? WHERE peerKey = ? AND portKey = ?",
                            arguments: [localPort, peerKey, portKey])
@@ -1261,7 +1317,26 @@ public final class DatabaseService {
     }
 
     /// The local tile for each remote port that has one: tile id → (peer, port).
+    // Kept in memory (two agents, the 20 s freezes): every bridge call from every port page asks whether its
+    // port is a tile of someone else's (`mirroredRemote`), and reading these on the main thread each time
+    // queued behind the database and stalled gateway calls (sampled on Dev6, 2026-10-02). Every write to
+    // `remote_ports` goes through the functions above, and each forgets the cache.
+    private let remoteCacheLock = NSLock()
+    nonisolated(unsafe) private var remoteTilesCache: [String: (peerKey: String, portKey: String)]?
+    nonisolated(unsafe) private var remoteRowsCache: [RemotePortRow]?
+    private func forgetRemoteCache() {
+        remoteCacheLock.lock(); remoteTilesCache = nil; remoteRowsCache = nil; remoteCacheLock.unlock()
+    }
+
     public func remotePortTiles() throws -> [String: (peerKey: String, portKey: String)] {
+        remoteCacheLock.lock(); let cached = remoteTilesCache; remoteCacheLock.unlock()
+        if let cached { return cached }
+        let loaded = try loadRemotePortTiles()
+        remoteCacheLock.lock(); remoteTilesCache = loaded; remoteCacheLock.unlock()
+        return loaded
+    }
+
+    private func loadRemotePortTiles() throws -> [String: (peerKey: String, portKey: String)] {
         try dbQueue.read { db in
             var out: [String: (String, String)] = [:]
             for r in try Row.fetchAll(db, sql: "SELECT peerKey, portKey, localPort FROM remote_ports WHERE localPort IS NOT NULL") {
@@ -1272,6 +1347,14 @@ public final class DatabaseService {
     }
 
     public func remotePorts() throws -> [RemotePortRow] {
+        remoteCacheLock.lock(); let cached = remoteRowsCache; remoteCacheLock.unlock()
+        if let cached { return cached }
+        let loaded = try loadRemotePorts()
+        remoteCacheLock.lock(); remoteRowsCache = loaded; remoteCacheLock.unlock()
+        return loaded
+    }
+
+    private func loadRemotePorts() throws -> [RemotePortRow] {
         try dbQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM remote_ports ORDER BY addedAt").map { r in
                 RemotePortRow(peerKey: r["peerKey"], portKey: r["portKey"], title: r["title"],

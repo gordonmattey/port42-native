@@ -9,6 +9,8 @@ struct AcceptBox: View {
     @ObservedObject var shell: ShellState
 
     @State private var wake = true
+    /// The companions to bring onto the tile (two agents, decision 6): only they act on it.
+    @State private var bring: Set<String> = []
     @State private var code = ""
     @State private var working = false
     @State private var error: String?
@@ -22,19 +24,20 @@ struct AcceptBox: View {
                 Text(moving ? "take" : "join")
                     .font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.accent)
                     .shadow(color: Port42Theme.accent.opacity(0.8), radius: 6)
-                Text(coupon.map { "\($0.hostName)'s \($0.portTitle)" } ?? "an invite")
+                Text(coupon.map { "\($0.portTitle) · from \($0.hostName)" } ?? "an invite")
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
                 Spacer()
                 KeyCap(label: "esc") { link = nil }
             }
             if let c = coupon {
-                Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their machine."
+                Text(moving ? "\(c.hostName) is giving you a port. it opens here as yours and closes on their computer."
                             : "\(c.hostName) is sharing a port with you. it opens here.")
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !moving {
                 Text("you can " + ShareWords.rights(c.rights.compactMap(RemoteRight.init(rawValue:))))
                     .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                MachineNameLine(name: appState.machineName, verb: "you join as")
                 Button { wake.toggle() } label: {
                     HStack(spacing: 10) {
                         Text(wake ? "[x]" : "[ ]").font(Port42Theme.mono(12))
@@ -47,6 +50,28 @@ struct AcceptBox: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                if !appState.companions.isEmpty {
+                    Text("bring a companion").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(appState.companions) { comp in
+                                Button {
+                                    if bring.contains(comp.id) { bring.remove(comp.id) } else { bring.insert(comp.id) }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Text(bring.contains(comp.id) ? "[x]" : "[ ]").font(Port42Theme.mono(12))
+                                            .foregroundStyle(bring.contains(comp.id) ? Port42Theme.accent : Port42Theme.textSecondary)
+                                        Text(comp.displayName).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 120)
+                }
                 }
                 if c.code {
                     HStack(spacing: 10) {
@@ -79,6 +104,8 @@ struct AcceptBox: View {
             defer { working = false }
             do {
                 var args: [String: Any] = ["link": link, "remoteWake": wake]
+                let names = appState.companions.filter { bring.contains($0.id) }.map(\.displayName)
+                if !names.isEmpty { args["companions"] = names }
                 if !code.isEmpty { args["code"] = code }
                 let out = try await appState.runBridgeMethod(
                     "invite.accept",
@@ -92,5 +119,17 @@ struct AcceptBox: View {
                 self.error = (error as? BridgeError)?.message ?? error.localizedDescription
             }
         }
+    }
+}
+
+/// The name this machine goes by on the other side (two agents, Phase 6.1), where sharing starts, so the person
+/// knows what the label beside them and their companions will be.
+struct MachineNameLine: View {
+    let name: String
+    let verb: String
+    var body: some View {
+        Text("\(verb) \(name) · change it in Settings, Remote")
+            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+            .lineLimit(1)
     }
 }

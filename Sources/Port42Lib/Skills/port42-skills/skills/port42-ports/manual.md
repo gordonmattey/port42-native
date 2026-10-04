@@ -490,11 +490,11 @@ BRIDGE API REFERENCE:
                              call again to ask again) · os_denied (macOS refused it: they allow
                              Port42 in System Settings > Privacy & Security) · access_denied (a
                              path they never picked: they pick a file) · not_granted (you are on
-                             another machine and your invite does not cover this; the host sends
-                             a new one) · invite_invalid (the invite is used, expired, withdrawn
-                             or needs the right code; ask for a new one) · budget_spent (an
-                             imagine team's version budget: the lead posts DONE, or the person
-                             raises it)
+                             another computer and your invite does not cover this; the host
+                             sends a new one) · invite_invalid (the invite is used, expired,
+                             withdrawn or needs the right code; ask for a new one) ·
+                             budget_spent (an imagine team's version budget: the lead posts
+                             DONE, or the person raises it)
       ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
                              client in Settings -> Access and you send it as `Authorization:
                              Bearer <token>`) · auth_revoked (it knew you and the user withdrew
@@ -571,9 +571,10 @@ BRIDGE API REFERENCE:
     emit an envelope indistinguishable from one the system sent. Match on the prefixed name.
 
     The system kinds you may also receive on a port's topic:
-      audio.data · audio.transcription · browser.error · browser.load · browser.redirect
-      camera.frame · chat · companion.activity · console · driver · filedrop · message
-      presence · presentation · push · screen.frame · state · storage · terminal.output
+      access · audio.data · audio.transcription · browser.error · browser.load
+      browser.redirect · camera.frame · chat · companion.activity · console · driver
+      filedrop · message · presence · presentation · push · screen.frame · state · storage
+      subscribed · terminal.output
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):

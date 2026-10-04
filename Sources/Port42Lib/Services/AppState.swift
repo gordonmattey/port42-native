@@ -96,6 +96,35 @@ public final class AppState: ObservableObject {
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
     public weak var shell: ShellState?
 
+    /// The host's last token for each tile of someone else's port, by tile id: a tile's reads hand it out,
+    /// since its writes are checked on the host (two agents on one port, finding 1).
+    var mirrorHostTokens: [String: String] = [:]
+    /// The machine name this instance last told each host it holds tiles of, by peer: told once per name.
+    var toldMachineName: [String: String] = [:]
+    /// The newest post each tile has seen from its host's chat, by tile: what a reconnect catches up from. Kept
+    /// across launches, so posts made while this Port42 was closed or starting are delivered when it is back.
+    var mirrorSeenSeq: [String: Int] {
+        get { (UserDefaults.standard.dictionary(forKey: Self.mirrorSeenKey) as? [String: Int]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.mirrorSeenKey) }
+    }
+    static let mirrorSeenKey = "PORT42_MIRROR_SEEN"
+    /// How far back a returning tile catches up: an ask older than this is history, not something to act on now.
+    static var mirrorCatchUpWindow: TimeInterval = 30 * 60
+    /// The focused chat composer's Tab: completes the @name being typed and says whether it did. The window's key
+    /// monitor calls it, because the multi-line field takes Tab as "next field" before the composer sees it.
+    var composerTab: (() -> Bool)?
+    /// The host's agents on each tile's port, by chat key, as its `chat.read` names them: the @ picker offers them.
+    @Published var mirrorAgents: [String: [String]] = [:]
+    /// The counter at each port's last code write (update, patch, restore, rename): a code write is refused
+    /// only when another code write happened after its token, not for other activity (Gordon, decision 4).
+    var codeWriteSeq: [String: Int] = [:]
+    /// How long a host that shares nothing any more waits before leaving its relays, so its last `access`
+    /// notice reaches the guest (two agents). A setting, so a test can make it immediate.
+    var relayLeaveDelay: TimeInterval = 3
+    /// The host's version history for each tile of someone else's port, by tile id: one history, shown on
+    /// both sides (Gordon, decision 7). Refreshed with the tile.
+    @Published var mirrorHistory: [String: [PortVersionSummary]] = [:]
+
     /// Each space's backdrop (per-space backgrounds, `SpaceBackgrounds.swift`): space id → live port id,
     /// and a closed port's fallback. App state, not a window's, so every window (#189) reads the same.
     @Published public internal(set) var backgroundPorts: [String: String] = [:]
@@ -213,6 +242,11 @@ public final class AppState: ObservableObject {
     /// Companion name (lowercased) → the port chat its next reply goes to. Set when a port chat
     /// routes to it; absent means the reply goes to the space's own chat.
     var chatReplyTargets: [String: String] = [:]
+    /// Every chat that woke a terminal companion during its current turn, in order (by companion, lowercased).
+    /// The reply goes to each, not only the last: woken from a shared port's chat and then from its own chat
+    /// in one turn, a companion's answer went only to its own, and the agent on the other machine waited
+    /// for it forever (two agents, the round 4 stall, 2026-10-02).
+    var chatReplyAlso: [String: [String]] = [:]
     /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
@@ -502,7 +536,7 @@ public final class AppState: ObservableObject {
     var heldWebLinks: [URL] = []
 
     /// Active tool executors for remote RPC calls, keyed by senderId
-    private var remoteExecutors: [String: RemoteToolExecutor] = [:]
+    var remoteExecutors: [String: RemoteToolExecutor] = [:]
     /// What each spawned terminal's client id was spawned AS, recorded at spawn (APP-15). Read when
     /// that client calls through the gateway, so it authorizes as its companion in its space.
     private(set) var spawnBindings: [String: Principal.SpawnBinding] = [:]
@@ -639,6 +673,7 @@ public final class AppState: ObservableObject {
                     return try self.redeemInvite(peer: peer, args: input).toJSONObject()
                 }
                 principal = try self.remotePrincipal(peer: peer).acting(as: claim.actor)
+                if method == AppState.renameMethod { return self.renamePeer(peer: peer, args: input) }
             } catch let e as BridgeError {
                 return e.toJSONObject()
             } catch { return ["error": error.localizedDescription] }
@@ -658,6 +693,7 @@ public final class AppState: ObservableObject {
         }
         loadInitialState()
         setupPortEventObservers()
+        if !AppState.isTestProcess { MainProbe.start() }
         // Hold-to-talk. The session is built with the app, not with the shell, and the speech model starts
         // loading now rather than when someone first holds space: loading takes seconds, and the first hold
         // is the one a person judges the feature by. Nothing here touches the microphone, so nothing prompts.
@@ -775,7 +811,7 @@ public final class AppState: ObservableObject {
                 message: "\(here) does not know who is asking: this call carries no credential. "
                        + "If Port42 started your session, your own token path is in "
                        + "$PORT42_TOKEN_FILE — send `Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")`. "
-                       + "If it did not, ask the person at this machine to add a client in "
+                       + "If it did not, ask the person at this computer to add a client in "
                        + "Port42 Settings → Access. Do not use another tool's token file: the grant "
                        + "would land on that tool, not on you.")
         }
@@ -818,7 +854,7 @@ public final class AppState: ObservableObject {
             throw BridgeError(
                 code: .authRevoked,
                 message: "'\(client.name)' was revoked on \(here), so this token no longer works. "
-                       + "That was a deliberate act by the person at this machine — ask them before "
+                       + "That was a deliberate act by the person at this computer — ask them before "
                        + "retrying. They can restore it in Settings → Access.")
         }
         guard !retired else {
@@ -970,7 +1006,8 @@ public final class AppState: ObservableObject {
             guard let self else { return }
             self.recordTurnsInFlight()
             self.notifyBus.publish(topic: PortNotify.topic(forPortKey: chat), kind: PortEventKind.presence.wire,
-                                   payload: .object(["presence": .array(self.presence.entries(chat).map { $0.bridgeValue(detail: false) })]))
+                                   payload: .object(["presence": .array(self.presence.entries(chat).map { [label = self.sharedSelfLabel(chat)] in
+                                       $0.bridgeValue(detail: false, label: label) })]))
         }
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -1322,7 +1359,7 @@ public final class AppState: ObservableObject {
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     func routeMentionsToTerminals(content: String, senderName: String, spaceId: String,
                                   implicitCompanion: AgentConfig? = nil, replyChat: String? = nil,
-                                  source: String? = nil, members: [String] = []) {
+                                  source: String? = nil, members: [String] = [], allowed: Set<String>? = nil) {
         // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
@@ -1341,7 +1378,7 @@ public final class AppState: ObservableObject {
         for key in keys {
             if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal
-            }) {
+            }), allowed?.contains(companion.id) ?? true {
                 deliverToTerminalCompanion(companion, line: line, replyChat: replyChat, spaceId: spaceId)
             }
         }
@@ -1388,6 +1425,7 @@ public final class AppState: ObservableObject {
         let name = companion.displayName
         let key = name.lowercased()
         ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
+        if let replyChat, !(chatReplyAlso[key] ?? []).contains(replyChat) { chatReplyAlso[key, default: []].append(replyChat) }
         presence.received(name, in: replyChat ?? spaceId)
         companionWatches.turnStarted(companionName: name)
         if let controller = terminalControllers.values.first(where: { terminal($0.config, isFor: companion) }),
@@ -1483,10 +1521,12 @@ public final class AppState: ObservableObject {
 
     func launchAgents(
         _ agents: [AgentConfig], spaceId: String, spaceAgentIds: Set<String>,
-        triggerContent: String, senderId: String, senderName: String, replyChat: String
+        triggerContent: String, senderId: String, senderName: String, replyChat: String,
+        joinsSpace: Bool = true
     ) {
         for (index, agent) in agents.enumerated() {
-            if !spaceAgentIds.contains(agent.id) {
+            // A companion woken from another instance's post runs, but does not join the space.
+            if joinsSpace, !spaceAgentIds.contains(agent.id) {
                 if let space = spaces.first(where: { $0.id == spaceId }) {
                     addCompanionToSpace(agent, space: space)
                 }
@@ -1989,10 +2029,10 @@ public final class AppState: ObservableObject {
             } ?? .peer(id: terminalClientId, displayName: name, spaceId: config.spaceId)
             // The chat that asked, else this terminal's own chat (a turn typed into the terminal).
             // Posting there also routes the reply's @mentions, so a hand-off is never lost.
-            let asked = self.chatReplyTargets.removeValue(forKey: name.lowercased())
-            let chat = ChatRouting.replyDestination(asked: asked, ownTerminalChat: panel.udid)
-            do { try self.postReply(key: chat, text: content, from: who) }
-            catch { p42log("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
+            for target in self.takeReplyTargets(companion: name, ownTerminalChat: panel.udid) {
+                do { try self.postReply(key: target, text: content, from: who) }
+                catch { p42log("[chat] reply to %@ failed: %@", target, error.localizedDescription) }
+            }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainPending: () -> [String] = { [weak self] in
@@ -2094,10 +2134,11 @@ public final class AppState: ObservableObject {
             defer { self.companionWatches.turnEnded(companionName: name) }
             // The chat that asked, else the terminal's own. Posted as Port42, and naming the
             // companion without an @, so it wakes no one.
-            guard let chat = self.chatReplyTargets.removeValue(forKey: name.lowercased())
-                    ?? self.portWindows.panels.first(where: { $0.id == panel.id })?.udid else { return }
-            _ = try? self.postToChat(key: chat, text: ChatPresence.failureNotice(name: name, error: error, details: details),
-                                     from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
+            let own = self.portWindows.panels.first(where: { $0.id == panel.id })?.udid ?? panel.id
+            for target in self.takeReplyTargets(companion: name, ownTerminalChat: own) {
+                _ = try? self.postToChat(key: target, text: ChatPresence.failureNotice(name: name, error: error, details: details),
+                                         from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: config.spaceId))
+            }
         }
         controller.onSessionId = { [weak self] sid in
             self?.noteSessionId(sid, config: config, panelId: panel.id)

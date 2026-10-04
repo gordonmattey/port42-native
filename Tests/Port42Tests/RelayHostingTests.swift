@@ -13,6 +13,7 @@ struct RelayHostingTests {
         let t = InviteTests()
         let w = try t.world()
         var sent: [Bool] = []
+        w.state.relayLeaveDelay = 0          // leaving the relays at once, as before the access notice
         w.state.onRelayHosting = { sent.append($0) }
         w.state.refreshSharing()
         #expect(!w.state.relayHosting && sent.isEmpty, "an instance sharing nothing asked to be reachable")
@@ -28,6 +29,7 @@ struct RelayHostingTests {
         let t = InviteTests()
         let w = try t.world()
         var sent: [Bool] = []
+        w.state.relayLeaveDelay = 0          // leaving the relays at once, as before the access notice
         w.state.onRelayHosting = { sent.append($0) }
         let made = try await t.create(w)
         let nonce = try t.coupon(made).nonce

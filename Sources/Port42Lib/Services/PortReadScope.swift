@@ -100,8 +100,9 @@ extension AppState {
     /// Resolve `id` for a READ, refusing a port outside the caller's scope as if it did not exist.
     /// The one exception is the port in another space the cross-space gate admitted for this call (#238).
     func requireReadablePort(_ id: String, by principal: Principal) throws -> PortRef {
+        // Its space, a port it was given (two agents), or one in another space by grant (#238).
         guard let ref = resolvePortRef(id),
-              canRead(portInSpace: portSpaceId(ref), by: principal) || admitsCrossSpace(ref.key, by: principal) else {
+              canReach(ref, by: principal) || admitsCrossSpace(ref.key, by: principal) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return ref

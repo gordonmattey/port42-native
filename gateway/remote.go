@@ -60,6 +60,7 @@ func (g *Gateway) SetAttestKey(k string) {
 // remoteConn is one remote session, addressed by the id the host replies to.
 type remoteConn struct {
 	s      transport.Session
+	q      *outq
 	sendMu sync.Mutex
 	rateMu sync.Mutex
 	times  []time.Time
@@ -87,6 +88,10 @@ func (c *remoteConn) send(ctx context.Context, env Envelope) error {
 	if err != nil {
 		return err
 	}
+	if c.q != nil {
+		// Through its own queue: a slow relay holds up this session only, never the app's answers (see outq).
+		return c.q.put(ctx, data, false)
+	}
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 	return c.s.Send(ctx, data)
@@ -108,6 +113,10 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	rand.Read(b[:])
 	id := "remote-" + hex.EncodeToString(b[:])
 	c := &remoteConn{s: s}
+	c.q = newOutq(s.Send, func(reason string) {
+		log.Printf("[gateway] dropped remote session %s: %s", id, reason)
+		s.Close()
+	})
 	g.mu.Lock()
 	if g.remotes == nil {
 		g.remotes = map[string]*remoteConn{}
@@ -117,9 +126,16 @@ func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	defer func() {
 		g.mu.Lock()
 		delete(g.remotes, id)
-		g.forgetCallsOf(id)
+		orphaned := g.forgetCallsOf(id)
 		g.mu.Unlock()
+		c.q.end()
 		s.Close()
+		// The calls it left still running on the host stop, as a local caller's do (#247): a guest's
+		// subscription otherwise streamed on into a session that was gone, every event once per dead one
+		// (Dev6, 2026-10-03: five copies of each chat post, four dropped as "not the host of that call").
+		for _, o := range orphaned {
+			go g.cancelOnHost(o.host, o.key.caller, o.key.callID)
+		}
 	}()
 	peer := s.RemotePeer()
 	log.Printf("[gateway] remote session %s from peer %s", id, peer)

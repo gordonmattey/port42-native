@@ -232,7 +232,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .permissionCancelled: return "nobody answered: the card was withdrawn, so call again to ask again"
         case .osDenied:        return "macOS refused it: they allow Port42 in System Settings > Privacy & Security"
         case .accessDenied:    return "a path they never picked: they pick a file"
-        case .notGranted:      return "you are on another machine and your invite does not cover this; the host sends a new one"
+        case .notGranted:      return "you are on another computer and your invite does not cover this; the host sends a new one"
         case .inviteInvalid:   return "the invite is used, expired, withdrawn or needs the right code; ask for a new one"
         case .authRequired:    return "Port42 does not know who you are — the user adds a client in Settings -> Access and you send it as `Authorization: Bearer <token>`"
         case .authRevoked:     return "it knew you and the user withdrew it; ask them, do not retry — the credential is real, so re-sending it will never help"

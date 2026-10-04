@@ -55,7 +55,7 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         permission: nil,
         paramNames: ["id"],
         toolExposed: false,
-        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.",
+        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output), after a first `subscribed` event that says the stream is live: read anything you need to catch up on then. `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -73,6 +73,12 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         let topic = PortNotify.topic(forPortKey: ref?.key ?? id)
         let subId = appState.notifyBus.subscribe(topic: topic, deliver: yield)
         defer { appState.notifyBus.unsubscribe(id: subId, topic: topic) }
+        // Say the stream is live, so a caller can read what it might have missed up to now and miss nothing after
+        // (a tile on another computer reads its host's chat here; Gordon, 2026-10-03: posts in the gap were lost).
+        if let ready = PortNotify(topic: topic, kind: PortEventKind.subscribed.wire, payload: .object([:]),
+                                  token: appState.notifyBus.tokenForTopic?(topic)).jsonString() {
+            yield(ready)
+        }
         // Hold the stream open until the caller cancels — the run executes on a tracked Task that is
         // cancelled on close/cancel (mirrors ai.complete's cancellation). Poll so cleanup is prompt.
         while !Task.isCancelled {
@@ -376,7 +382,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // leave a gap in which the port could move, and hand back a token that was never true of
         // the html beside it.
         var out: [String: BridgeValue] = ["html": .string(html)]
-        if let key = ref.key { out["token"] = .string(appState.portInput.token(for: key)) }
+        if let key = ref.key {
+            // A tile of someone else's port answers with the host's token, the one its writes are checked against.
+            out["token"] = .string(appState.mirrorHostTokens[ref.id ?? key] ?? appState.portInput.token(for: key))
+        }
         return .object(out)
     }
 
@@ -1235,12 +1244,12 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["space.current"] = BridgeMethod(permission: nil, paramNames: ["space_id", "port"],
-        description: "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another machine: the shared port's own space, named by `port`.",
+        description: "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another computer: the shared port's own space, named by `port`.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "space_id": ["type": "string", "description": "Optional space id to inspect. Defaults to the currently selected space."],
-                "port": ["type": "string", "description": "From another machine: the shared port whose space to read."],
+                "port": ["type": "string", "description": "From another computer: the shared port whose space to read."],
             ]
         ]) { p, args in
         let sid = p.kind == .remote ? try appState.remotePortSpace(args.string("port")) : args.string("space_id")
@@ -1453,12 +1462,12 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id", "port"],
-        description: "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want). From another machine: the companions of the shared port's own space, named by `port`.",
+        description: "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want). From another computer: the companions of the shared port's own space, named by `port`.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "space_id": ["type": "string", "description": "Omit for your own space (the default). A space id targets that space. \"*\" returns the whole-instance roster."],
-                "port": ["type": "string", "description": "From another machine: the shared port whose space to list."],
+                "port": ["type": "string", "description": "From another computer: the shared port whose space to list."],
             ]
         ]) { p, args in
         let sid = p.kind == .remote ? try appState.remotePortSpace(args.string("port"))
@@ -1606,6 +1615,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // the same instant — a listing whose rows were read at different moments would hand out
         // tokens that were never all true together.
         let activity = appState.portInput.activitySnapshot
+        let hostTokens = appState.mirrorHostTokens   // a tile's token is the host's (taken with the snapshot)
         // Who each creator id is, resolved once here on the main actor: registered clients first,
         // then companions by id.
         var creatorNames: [String: String] = [:]
@@ -1617,9 +1627,10 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // A tile mirroring a port on another instance says so: whose, which port there, and whether the
         // mirror is connected (nautilus Phase 4), so an agent or a person can see a tile that is not.
         let mirrors = (try? appState.db.remotePortTiles()) ?? [:]
-        var mirrorState: [String: (online: Bool, running: Bool)] = [:]
+        var mirrorState: [String: (online: Bool, running: Bool, ended: Bool)] = [:]
         for id in mirrors.keys {
-            mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil)
+            mirrorState[id] = (appState.mirrorStatus[id]?.online ?? false, appState.remoteMirrors[id] != nil,
+                               appState.mirrorStatus[id]?.ended ?? false)
         }
         var alsoIn: [String: [String]] = [:]
         for panel in appState.portWindows.panels where !panel.adoptedSpaceIds.isEmpty { alsoIn[panel.udid] = panel.adoptedSpaceIds }
@@ -1642,7 +1653,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 // it just read and pass it back as `expect`. Surfaced on the DISCOVERY call because
                 // that is where a caller already learns the id — a token you have to make a second
                 // call for is a token nobody uses.
-                "token": .string(activity.token(for: id)),
+                "token": .string(hostTokens[id] ?? activity.token(for: id)),
             ]
             if remote { entries.append(.object(o)); return }
             if let spaceId { o["spaceId"] = .string(spaceId) }
@@ -1660,7 +1671,9 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             if let m = mirrors[id] {
                 o["mirrors"] = .object(["peer": .string(m.peerKey), "port": .string(m.portKey),
                                         "online": .bool(mirrorState[id]?.online ?? false),
-                                        "running": .bool(mirrorState[id]?.running ?? false)])
+                                        "running": .bool(mirrorState[id]?.running ?? false),
+                                        // The host stopped sharing it with this machine (an access event).
+                                        "shared": .bool(!(mirrorState[id]?.ended ?? false))])
             }
             entries.append(.object(o))
         }
@@ -1702,7 +1715,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             }
             return .string(html)
         }
-        if let html = try? appState.db.fetchPortHtml(udid: udid) { return .string(html) }
+        let began = Date()
+        let html = try? appState.db.fetchPortHtml(udid: udid)
+        if Date().timeIntervalSince(began) > 0.5 {
+            p42log("[db] port.getHtml read %.1fs (%d bytes)", Date().timeIntervalSince(began), html?.utf8.count ?? 0)
+        }
+        if let html { return .string(html) }
         throw BridgeError.notFound("port '\(id)'")
     }
 
@@ -1744,7 +1762,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         try appState.requireRewritableCode(target)   // NAU-05
         try appState.requireCodeAuthority(over: target, by: p)   // APP-07
         appState.recordCodeWrite(to: target, by: p, replacesAll: true)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: target, html: html,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
@@ -1775,7 +1794,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
         appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: patched,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])
@@ -1800,7 +1820,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
         appState.recordCodeWrite(to: udid, by: p, replacesAll: false)   // NAU-02
-        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
+        guard let applied = await appState.portWindows.updatePort(idOrTitle: udid, html: html,
+                                                                  by: AppState.chatAuthor(p).name) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true), "applied": .string(applied.rawValue)])

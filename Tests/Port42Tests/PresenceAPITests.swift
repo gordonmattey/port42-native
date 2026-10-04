@@ -68,7 +68,8 @@ struct PresenceAPITests {
         w.state.presence.received("scout", in: w.q)
 
         let mine = try #require(try await t.remote(w, as: InviteTests.ada, "presence.list", ["port": w.p]) as? [String: Any])
-        #expect((mine["presence"] as? [[String: Any]])?.map { $0["name"] as? String } == ["echo"])
+        // Shown with this machine's name, as its chat shows it to the other machine (two agents, Phase 6.2).
+        #expect((mine["presence"] as? [[String: Any]])?.map { $0["name"] as? String } == ["echo (\(w.state.selfLabel))"])
         #expect(t.reason(try await t.remote(w, as: InviteTests.ada, "presence.list", ["port": w.q])) == "not_granted",
                 "another machine read the presence of a port not shared with it")
     }

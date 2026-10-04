@@ -48,7 +48,7 @@ struct TestGateTests {
         #expect(status == 0, "\(output)")
         #expect(calls == [
             "suite PORT42_TIMING_TESTS= test",
-            "timing PORT42_TIMING_TESTS=1 test --filter OffscreenTimerTests|HiddenTimerTests",
+            "timing PORT42_TIMING_TESTS=1 test --filter OffscreenTimerTests|HiddenTimerTests|MessageDeliveryTests",
         ])
     }
 

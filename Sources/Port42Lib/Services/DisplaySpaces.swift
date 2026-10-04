@@ -382,6 +382,8 @@ public final class DisplaySpaces {
                 if self.closingKept.remove(id) == nil { self.map.close(id); self.map.save() }
                 self.windows[id] = nil
                 for t in self.observers.removeValue(forKey: id) ?? [] { center.removeObserver(t) }
+                // The ports this window held go back to the windows still open: they redraw and take them.
+                DispatchQueue.main.async { [weak self] in self?.appState.objectWillChange.send() }
             }
         })
         observers[id] = tokens

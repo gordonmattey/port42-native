@@ -382,6 +382,7 @@ struct RemoteTileTests {
 
         state.setMirrorWakes(tile: tile, true)
         #expect(state.mirroredRemote(tile)?.wakes == true)
+        // An agent there waking ours needs nothing more: the switch is the person's yes (Gordon, 2026-10-03).
         await hear("\(CompanionName.mention("wise-tern (Bob)")) your turn")
         #expect(state.chatReplyTargets["wise-tern"] == nil, "another machine's wise-tern woke this one")
         await hear("\(mine) same again", from: "wise-tern (Ada)")

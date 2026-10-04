@@ -35,7 +35,7 @@ struct SharePillButton: View {
                     if let portKey {
                         ShareHostPanel(appState: appState, portKey: portKey) { open = false; onInvite() }
                     }
-                case .theirs:
+                case .theirs, .ended:
                     ShareGuestPanel(appState: appState, tileId: tileId) { open = false }
                 }
             }
@@ -45,13 +45,18 @@ struct SharePillButton: View {
         }
     }
 
-    private var offline: Bool { if case .theirs(_, false) = pill { return true }; return false }
+    private var offline: Bool {
+        if case .theirs(_, false) = pill { return true }
+        if case .ended = pill { return true }
+        return false
+    }
 
     private var help: String {
         switch pill {
         case .shared: return "Who this port is shared with. Click to change it."
-        case .theirs(let host, true): return "\(host)'s port, live from their machine. Click for what you can do."
-        case .theirs(let host, false): return "\(host)'s machine cannot be reached. This shows the port as it last was; it reconnects on its own."
+        case .theirs(let host, true): return "\(host)'s port, live from their computer. Click for what you can do."
+        case .theirs(let host, false): return "\(host) cannot be reached. This shows the port as it last was; it reconnects on its own."
+        case .ended(let host): return "\(host) stopped sharing this port with you. It shows the port as it last was; a new invite brings it back."
         }
     }
 }
@@ -154,13 +159,13 @@ struct ShareGuestPanel: View {
                     Text("fork a copy").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.accent)
                 }
                 .buttonStyle(.plain)
-                .help("A copy of this port on your machine, yours to change. The original stays theirs.")
+                .help("A copy of this port on your computer, yours to change. The original stays theirs.")
             }
             Button { appState.leaveRemotePort(tile: tileId); onDone() } label: {
                 Text("leave: close it here").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Closes it here and forgets it on this machine. They can invite you again.")
+            .help("Closes it here and forgets it on this computer. They can invite you again.")
         }
     }
 }
@@ -200,7 +205,7 @@ struct PortSpacesPopover: View {
             }
             if canMove {
                 Divider().opacity(0.4)
-                pick("another machine…", icon: "arrow.up.forward.app") { onPick(.machine) }
+                pick("another computer…", icon: "arrow.up.forward.app") { onPick(.machine) }
             }
         }
         .padding(.vertical, 4)
@@ -243,6 +248,22 @@ enum ShareWords {
         }
     }
 
+    /// "see it, use it and change its code": what someone who joined can do, as a chat line says it.
+    static func sentence(_ rs: [RemoteRight]) -> String {
+        let words = RemoteRight.allCases.filter(rs.contains).map { r -> String in
+            switch r {
+            case .see: return "see it"
+            case .use: return "use it and post here"
+            case .edit: return "change its code"
+            case .wakeAgents: return "wake agents here by name"
+            case .fork: return "take a copy"
+            case .move: return "take it over"
+            }
+        }
+        guard let last = words.last else { return "see nothing yet" }
+        return words.count == 1 ? last : words.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     /// "see, use and edit": the rights a person holds, in a sentence.
     static func rights(_ rs: [RemoteRight]) -> String {
         let words = RemoteRight.allCases.filter(rs.contains).map(right)
@@ -271,5 +292,46 @@ struct RightChip: View {
                 .background(on ? Port42Theme.accent.opacity(0.12) : Port42Theme.bgHover, in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Which of your companions are on a tile of someone else's port (two agents, decision 6): only they act on
+/// it. Bringing one in tells it where it is; taking it off stops its calls on the tile.
+struct TileCompanionsPopover: View {
+    @ObservedObject var appState: AppState
+    let tile: String
+    let accent: Color
+    @State private var members: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("your companions on this port").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            ForEach(appState.companions) { c in
+                let on = members.contains(c.id)
+                Button {
+                    guard let key = appState.mirrorChatKey(tile) else { return }
+                    if on { appState.removePortMember(c.id, port: key) } else { appState.bringOnto(tile: tile, companions: [c]) }
+                    reload()
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(on ? "[x]" : "[ ]").font(Port42Theme.mono(11)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
+                        Text(c.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+        .frame(width: 260)
+        .background(Port42Theme.bgPrimary)
+        .onAppear(perform: reload)
+    }
+
+    private func reload() {
+        guard let key = appState.mirrorChatKey(tile) else { return }
+        members = appState.portMemberIds(key)
     }
 }

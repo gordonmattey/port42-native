@@ -97,7 +97,7 @@ never on the message text — messages change. The set is closed:
                          again to ask again) · os_denied (macOS refused it: they allow Port42 in
                          System Settings > Privacy & Security) · access_denied (a path they
                          never picked: they pick a file) · not_granted (you are on another
-                         machine and your invite does not cover this; the host sends a new one)
+                         computer and your invite does not cover this; the host sends a new one)
                          · invite_invalid (the invite is used, expired, withdrawn or needs the
                          right code; ask for a new one) · budget_spent (an imagine team's
                          version budget: the lead posts DONE, or the person raises it)
@@ -193,7 +193,7 @@ Generated from the live method registry: every entry below is served exactly as 
         port (string, required): Whose chat: `0` (the desktop), a space id, or a port id / udid / title.
         text (string, required): What to say.
   chat.read(port, after, limit)
-      Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last }, where `last` is the newest seq in the chat (0 when empty).
+      Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.
         after (integer): Only entries with a seq greater than this.
         limit (integer): At most this many, the newest ones (default 50, max 200).
         port (string, required): Whose chat: `0` (the desktop), a space id, or a port id / udid / title.
@@ -227,8 +227,8 @@ Generated from the live method registry: every entry below is served exactly as 
       Get details about a specific companion by ID, with `spaces`, the spaces it is a member of ([{id, name}]): the spaces whose chats and ports it can read.
         id (string, required): The companion's ID
   companions.list(space_id, port)
-      List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want). From another machine: the companions of the shared port's own space, named by `port`.
-        port (string): From another machine: the shared port whose space to list.
+      List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want). From another computer: the companions of the shared port's own space, named by `port`.
+        port (string): From another computer: the shared port whose space to list.
         space_id (string): Omit for your own space (the default). A space id targets that space. "*" returns the whole-instance roster.
   companions.remove(companion, space_id)
       Take a companion off a space's roster, as its card's "Remove from this space" does. It stops hearing @mentions there; the companion itself, its ports and its files are kept, and it can be added back. companion is its id or name; space_id defaults to your space. Removing a companion that is not on the roster is not_found.
@@ -287,7 +287,7 @@ Generated from the live method registry: every entry below is served exactly as 
   presentation()
       The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
   whoami()
-      Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other machines met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.
+      Who you are to Port42: your name, your space and who is in it (the companions you can @mention), and, for a companion running in a Port42 terminal, that terminal's port id and chat. `spaces` lists every space you are a member of, [{id, name}]: you can read their chats and ports, and post there. `elsewhere` lists companions on other computers met in the chat of a port shared with them, each with its mention and that port's chat: mention them there. Call it first.
 
 ### imagine
 
@@ -302,19 +302,20 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### invite
 
-  invite.accept(link, code, remoteWake)
-      Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later.
+  invite.accept(link, code, remoteWake, companions)
+      Accept an invite someone sent you: this instance joins their port, which opens here as a tile. Returns { address, title, rights, tile }. Then call methods on the port by its address or the tile's id. remoteWake (default true): a mention of one of your companions in that port's chat wakes it here, on your model; the tile's chrome can turn it off later. companions: names of your companions to bring onto the tile; only companions brought onto it act on it, and each is told what it is.
         code (string): The six-digit code, if the invite needs one.
+        companions (array): Your companions to bring onto the tile (by name).
         link (string, required): The invite link (https://tele.port42.ai/#…).
         remoteWake (boolean): Let their chat wake your companions for this port (default true).
   invite.create(port, rights, expiresIn, requireCode)
-      Make an invite link that lets one person on another machine open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two machines (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this machine; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
+      Make an invite link that lets one person on another computer open ONE port: in Port42 if they have it, otherwise in their browser. The link lets in two computers (say their browser, then their Port42) and is then used up. Returns { link, code?, id, expires, discloses }. rights: any of see, use, edit, wake_agents, fork (default see, use and wake_agents: remote wake, their companions may wake yours in this port's chat; fork lets them take a copy, which Port42 offers only when given; move hands the port over to whoever opens the link, once, and closes it here, asked every time). requireCode: a six-digit code they must type, sent to them another way. `discloses` lists what the port itself can do on this computer; whoever you let in can make it do so. Port 0 and spaces cannot be shared.
         expiresIn (integer): Seconds until the link stops working (default 7 days, at most 30).
         port (string, required): The port to share (id / udid / title).
         requireCode (boolean): Require a six-digit code, to send another way.
         rights (array): see, use, edit, wake_agents, fork, move. Default see, use and wake_agents.
   invite.list()
-      The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two machines (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.
+      The invites this instance has made: id, port, rights, expiry, whether a code is required, and whether each is open, used, expired or withdrawn. A link lets in two computers (a move, one), so it stays open after the first: usedBy names the first and usedAgainBy the second, when it has let them in.
   invite.revoke(id)
       Withdraw an invite that has not been used. To remove someone who already joined, remove them in Settings → Access.
         id (string, required)
@@ -451,7 +452,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.setTitle(title)
       Set the calling port's own title.
   port.subscribe(id)  [streaming]
-      Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.
+      Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output), after a first `subscribed` event that says the stream is live: read anything you need to catch up on then. `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.
         id (string, required): The port to observe (id / udid / title).
   port.update(id, html, token)
       Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized. The page is reloaded only when it has to be: a change confined to <style> is applied in place, and any other change is first offered to the page as a cancelable 'port42:update' event (detail.html is the new HTML), which the page may apply itself by calling preventDefault(), keeping its state. Returns applied: unchanged, styles, handledByPage or reloaded.
@@ -470,7 +471,7 @@ Generated from the live method registry: every entry below is served exactly as 
 ### presence
 
   presence.list(port)
-      Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now ("editing ShellView.swift", "running swift test") when its CLI reports tools (Claude Code does); a caller on another machine is told only the kind ("editing a file"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.
+      Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now ("editing ShellView.swift", "running swift test") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind ("editing a file"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.
         port (string, required): Whose chat: a space id, or a port id / udid / title.
 
 ### remote
@@ -535,8 +536,8 @@ Generated from the live method registry: every entry below is served exactly as 
         name (string, required): The space's name.
         switch (boolean): Also switch to it (default false).
   space.current(space_id, port)
-      Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another machine: the shared port's own space, named by `port`.
-        port (string): From another machine: the shared port whose space to read.
+      Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space. From another computer: the shared port's own space, named by `port`.
+        port (string): From another computer: the shared port whose space to read.
         space_id (string): Optional space id to inspect. Defaults to the currently selected space.
   space.delete(space_id)
       Delete a space: its own ports and terminals close, then the space and its chat go. A port adopted into another space stays there. Cannot be undone. The same as Delete in the galaxy.
@@ -580,24 +581,24 @@ Generated from the live method registry: every entry below is served exactly as 
   storage.delete(key, options)
       Delete a value from persistent storage
         key (string, required): The storage key to delete
-        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        port (string): For a copy of a port shared from another computer: that port's id, to reach its own storage there.
         scope (string): "global" for storage shared across spaces; omit for this space's.
         shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.get(key, options)
-      Get a value from persistent key-value storage. Private to the caller by default; options {shared:true} and {scope:'global'} widen it, and {scope:'global', shared:true} is a PUBLIC board every caller on this machine can read and overwrite, so treat what you read there as untrusted.
+      Get a value from persistent key-value storage. Private to the caller by default; options {shared:true} and {scope:'global'} widen it, and {scope:'global', shared:true} is a PUBLIC board every caller on this computer can read and overwrite, so treat what you read there as untrusted.
         key (string, required): The storage key
-        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        port (string): For a copy of a port shared from another computer: that port's id, to reach its own storage there.
         scope (string): "global" for storage shared across spaces; omit for this space's.
         shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.list(options)
       List all keys in persistent storage
-        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        port (string): For a copy of a port shared from another computer: that port's id, to reach its own storage there.
         scope (string): "global" for storage shared across spaces; omit for this space's.
         shared (boolean): true for the space's shared bucket rather than the caller's own.
   storage.set(key, value, options)
-      Store a value in persistent key-value storage. Private to the caller by default. {scope:'global', shared:true} is a PUBLIC board: every port, companion and client on this machine can read and overwrite it, so never store secrets or personal data there.
+      Store a value in persistent key-value storage. Private to the caller by default. {scope:'global', shared:true} is a PUBLIC board: every port, companion and client on this computer can read and overwrite it, so never store secrets or personal data there.
         key (string, required): The storage key
-        port (string): For a copy of a port shared from another machine: that port's id, to reach its own storage there.
+        port (string): For a copy of a port shared from another computer: that port's id, to reach its own storage there.
         scope (string): "global" for storage shared across spaces; omit for this space's.
         shared (boolean): true for the space's shared bucket rather than the caller's own.
         value (string, required): The value to store
