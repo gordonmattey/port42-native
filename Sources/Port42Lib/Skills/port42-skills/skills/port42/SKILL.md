@@ -21,7 +21,8 @@ space the person is looking at).
     port42 <method> key=value key:=<json> key=@<file>
 
 - `key=value` is a string; `key:=<json>` a number, boolean, array or object; `key=@<file>` a file's
-  contents (`@-` reads stdin). One JSON object as a single argument also works.
+  contents (`@-` reads stdin). An @ that is no file and cannot be a path (`text="@wren hi"`) is
+  sent as text; `key:='"@..."'` always is. One JSON object as a single argument also works.
 - Send HTML and any long text from a file with `=@file`, never inline.
 - `port42 help api` prints every method with its arguments and permission; `reference.md` in this
   skill lists the ones for calling, chats and spaces.
