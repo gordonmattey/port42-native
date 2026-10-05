@@ -2247,7 +2247,10 @@ public final class AppState: ObservableObject {
     /// its saved startup runs the CLI again, resuming its last conversation. It used to stay empty, so the
     /// terminal reopened as a bare shell while the companion record said claude (keen-tern, Gordon 2026-10-05).
     /// Runs on every CLI start, so a terminal registered before this was in place is put right the next time.
-    func keepCLIStartup(config: TerminalPortConfig, panelId: String, cli: String?) {
+    func keepCLIStartup(config built: TerminalPortConfig, panelId: String, cli: String?) {
+        // The terminal's startup as saved now, not as it was when the terminal was built: one set since then
+        // (a resume an agent or the person gave it) is kept.
+        let config = portWindows.panels.first(where: { $0.id == panelId })?.terminalConfig ?? built
         guard config.startupCommand.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         let resume = Self.resumeStartup(cli: Self.resolvedCLI(hook: cli, startupCommand: config.startupCommand))
         portWindows.rewriteTerminalStartup(id: panelId) { _ in resume }

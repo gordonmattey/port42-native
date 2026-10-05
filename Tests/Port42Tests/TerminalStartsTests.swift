@@ -128,35 +128,36 @@ struct TerminalStartsTests {
 @Suite("A plain terminal that becomes a companion comes back as one", .serialized)
 @MainActor
 struct AutoRegisteredStartupTests {
-    @Test("a plain terminal whose claude registers as a companion saves claude --continue as its startup; one that already has a startup keeps it")
-    func savesResume() throws {
-        let w = try makeParityWorld()
-        // The Terminal button's kind of terminal: a codename and a shell, no startup command.
+    /// A Terminal-button terminal: a codename, a shell, no startup command. Its controller, and its saved startup.
+    func plainTerminal(_ w: ParityWorld) throws -> (String, GhosttyTerminalController) {
         let made = w.state.createPort(type: "terminal", title: nil, html: nil, command: "/bin/zsh", cwd: NSTemporaryDirectory(),
                                       systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
-        let id = try #require(made["id"] as? String)
-        let panel = try #require(w.state.portWindows.panels.first { $0.id == id || $0.udid == id })
-        var config = try #require(panel.terminalConfig)
-        config.startupCommand = ""
-        w.state.autoRegisterTerminalCompanion(config: config, panelId: panel.id, cli: "claude")
-        w.state.keepCLIStartup(config: config, panelId: panel.id, cli: "claude")
-        let saved = try #require(w.state.portWindows.panels.first { $0.id == panel.id }?.terminalConfig)
-        #expect(saved.startupCommand == "claude --continue", "the terminal will reopen as a bare shell: \(saved.startupCommand)")
-        #expect(w.state.companions.contains { $0.displayName == config.companionName })
+        let raw = try #require(made["id"] as? String)
+        let panel = try #require(w.state.portWindows.panels.first { $0.id == raw || $0.udid == raw })
+        w.state.portWindows.rewriteTerminalStartup(id: panel.id) { _ in "" }
+        let controller = try #require(w.state.terminalControllers[panel.id])
+        return (panel.id, controller)
+    }
+    func startup(_ w: ParityWorld, _ id: String) -> String? {
+        w.state.portWindows.panels.first { $0.id == id }?.terminalConfig?.startupCommand
+    }
 
+    @Test("claude starting in a plain terminal saves claude --continue as its startup, through the terminal's own session start")
+    func savesResume() throws {
+        let w = try makeParityWorld()
+        let (id, controller) = try plainTerminal(w)
+        #expect(startup(w, id) == "")
+        controller.handleEvent(.sessionStarted(cli: "claude"))
+        #expect(startup(w, id) == "claude --continue", "the terminal will reopen as a bare shell: \(startup(w, id) ?? "nil")")
         #expect(AppState.resumeStartup(cli: "codex") == "codex resume --last")
+    }
 
-        // Already registered before this fix (keen-tern): the next time its CLI starts, its startup is put right.
-        let again = w.state.createPort(type: "terminal", title: nil, html: nil, command: "/bin/zsh", cwd: NSTemporaryDirectory(),
-                                       systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
-        let againPanel = try #require(w.state.portWindows.panels.first { $0.id == (again["id"] as? String) || $0.udid == (again["id"] as? String) })
-        var againConfig = try #require(againPanel.terminalConfig)
-        againConfig.startupCommand = ""
-        w.state.keepCLIStartup(config: againConfig, panelId: againPanel.id, cli: nil)
-        #expect(w.state.portWindows.panels.first { $0.id == againPanel.id }?.terminalConfig?.startupCommand == "claude --continue")
-        var named = againConfig; named.startupCommand = "claude --resume abc"
-        w.state.keepCLIStartup(config: named, panelId: againPanel.id, cli: "claude")
-        #expect(w.state.portWindows.panels.first { $0.id == againPanel.id }?.terminalConfig?.startupCommand == "claude --continue",
-                "a terminal that already had a startup was rewritten")
+    @Test("a terminal whose saved startup is set (claude --resume abc) keeps it when its CLI starts")
+    func keepsAStartup() throws {
+        let w = try makeParityWorld()
+        let (id, controller) = try plainTerminal(w)
+        w.state.portWindows.rewriteTerminalStartup(id: id) { _ in "claude --resume abc" }
+        controller.handleEvent(.sessionStarted(cli: "claude"))
+        #expect(startup(w, id) == "claude --resume abc", "a saved startup was overwritten: \(startup(w, id) ?? "nil")")
     }
 }
