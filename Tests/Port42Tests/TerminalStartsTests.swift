@@ -139,10 +139,24 @@ struct AutoRegisteredStartupTests {
         var config = try #require(panel.terminalConfig)
         config.startupCommand = ""
         w.state.autoRegisterTerminalCompanion(config: config, panelId: panel.id, cli: "claude")
+        w.state.keepCLIStartup(config: config, panelId: panel.id, cli: "claude")
         let saved = try #require(w.state.portWindows.panels.first { $0.id == panel.id }?.terminalConfig)
         #expect(saved.startupCommand == "claude --continue", "the terminal will reopen as a bare shell: \(saved.startupCommand)")
         #expect(w.state.companions.contains { $0.displayName == config.companionName })
 
         #expect(AppState.resumeStartup(cli: "codex") == "codex resume --last")
+
+        // Already registered before this fix (keen-tern): the next time its CLI starts, its startup is put right.
+        let again = w.state.createPort(type: "terminal", title: nil, html: nil, command: "/bin/zsh", cwd: NSTemporaryDirectory(),
+                                       systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
+        let againPanel = try #require(w.state.portWindows.panels.first { $0.id == (again["id"] as? String) || $0.udid == (again["id"] as? String) })
+        var againConfig = try #require(againPanel.terminalConfig)
+        againConfig.startupCommand = ""
+        w.state.keepCLIStartup(config: againConfig, panelId: againPanel.id, cli: nil)
+        #expect(w.state.portWindows.panels.first { $0.id == againPanel.id }?.terminalConfig?.startupCommand == "claude --continue")
+        var named = againConfig; named.startupCommand = "claude --resume abc"
+        w.state.keepCLIStartup(config: named, panelId: againPanel.id, cli: "claude")
+        #expect(w.state.portWindows.panels.first { $0.id == againPanel.id }?.terminalConfig?.startupCommand == "claude --continue",
+                "a terminal that already had a startup was rewritten")
     }
 }

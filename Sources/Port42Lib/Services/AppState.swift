@@ -2091,6 +2091,7 @@ public final class AppState: ObservableObject {
         let onSessionStarted: (String?) -> Void = { [weak self] cli in
             guard let self else { return }
             self.autoRegisterTerminalCompanion(config: config, panelId: panel.id, cli: cli)
+            self.keepCLIStartup(config: config, panelId: panel.id, cli: cli)
             // A prefilled prompt waits in the CLI's input box for the user to send. SessionStart
             // is the only honest "the TUI is up" signal — typing on a timer races the CLI's boot
             // (and its first-run trust prompt), which drops or misdirects the characters.
@@ -2240,13 +2241,17 @@ public final class AppState: ObservableObject {
         }
         // Membership + the "joined" announcement (once) via the shared seam.
         joinCompanionToSpace(agent, spaceId: config.spaceId)
-        // A plain terminal that now runs a companion comes back as that companion after a relaunch: its saved
-        // startup runs the CLI again, resuming its last conversation. It used to stay empty, so the terminal
-        // reopened as a bare shell while the companion record said claude (keen-tern, Gordon 2026-10-05).
-        if config.startupCommand.trimmingCharacters(in: .whitespaces).isEmpty {
-            let resume = Self.resumeStartup(cli: Self.resolvedCLI(hook: cli, startupCommand: config.startupCommand))
-            portWindows.rewriteTerminalStartup(id: panelId) { _ in resume }
-        }
+    }
+
+    /// A plain terminal whose CLI started is a companion's from now on, and comes back as one after a relaunch:
+    /// its saved startup runs the CLI again, resuming its last conversation. It used to stay empty, so the
+    /// terminal reopened as a bare shell while the companion record said claude (keen-tern, Gordon 2026-10-05).
+    /// Runs on every CLI start, so a terminal registered before this was in place is put right the next time.
+    func keepCLIStartup(config: TerminalPortConfig, panelId: String, cli: String?) {
+        guard config.startupCommand.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let resume = Self.resumeStartup(cli: Self.resolvedCLI(hook: cli, startupCommand: config.startupCommand))
+        portWindows.rewriteTerminalStartup(id: panelId) { _ in resume }
+        p42log("[Port42] terminal %@ now starts with '%@'", config.companionName, resume)
     }
 
     /// The startup a plain terminal is given once its CLI registers as a companion: the CLI again, resuming
