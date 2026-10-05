@@ -210,9 +210,11 @@ public final class AppState: ObservableObject {
     /// The clock ports' timers run on (#259): full rate on screen, slowed out of sight, delivered into each page.
     public lazy var portTimers: PortTimers = {
         let timers = PortTimers()
+        // Full rate wherever the port is, another space included, so nothing falls behind for not being looked
+        // at; only a port the person paused slows (Gordon, 2026-10-04).
         timers.fullRate = { [weak self] key in
             guard let p = self?.shell?.presentation(forPortId: key) else { return true }
-            return p.visible || p.state == .hidden      // on screen, or set to run in the background
+            return PortTimers.fullRate(p)
         }
         timers.deliver = { [weak self] key, id in
             guard let panel = self?.portWindows.panels.first(where: { $0.udid == key || $0.id == key }) else { return false }

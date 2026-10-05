@@ -23,7 +23,7 @@ Subscribe to a port's live event stream. Yields Notify events { topic, kind, pay
 
 ## timer.after
 
-From a port's page: call back once, after `seconds`, as port42.timer.after(seconds, fn). Paced as timer.every: while the port is not on screen it may fire later, and fires when the port is shown again. Returns { id }.
+From a port's page: call back once, after `seconds`, as port42.timer.after(seconds, fn). Paced as timer.every: only a paused port may fire it later, as soon as it is shown again. Returns { id }.
 
         id (string): The timer's id, chosen by the page (the port42 library does this); else Port42 makes one.
         seconds (number, required): Seconds between ticks (at least 0.25).
@@ -40,7 +40,7 @@ From a port's page: stop a timer, by the id timer.every or timer.after returned 
 
 ## timer.every
 
-From a port's page: call back every `seconds`, as port42.timer.every(seconds, fn), which returns the timer's id. Use it instead of setInterval: Port42 owns the clock, runs it at full rate while the port is on screen or set to run in the background, slows it to once a minute while the port is in another space, paused or hidden, and fires it at once when the port is shown again. Returns { id }.
+From a port's page: call back every `seconds`, as port42.timer.every(seconds, fn), which returns the timer's id. Use it instead of setInterval: Port42 owns the clock and runs it at full rate wherever the port is, another space included; only a port the person paused slows to about once a minute, and it fires at once when shown again. Returns { id }.
 
         id (string): The timer's id, chosen by the page (the port42 library does this); else Port42 makes one.
         seconds (number, required): Seconds between ticks (at least 0.25).

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import WebKit
 @testable import Port42Lib
 
 // A clock for ports, paced by where the port is (#259).
@@ -31,7 +32,20 @@ struct PortTimersTests {
         #expect(f.ticks == ["P:\(id)", "P:\(id)"])
     }
 
-    @Test("out of sight it slows to once a minute, and fires at once when shown again")
+    @Test("only a paused port slows: another space, off screen or running keeps full rate (Gordon, 2026-10-04)")
+    func rule() {
+        #expect(PortTimers.fullRate(PortPresentation(state: .tiled, visible: false)), "a port in another space lost time")
+        #expect(PortTimers.fullRate(PortPresentation(state: .hidden, visible: false)), "a running port lost time")
+        #expect(PortTimers.fullRate(PortPresentation(state: .tiled, visible: true, w: 100, h: 100)))
+        #expect(!PortTimers.fullRate(PortPresentation(state: .parked, visible: false)), "a paused port ran at full rate")
+    }
+
+    @Test("a copy of a shared port keeps its timers on this computer")
+    func copyLocal() {
+        #expect(AppState.mirrorLocalMethods.isSuperset(of: ["timer.every", "timer.after", "timer.cancel"]))
+    }
+
+    @Test("a slowed (paused) timer ticks about once a minute, and fires at once when shown again")
     func slowedAndCatchUp() throws {
         var onScreen: Set<String> = []
         let f = Fired()
@@ -93,5 +107,57 @@ struct PortTimersTests {
         }
         _ = try await w.state.runBridgeMethod("timer.cancel", principal: page, args: BridgeArgs(["id": "tick"]))
         #expect(!w.state.portTimers.entries.values.contains { $0.id == "tick" })
+    }
+
+    // MARK: - In a real page
+
+    func js(_ wv: WKWebView, _ src: String) async -> Any? {
+        try? await wv.callAsyncJavaScript(src, arguments: [:], in: nil, contentWorld: .page)
+    }
+
+    func until(_ wv: WKWebView, _ src: String, equals want: Int) async throws {
+        for _ in 0..<200 where await js(wv, src) as? Int != want { try await Task.sleep(nanoseconds: 25_000_000) }
+    }
+
+    @Test("a real page's timer.every calls its function each tick, after calls once, and a reloaded page cancels a timer it no longer has")
+    func inAPage() async throws {
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        let html = """
+            <title>clock</title><script>
+            window.count = 0; window.once = 0;
+            port42.timer.every(1, () => { window.count++ }).then(id => { window.everyId = id });
+            port42.timer.after(1, () => { window.once++ }).then(id => { window.afterId = id });
+            </script>
+            """
+        state.portWindows.registerTiledPort(id: "clock", html: html, spaceId: "s", createdBy: nil, title: "clock",
+                                            position: CGPoint(x: 40, y: 40))
+        let wv = try #require(state.portWindows.webViews["clock"])
+        for _ in 0..<200 where state.portTimers.entries.count < 2 { try await Task.sleep(nanoseconds: 25_000_000) }
+        #expect(state.portTimers.entries.count == 2, "the page's every and after did not reach Port42")
+
+        let start = Date()
+        state.portTimers.tick(now: start.addingTimeInterval(2))
+        try await until(wv, "return window.count", equals: 1)
+        try await until(wv, "return window.once", equals: 1)
+        state.portTimers.tick(now: start.addingTimeInterval(4))
+        try await until(wv, "return window.count", equals: 2)
+        let count = await js(wv, "return window.count") as? Int, once = await js(wv, "return window.once") as? Int
+        #expect(count == 2, "every did not call the page's function each tick")
+        #expect(once == 1, "after fired more than once")
+        #expect(state.portTimers.entries.count == 1, "after was kept after it fired")
+
+        // The page reloads: its script sets new timers, and the old one is now a timer it does not know. The next
+        // tick reaches the page, which cancels it, and only the reloaded page's timers stay.
+        let oldId = try #require(await js(wv, "return window.everyId") as? String)
+        state.portWindows.reloadPort("clock")
+        for _ in 0..<200 where state.portTimers.entries.count < 3 { try await Task.sleep(nanoseconds: 25_000_000) }
+        #expect(state.portTimers.entries.count == 3, "the reloaded page did not set its own timers")
+        state.portTimers.tick(now: start.addingTimeInterval(8))
+        for _ in 0..<200 where state.portTimers.entries.values.contains(where: { $0.id == oldId }) {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        #expect(!state.portTimers.entries.values.contains { $0.id == oldId },
+                "a reloaded page kept getting ticks for a timer it no longer had")
+        #expect(state.portTimers.entries.values.contains { $0.id != oldId && !$0.once }, "the reloaded page's own timer went too")
     }
 }

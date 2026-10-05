@@ -355,11 +355,9 @@ BRIDGE API REFERENCE:
 
   port42.timer.every(seconds, fn)  /  port42.timer.after(seconds, fn)  /  port42.timer.cancel(id)
     A timer Port42 runs for you: use it INSTEAD OF setInterval / setTimeout for anything that repeats or
-    polls. every and after return the timer's id (a promise). Port42 owns the clock, so it paces the timer
-    by where your port is: full rate while it is on screen or set to run in the background
-    (presentation=running); about once a minute while it is in another space, paused or hidden; and it
-    fires at once when the port is shown again, so a dashboard catches up the moment someone looks. A
-    page's own setInterval cannot be paced, and keeps the machine busy for a port nobody is looking at.
+    polls. every and after return the timer's id (a promise). Port42 owns the clock: it runs at full rate
+    wherever your port is, another space included, so nothing falls behind; only a port the person paused
+    slows to about once a minute, and fires at once when it is shown again.
     Your timers stop when the port closes or its page reloads; a port has at most 20.
       port42.timer.every(5, async () => { render(await fetchPrices()) })
 

@@ -3,10 +3,9 @@ import Foundation
 /// A clock for ports (#259; Gordon, 2026-10-04). A page asks `port42.timer.every(seconds, fn)` or
 /// `after(seconds, fn)`, and Port42 calls it back, instead of the page running its own `setInterval`.
 ///
-/// Port42 can then pace the timer by where the port is, which a page's own timer cannot be: full rate on
-/// screen, or when the port is set to run in the background; slowed to `slowEvery` in another space, paused,
-/// or behind the galaxy; and due at once when it comes back into view, so it catches up. A page polling on its
-/// own timer kept the shared web process awake from a space nobody was in (#257, the CPU chart).
+/// Port42 can then pace the timer, which a page's own timer cannot be: full rate wherever the port is, another
+/// space included; slowed to `slowEvery` only for a port the person paused, and due at once when it is shown
+/// again, so it catches up.
 @MainActor
 public final class PortTimers {
     struct Entry {
@@ -17,8 +16,12 @@ public final class PortTimers {
         var last: Date
     }
 
-    /// The pace of a port that is not on screen.
+    /// The pace of a port the person paused.
     static var slowEvery: TimeInterval = 60
+
+    /// Whether a port's timers run at full rate: everywhere but a port the person paused, which slows to
+    /// `slowEvery` and catches up when shown (Gordon, 2026-10-04: a space you are not in must not lose time).
+    nonisolated static func fullRate(_ p: PortPresentation) -> Bool { p.state != .parked }
     static let minEvery: TimeInterval = 0.25
     static let maxPerPort = 20
 
@@ -92,13 +95,13 @@ func registerTimerMethods(into r: inout BridgeRegistry, appState: AppState) {
     let chosenId: [String: Any] = ["type": "string", "description": "The timer's id, chosen by the page (the port42 library does this); else Port42 makes one."]
 
     r["timer.every"] = BridgeMethod(permission: nil, paramNames: ["seconds", "id"], toolExposed: false,
-        description: "From a port's page: call back every `seconds`, as port42.timer.every(seconds, fn), which returns the timer's id. Use it instead of setInterval: Port42 owns the clock, runs it at full rate while the port is on screen or set to run in the background, slows it to once a minute while the port is in another space, paused or hidden, and fires it at once when the port is shown again. Returns { id }.",
+        description: "From a port's page: call back every `seconds`, as port42.timer.every(seconds, fn), which returns the timer's id. Use it instead of setInterval: Port42 owns the clock and runs it at full rate wherever the port is, another space included; only a port the person paused slows to about once a minute, and it fires at once when shown again. Returns { id }.",
         inputSchema: ["type": "object", "properties": ["seconds": seconds, "id": chosenId], "required": ["seconds"]]) { p, args in
         guard let s = args.double("seconds") else { throw BridgeError.missingArg("seconds") }
         return .object(["id": .string(try appState.portTimers.add(port: try ownPort(p), seconds: s, once: false, id: args.string("id")))])
     }
     r["timer.after"] = BridgeMethod(permission: nil, paramNames: ["seconds", "id"], toolExposed: false,
-        description: "From a port's page: call back once, after `seconds`, as port42.timer.after(seconds, fn). Paced as timer.every: while the port is not on screen it may fire later, and fires when the port is shown again. Returns { id }.",
+        description: "From a port's page: call back once, after `seconds`, as port42.timer.after(seconds, fn). Paced as timer.every: only a paused port may fire it later, as soon as it is shown again. Returns { id }.",
         inputSchema: ["type": "object", "properties": ["seconds": seconds, "id": chosenId], "required": ["seconds"]]) { p, args in
         guard let s = args.double("seconds") else { throw BridgeError.missingArg("seconds") }
         return .object(["id": .string(try appState.portTimers.add(port: try ownPort(p), seconds: s, once: true, id: args.string("id")))])
