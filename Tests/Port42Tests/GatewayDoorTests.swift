@@ -67,6 +67,21 @@ struct GatewayDoorTests {
         #expect((Self.content(r ?? [:]) as? [String: Any])?["token"] as? String == "abc:1")
     }
 
+    @Test("#269: a call reached after its caller stopped waiting is not run, and says so; one within its deadline runs")
+    func pastDeadlineNotRun() async {
+        let wire = Wire(), d = door(wire)
+        var ran: [String] = []
+        d.onCallReceived = { _, callId, _, _, _, _ in ran.append(callId); return ["ok": true] }
+        let late = Self.call("late", method: "chat.post").dropLast() + ",\"deadline\":\(Date().timeIntervalSince1970 * 1000 - 5000)}"
+        let onTime = Self.call("on-time", method: "chat.post").dropLast() + ",\"deadline\":\(Date().timeIntervalSince1970 * 1000 + 30000)}"
+        d.receive(String(late))
+        d.receive(String(onTime))
+        await settle(wire) { wire.frames("response").count >= 2 }
+        #expect(ran == ["on-time"], "a call past its deadline ran: \(ran)")
+        let refused = wire.frames("response").first { $0["call_id"] as? String == "late" }
+        #expect((Self.content(refused ?? [:]) as? [String: Any])?["code"] as? String == "timed_out")
+    }
+
     @Test("the response payload is exactly the published /call shape: content, senderName, senderType")
     func publishedShape() async {
         let wire = Wire(), d = door(wire)

@@ -100,6 +100,9 @@ struct DoorEnvelope: Codable {
     var remoteAttest: String?
     /// On a remote caller's call: who on its instance made it (4.6c).
     var actor: DoorActor?
+    /// When the caller stops waiting, in Unix milliseconds (an HTTP call). A call not started by then is not
+    /// run (#269).
+    var deadline: Double?
 
     var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
 
@@ -125,6 +128,7 @@ struct DoorEnvelope: Codable {
         case relays
         case remoteAttest = "remote_attest"
         case actor
+        case deadline
     }
 }
 
@@ -288,6 +292,12 @@ public final class GatewayDoor: NSObject, ObservableObject {
     /// for the main thread after it arrived, or in its method. The gateway logs its side under the same call id.
     static let slowCall: TimeInterval = 2
 
+    /// Whether a call's deadline (Unix milliseconds) has passed.
+    nonisolated static func pastDeadline(_ deadline: Double?, now: Date) -> Bool {
+        guard let deadline else { return false }
+        return now.timeIntervalSince1970 * 1000 > deadline
+    }
+
     private func handleCall(_ envelope: DoorEnvelope, arrived: Date = Date()) {
         guard let callId = envelope.callId, let method = envelope.method,
               let senderId = envelope.senderId else { return }
@@ -300,6 +310,15 @@ public final class GatewayDoor: NSObject, ObservableObject {
             defer { self.inflight[key] = nil }
             let began = Date()
             let waited = began.timeIntervalSince(arrived)
+            // Its caller already stopped waiting and was told it timed out: running it now would do what the
+            // caller believes did not happen, and a retry would do it twice (#269). Not run.
+            if Task.isCancelled || Self.pastDeadline(envelope.deadline, now: began) {
+                p42log("[door] did not run %@ %@: its caller had stopped waiting", method, callId)
+                self.send(Self.response(callId: callId, to: senderId, content: Self.jsonContent(from: [
+                    "error": "the caller stopped waiting before this call could start, so it was not run",
+                    "code": BridgeErrorCode.timedOut.wire])))
+                return
+            }
             await PermissionCoordinator.$awaitingPerson.withValue(pending) {
                 await self.runCall(envelope, callId: callId, method: method, senderId: senderId)
             }

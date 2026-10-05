@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
@@ -63,10 +64,16 @@ func parseMethodArgs(words []string, stdin io.Reader) (map[string]any, error) {
 			} else {
 				data, err = os.ReadFile(val[1:])
 			}
-			if err != nil {
+			if err == nil {
+				val = string(data)
+			} else if val != "@-" && errors.Is(err, fs.ErrNotExist) && !looksLikePath(val[1:]) {
+				// No such file, and it cannot be meant as one: text that starts with @, most often a mention,
+				// "@wren hello" (#273). A missing path ("@port.htm") is still an error, never sent as text.
+			} else if errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("%s: %v (for text that starts with @, use %s:='\"@...\"')", key, err, key)
+			} else {
 				return nil, fmt.Errorf("%s: %v", key, err)
 			}
-			val = string(data)
 		}
 		args[key] = val
 	}
@@ -210,4 +217,10 @@ func callWithToken(port int, token, method string, args any) (json.RawMessage, e
 		return nil, errors.New(out.Error)
 	}
 	return out.Content, nil
+}
+
+// looksLikePath says whether what follows an @ could be a file someone meant: one word with a / or a dot in
+// it. "wren hello" and "wren" are not; "port.html" and "docs/x" are.
+func looksLikePath(s string) bool {
+	return !strings.ContainsAny(s, " \t\n") && strings.ContainsAny(s, "/.")
 }

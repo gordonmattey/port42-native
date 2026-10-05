@@ -150,3 +150,23 @@ func TestAWebSocketCallerThatLeavesIsCancelledOnTheHost(t *testing.T) {
 		t.Fatalf("cancel %+v, want call %q from ws-caller", c, call.CallID)
 	}
 }
+
+// #269: an HTTP call reaches the host with the moment its caller stops waiting, so the host can decline to
+// start it after the caller was told it timed out.
+func TestAnHTTPCallCarriesItsDeadline(t *testing.T) {
+	shortWaits(t, 2*time.Second, 5*time.Second)
+	gw := NewGateway()
+	srv, wsURL := setupTestServerWithCall(gw)
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, got := rawHost(t, ctx, wsURL)
+	defer conn.CloseNow()
+	before := time.Now()
+	go postCall(srv.URL)
+	call := next(t, got, "call", 3*time.Second)
+	want := before.Add(callWait).UnixMilli()
+	if call.Deadline < want-1000 || call.Deadline > want+2000 {
+		t.Fatalf("deadline %d, want about %d (now plus callWait)", call.Deadline, want)
+	}
+}

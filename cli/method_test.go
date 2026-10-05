@@ -66,3 +66,28 @@ func TestRefusalIsRecognisedAndUnwrapped(t *testing.T) {
 		t.Fatal("text stays text")
 	}
 }
+
+// #273: an @mention is text, not a file; a file is still read; a missing path is still an error.
+func TestAnAtMentionIsTextNotAFile(t *testing.T) {
+	dir := t.TempDir()
+	page := dir + "/port.html"
+	os.WriteFile(page, []byte("<p>hi</p>"), 0o600)
+	for _, c := range []struct{ word, want string }{
+		{"text=@wren hello", "@wren hello"},
+		{"text=@wren", "@wren"},
+		{"html=@" + page, "<p>hi</p>"},
+	} {
+		got, err := parseMethodArgs([]string{c.word}, strings.NewReader(""))
+		if err != nil {
+			t.Fatalf("%q: %v", c.word, err)
+		}
+		for _, v := range got {
+			if v != c.want {
+				t.Fatalf("%q gave %q, want %q", c.word, v, c.want)
+			}
+		}
+	}
+	if _, err := parseMethodArgs([]string{"html=@" + dir + "/prot.htm"}, strings.NewReader("")); err == nil {
+		t.Fatal("a mistyped file path was sent as text instead of failing")
+	}
+}

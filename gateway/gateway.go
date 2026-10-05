@@ -48,6 +48,10 @@ type Envelope struct {
 	PeerID     string          `json:"peer_id,omitempty"` // the peer that sent this, stamped by the gateway
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	Timestamp  int64           `json:"timestamp,omitempty"`
+	// Deadline is when the caller stops waiting, in Unix milliseconds: set on an HTTP call, whose caller is
+	// told it timed out after callWait. The app does not start a call past it, so a timeout means the call
+	// did not happen (#269: a timed-out chat.post landed later and a retry posted it again).
+	Deadline int64 `json:"deadline,omitempty"`
 	Error      string          `json:"error,omitempty"`
 	// Code is the machine-readable form of Error, from the SAME list the app publishes
 	// (`BridgeErrorCode`). See errorcodes.go. A remote caller meets these before anything the app says.
@@ -507,8 +511,9 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		log.Printf("[gateway] %s from %s", env.Type, peer.ID[:min(8, len(peer.ID))])
 
 		env.PeerID = peer.ID
-		// Only the remote door may say a call came from another machine.
+		// Only the remote door may say a call came from another machine; only the HTTP door sets a deadline.
 		env.RemotePeer, env.RemoteAttest = "", ""
+		env.Deadline = 0
 		if env.Timestamp == 0 {
 			env.Timestamp = time.Now().UnixMilli()
 		}
@@ -693,6 +698,7 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		CallID:     callID,
 		SenderID:   localPrincipalID,
 		Credential: BearerToken(r.Header.Get("Authorization")),
+		Deadline:   time.Now().Add(callWait).UnixMilli(),
 	}
 
 	ctx := r.Context()
