@@ -2240,6 +2240,19 @@ public final class AppState: ObservableObject {
         }
         // Membership + the "joined" announcement (once) via the shared seam.
         joinCompanionToSpace(agent, spaceId: config.spaceId)
+        // A plain terminal that now runs a companion comes back as that companion after a relaunch: its saved
+        // startup runs the CLI again, resuming its last conversation. It used to stay empty, so the terminal
+        // reopened as a bare shell while the companion record said claude (keen-tern, Gordon 2026-10-05).
+        if config.startupCommand.trimmingCharacters(in: .whitespaces).isEmpty {
+            let resume = Self.resumeStartup(cli: Self.resolvedCLI(hook: cli, startupCommand: config.startupCommand))
+            portWindows.rewriteTerminalStartup(id: panelId) { _ in resume }
+        }
+    }
+
+    /// The startup a plain terminal is given once its CLI registers as a companion: the CLI again, resuming
+    /// the conversation it was in.
+    nonisolated static func resumeStartup(cli: String?) -> String {
+        cli == "codex" ? "codex resume --last" : "claude --continue"
     }
 
     /// The command an auto-registered terminal companion runs: the CLI whose hook said it started.

@@ -124,3 +124,25 @@ struct TerminalStartsTests {
         #expect(state2.terminalControllers[waitingId] != nil, "the terminal was not started for the call")
     }
 }
+
+@Suite("A plain terminal that becomes a companion comes back as one", .serialized)
+@MainActor
+struct AutoRegisteredStartupTests {
+    @Test("a plain terminal whose claude registers as a companion saves claude --continue as its startup; one that already has a startup keeps it")
+    func savesResume() throws {
+        let w = try makeParityWorld()
+        // The Terminal button's kind of terminal: a codename and a shell, no startup command.
+        let made = w.state.createPort(type: "terminal", title: nil, html: nil, command: "/bin/zsh", cwd: NSTemporaryDirectory(),
+                                      systemPrompt: nil, spaceId: w.space.id, createdBy: nil, createdByName: nil)
+        let id = try #require(made["id"] as? String)
+        let panel = try #require(w.state.portWindows.panels.first { $0.id == id || $0.udid == id })
+        var config = try #require(panel.terminalConfig)
+        config.startupCommand = ""
+        w.state.autoRegisterTerminalCompanion(config: config, panelId: panel.id, cli: "claude")
+        let saved = try #require(w.state.portWindows.panels.first { $0.id == panel.id }?.terminalConfig)
+        #expect(saved.startupCommand == "claude --continue", "the terminal will reopen as a bare shell: \(saved.startupCommand)")
+        #expect(w.state.companions.contains { $0.displayName == config.companionName })
+
+        #expect(AppState.resumeStartup(cli: "codex") == "codex resume --last")
+    }
+}
