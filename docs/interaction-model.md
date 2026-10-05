@@ -33,6 +33,7 @@ takes it further. Change this file when a gesture or key changes.
 | A port's title bar | magnifier | Zoom in on it. Zoomed in, the arrows zoom back out. |
 | The desktop | pinch in / out | Zoom in toward a port / out toward the galaxy. |
 | The right edge | touch it, or sweep toward it | Opens the rail at once; it shuts the moment the pointer is off it. It also opens for a drag, for a moment after a drop onto it, when a popped-up port goes back, and when a running port newly needs you. |
+| A terminal that says "waiting to start" | click | Starts it at once. After a launch, terminals start in turn (the current space first, five at a time); going to a space moves its terminals to the front (#229). |
 | A Running card | click | Shows the port on the desktop (keeps it). |
 | A Running card | magnifier, pinch, or ⌘↓ over it | Pops the port up for a look; a click on it keeps it, zooming out puts it back in its slot. |
 | A peek | magnifier / ✕ / click / flick left | Look / skip / keep / skip. Zoomed into it, a click keeps it. |
