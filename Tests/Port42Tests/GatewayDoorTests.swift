@@ -76,7 +76,7 @@ struct GatewayDoorTests {
         let onTime = Self.call("on-time", method: "chat.post").dropLast() + ",\"deadline\":\(Date().timeIntervalSince1970 * 1000 + 30000)}"
         d.receive(String(late))
         d.receive(String(onTime))
-        await settle(wire) { wire.frames("response").count >= 2 }
+        for _ in 0..<2000 where wire.frames("response").count < 2 { try? await Task.sleep(nanoseconds: 5_000_000) }
         #expect(ran == ["on-time"], "a call past its deadline ran: \(ran)")
         let refused = wire.frames("response").first { $0["call_id"] as? String == "late" }
         #expect((Self.content(refused ?? [:]) as? [String: Any])?["code"] as? String == "timed_out")

@@ -45,7 +45,9 @@ public struct MirrorStatus: Equatable {
 extension AppState {
 
     /// Methods a mirrored tile answers for itself: they are about this desktop, not the port.
-    static let mirrorLocalMethods: Set<String> = ["presentation", "port.info", "user.get"]
+    static let mirrorLocalMethods: Set<String> = ["presentation", "port.info", "user.get",
+                                                  // A copy's timers run on this computer, into the copy's page (#259).
+                                                  "timer.every", "timer.after", "timer.cancel"]
     /// What a page says about itself, which on a copy is said about the copy: its card's lines (`state.set`) and
     /// its own feed (`port.publish`). They went to the host, which refuses both to another computer, so every
     /// shared page logged rejections and the agents there patched each one (Gordon, 2026-10-03: fix it here).

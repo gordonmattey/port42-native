@@ -27,6 +27,7 @@ struct BridgeTargetScopeTests {
         // A port acting on itself only.
         "port.close": "own port", "port.setTitle": "own port", "port.setCapabilities": "own port",
         "port.info": "own port", "port.publish": "own port's topic", "presentation": "own port",
+        "timer.every": "own port's page (#259)", "timer.after": "own port's page", "timer.cancel": "own port's timers",
         // Sharing and spaces (APP-01, NAU-03).
         "invite.create": "share card for any caller but the person (NAU-03)",
         "invite.accept": "share card for any caller but the person (NAU-03)",

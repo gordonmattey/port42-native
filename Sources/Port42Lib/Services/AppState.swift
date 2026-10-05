@@ -207,6 +207,20 @@ public final class AppState: ObservableObject {
         return starts
     }()
     private var terminalStartsSink: AnyCancellable?
+    /// The clock ports' timers run on (#259): full rate on screen, slowed out of sight, delivered into each page.
+    public lazy var portTimers: PortTimers = {
+        let timers = PortTimers()
+        timers.fullRate = { [weak self] key in
+            guard let p = self?.shell?.presentation(forPortId: key) else { return true }
+            return p.visible || p.state == .hidden      // on screen, or set to run in the background
+        }
+        timers.deliver = { [weak self] key, id in
+            guard let panel = self?.portWindows.panels.first(where: { $0.udid == key || $0.id == key }) else { return false }
+            panel.bridge.pushEvent(.timer, data: .object(["id": .string(id)]))
+            return true
+        }
+        return timers
+    }()
     /// Whether this instance is registered on its relays (GW-16): only while it shares something.
     @Published public internal(set) var relayHosting = false
     /// Where the decision goes; the gateway in the app, a recorder in tests.

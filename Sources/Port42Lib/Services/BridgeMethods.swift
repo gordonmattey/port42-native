@@ -25,6 +25,7 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerBrowserUseMethods(into: &r, appState: appState) // port.look / port.act (BridgeBrowserUseMethods.swift)
     registerChatMethods(into: &r, appState: appState)       // chat.* (PortChat.swift)
     registerInviteMethods(into: &r, appState: appState)     // invite.* (Invites.swift)
+    registerTimerMethods(into: &r, appState: appState)      // timer.* (PortTimers.swift, #259)
     registerAcceptMethods(into: &r, appState: appState)     // invite.accept (Invites.swift)
     registerWatchMethods(into: &r, appState: appState)      // companions.watch* (CompanionWatch.swift)
     registerCompanionCreate(into: &r, appState: appState)   // companions.create (CompanionWatch.swift)

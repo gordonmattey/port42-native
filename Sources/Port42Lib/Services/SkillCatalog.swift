@@ -29,7 +29,7 @@ public enum SkillCatalog {
         switch method {
         case "whoami", "help", "companions.list", "companions.get":
             return "port42"
-        case "port.publish", "port.subscribe":
+        case "port.publish", "port.subscribe", "timer.every", "timer.after", "timer.cancel":
             return "port42-compose"
         case "companions.create", "companions.remove", "companions.update", "companions.delete", "companions.watch", "companions.unwatch", "companions.watches", "companions.invoke":
             return "port42-team"

@@ -353,6 +353,16 @@ BRIDGE API REFERENCE:
     or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
     before your webview is dropped, so you re-mount clean rather than blank.
 
+  port42.timer.every(seconds, fn)  /  port42.timer.after(seconds, fn)  /  port42.timer.cancel(id)
+    A timer Port42 runs for you: use it INSTEAD OF setInterval / setTimeout for anything that repeats or
+    polls. every and after return the timer's id (a promise). Port42 owns the clock, so it paces the timer
+    by where your port is: full rate while it is on screen or set to run in the background
+    (presentation=running); about once a minute while it is in another space, paused or hidden; and it
+    fires at once when the port is shown again, so a dashboard catches up the moment someone looks. A
+    page's own setInterval cannot be paced, and keeps the machine busy for a port nobody is looking at.
+    Your timers stop when the port closes or its page reloads; a port has at most 20.
+      port42.timer.every(5, async () => { render(await fetchPrices()) })
+
   port42.state.set([{label, value}, …])  /  port42.state.get()
     Say what you are doing, in up to 5 short lines, most important first: shown on your card when you
     are small (a peek), on your card under Running in the rail and in ⌘K, before what Port42 knows about you (console
@@ -574,7 +584,7 @@ BRIDGE API REFERENCE:
       access · audio.data · audio.transcription · browser.error · browser.load
       browser.redirect · camera.frame · chat · companion.activity · console · driver
       filedrop · message · presence · presentation · push · screen.frame · state · storage
-      subscribed · terminal.output
+      subscribed · terminal.output · timer
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):

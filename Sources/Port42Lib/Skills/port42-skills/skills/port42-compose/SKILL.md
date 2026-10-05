@@ -29,7 +29,9 @@ ANOTHER SPACE).
 Make the middle stages run off the desktop (`presentation=running`, see `port42-ports`). They run in
 full with no tile. Off screen a port still receives every event at full rate; a running port's timers
 also run at full rate, while a paused port's or one in another space slow to about once a second.
-Off-screen timers never stop, though a long interval may fire a little late.
+Off-screen timers never stop, though a long interval may fire a little late. For anything that repeats or
+polls, use `port42.timer.every(seconds, fn)` instead of `setInterval`: Port42 runs it at full rate on screen
+or running, about once a minute out of sight, and fires it at once when the port is shown again.
 
 ## Being woken by a port
 

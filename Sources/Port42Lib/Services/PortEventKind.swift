@@ -89,6 +89,9 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     /// The first event of a `port.subscribe` stream: from here on nothing the port emits is missed, so read what
     /// you need to catch up on now (a tile reads its host's chat).
     case subscribed
+    /// A timer the page set with port42.timer.every or after is due: `{id}` (#259). The page's port42 library
+    /// calls the function it was given.
+    case timer
 
     /// The name on the wire.
     public var wire: String { rawValue }

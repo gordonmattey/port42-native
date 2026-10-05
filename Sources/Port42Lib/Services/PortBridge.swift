@@ -593,6 +593,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         const _pending = {};
         const _listeners = {};
         const _tokenCallbacks = {};
+        // Timers Port42 runs for this page (#259): id -> { fn, once }.
+        const _timers = {};
 
         // Connection health tracking
         let _lastHeartbeat = Date.now();
@@ -672,6 +674,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     if (cb) try { cb(token); } catch(e) { console.error(e); }
                 },
                 _emit: function(event, data) {
+                    // A timer this page set is due. One it does not know (it was set before a reload) is
+                    // cancelled, so Port42 stops ticking into a page that no longer wants it.
+                    if (event === 'timer') {
+                        const t = data && _timers[data.id];
+                        if (!t) { if (data && data.id) call('timer.cancel', [data.id]); return; }
+                        if (t.once) delete _timers[data.id];
+                        try { t.fn(data); } catch(e) { console.error(e); }
+                        return;
+                    }
                     const cbs = _listeners[event] || [];
                     cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
                     // Presentation also fires a DOM CustomEvent, parity with port42:filedrop (backlog 1.1),
@@ -712,6 +723,21 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 // companions.list / companions.get reach the registry through the proxy. `invoke` went
                 // with the in-app engine; a port talks to a companion through its terminal's chat.
                 companions: __ns('companions', {}),
+                // Port42 owns the clock (#259): every/after return the timer's id; cancel stops it.
+                timer: __ns('timer', {
+                    // The page names the timer and records it first, so the first tick can never arrive before it.
+                    every: function(seconds, fn) {
+                        const id = 't' + Math.random().toString(36).slice(2, 10);
+                        _timers[id] = { fn: fn, once: false };
+                        return call('timer.every', [seconds, id]).then(function() { return id; }, function(e) { delete _timers[id]; throw e; });
+                    },
+                    after: function(seconds, fn) {
+                        const id = 't' + Math.random().toString(36).slice(2, 10);
+                        _timers[id] = { fn: fn, once: true };
+                        return call('timer.after', [seconds, id]).then(function() { return id; }, function(e) { delete _timers[id]; throw e; });
+                    },
+                    cancel: function(id) { delete _timers[id]; return call('timer.cancel', [id]); }
+                }),
                 port: __ns('port', {
                     resize: (w, h) => {
                         document.body.style.width = w + 'px';

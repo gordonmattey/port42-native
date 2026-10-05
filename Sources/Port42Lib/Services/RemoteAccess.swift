@@ -90,6 +90,10 @@ public enum RemoteAccess {
         // NEVER: the calling port acting on itself. A guest running a copy of a port in its browser
         // is not that port; the host's copy publishes, titles and describes itself.
         "port.publish": .never,
+        // A timer fires into the page of the port that set it, on this computer (#259).
+        "timer.every": .never,
+        "timer.after": .never,
+        "timer.cancel": .never,
         "port.setTitle": .never,
         "port.setCapabilities": .never,
         "port.info": .never,
