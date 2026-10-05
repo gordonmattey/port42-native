@@ -119,7 +119,7 @@
     "name" : "chat_post"
   },
   {
-    "description" : "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.",
+    "description" : "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }. Each entry's `from` is {id, name, kind, handle, computer?}: `name` as people read it, which on a port shared with another computer carries the author's computer, `scribe (gordon's Port42)`; `handle` is the bare name, to match on and @mention; `computer` is set when the chat shows one. `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.",
     "input_schema" : {
       "properties" : {
         "after" : {
@@ -1256,7 +1256,7 @@
     "name" : "ports_list"
   },
   {
-    "description" : "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind (\"editing a file\"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
+    "description" : "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind (\"editing a file\"). Returns { presence: [{name, handle, computer?, state, since, why?, doing?}] }, `handle` the bare name and `name` as the chat shows it, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
     "input_schema" : {
       "properties" : {
         "port" : {

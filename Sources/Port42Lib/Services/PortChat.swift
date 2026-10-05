@@ -22,22 +22,42 @@ public struct PortChatEntry: Equatable {
     public let fromId: String
     public let fromName: String
     public let fromKind: String
+    /// The computer a shared chat shows beside a local author's name (`ChatRouting.labeled`), else nil.
+    public let computer: String?
 
-    public init(seq: Int, at: Date, text: String, fromId: String, fromName: String, fromKind: String) {
+    public init(seq: Int, at: Date, text: String, fromId: String, fromName: String, fromKind: String,
+                computer: String? = nil) {
         self.seq = seq
         self.at = at
         self.text = text
         self.fromId = fromId
         self.fromName = fromName
         self.fromKind = fromKind
+        self.computer = computer
+    }
+
+    /// Who posted, apart: the bare name to match on and @mention, and the computer a shared chat shows beside it.
+    /// `from.name` is what people read, `scribe (gordon's Port42)`; code matching on it broke when 1.0.8 began
+    /// labeling shared chats (the board dropped its VERIFIED lines, 2026-10-05), so it reads `from.handle`.
+    public var sender: (handle: String, computer: String?) {
+        if let computer, fromName.hasSuffix(" (\(computer))") {
+            return (String(fromName.dropLast(computer.count + 3)), computer)
+        }
+        // Another computer's author is stored as that chat showed them, with their computer.
+        if fromId.contains("/") { let s = ChatRouting.splitLabel(fromName); return (s.name, s.label) }
+        return (fromName, computer)
     }
 
     public var bridgeValue: BridgeValue {
-        .object([
+        let (handle, computer) = sender
+        var from: [String: BridgeValue] = ["id": .string(fromId), "name": .string(fromName), "kind": .string(fromKind),
+                                           "handle": .string(handle)]
+        if let computer { from["computer"] = .string(computer) }
+        return .object([
             "seq": .int(seq),
             "at": .double(at.timeIntervalSince1970),
             "text": .string(text),
-            "from": .object(["id": .string(fromId), "name": .string(fromName), "kind": .string(fromKind)]),
+            "from": .object(from),
         ])
     }
 
@@ -47,7 +67,7 @@ public struct PortChatEntry: Equatable {
         let from = o["from"] as? [String: Any] ?? [:]
         return PortChatEntry(seq: seq, at: Date(timeIntervalSince1970: (o["at"] as? Double) ?? 0), text: text,
                              fromId: from["id"] as? String ?? "", fromName: from["name"] as? String ?? "",
-                             fromKind: from["kind"] as? String ?? "")
+                             fromKind: from["kind"] as? String ?? "", computer: from["computer"] as? String)
     }
 
     /// The stored form, without `seq`: the row's key carries it.
@@ -453,7 +473,7 @@ public enum ChatRouting {
         guard let label, !e.fromName.isEmpty, !e.fromId.contains("/"), e.fromId != port42SenderId,
               e.fromKind != "system" else { return e }
         return PortChatEntry(seq: e.seq, at: e.at, text: e.text, fromId: e.fromId,
-                             fromName: "\(e.fromName) (\(label))", fromKind: e.fromKind)
+                             fromName: "\(e.fromName) (\(label))", fromKind: e.fromKind, computer: label)
     }
 
     /// A post in a shared chat, as routing on this machine reads it: `@alba` with a machine after it (escaped,
@@ -624,7 +644,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["chat.read"] = BridgeMethod(permission: nil, paramNames: ["port", "after", "limit"],
-        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }, where `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.",
+        description: "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last, agents? }. Each entry's `from` is {id, name, kind, handle, computer?}: `name` as people read it, which on a port shared with another computer carries the author's computer, `scribe (gordon's Port42)`; `handle` is the bare name, to match on and @mention; `computer` is set when the chat shows one. `last` is the newest seq in the chat (0 when empty), and `agents`, on a port shared with another computer, names this computer's agents on it as the chat shows them, whether or not they have posted.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -651,7 +671,7 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
     }
 
     r["presence.list"] = BridgeMethod(permission: nil, paramNames: ["port"],
-        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind (\"editing a file\"). Returns { presence: [{name, state, since, why?, doing?}] }, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
+        description: "Who is on a chat's messages right now: each companion that has a message from this chat (`received`), is working on it (`working`), or is waiting for the person (`waiting`, with `why` when it said). `doing` says what it is doing right now (\"editing ShellView.swift\", \"running swift test\") when its CLI reports tools (Claude Code does); a caller on another computer is told only the kind (\"editing a file\"). Returns { presence: [{name, handle, computer?, state, since, why?, doing?}] }, `handle` the bare name and `name` as the chat shows it, empty when nobody is. Subscribe to the port for the `presence` event to hear each change; the event carries only the kind of what each is doing.",
         inputSchema: [
             "type": "object",
             "properties": [

@@ -280,9 +280,12 @@ BRIDGE API REFERENCE:
     Get the current user.
 
   port42.chat.read(port, after?, limit?)
-    Returns: {entries: [{seq, at, text, from: {id, name, kind}}], last}
+    Returns: {entries: [{seq, at, text, from: {id, name, kind, handle, computer?}}], last}
     Read a port's chat, oldest first. Every port has one: pass a port id, a space id, or 0 for
     the desktop. Pass `after` (a seq you have seen) to get only what is newer.
+    Match a sender on `from.handle`, the bare name ("scribe"). `from.name` is for people: on a port
+    shared with another computer it carries the author's computer, "scribe (gordon's Port42)", and
+    `from.computer` names it.
 
   port42.chat.post(port, text)
     Post to a port's chat, attributed to this port. An @mention wakes that companion.

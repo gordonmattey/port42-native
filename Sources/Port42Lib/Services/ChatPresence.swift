@@ -47,7 +47,9 @@ public struct ChatPresence: Equatable {
     /// `label`: this machine's name, beside the companion's in a chat shared with another machine (two agents, 6.2).
     public func bridgeValue(detail: Bool, label: String? = nil) -> BridgeValue {
         let shown = label.map { "\(name) (\($0))" } ?? name
-        var o: [String: BridgeValue] = ["name": .string(shown), "since": .int(Int(since.timeIntervalSince1970))]
+        var o: [String: BridgeValue] = ["name": .string(shown), "handle": .string(name),
+                                        "since": .int(Int(since.timeIntervalSince1970))]
+        if let label { o["computer"] = .string(label) }
         if let doing { o["doing"] = .string(detail ? doing.detail : doing.summary) }
         switch state {
         case .received: o["state"] = .string("received")

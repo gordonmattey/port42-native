@@ -127,6 +127,50 @@ struct TwoAgentsAddressingTests {
                 "the label was stored rather than shown")
     }
 
+    func senders(_ v: BridgeValue) -> [String] {
+        guard case .object(let o) = v, case .array(let es)? = o["entries"] else { return [] }
+        return es.compactMap { e -> String? in
+            guard case .object(let x) = e, case .object(let from)? = x["from"], case .string(let h)? = from["handle"] else { return nil }
+            if case .string(let c)? = from["computer"] { return "\(h)@\(c)" }
+            return h
+        }
+    }
+
+    @Test("every chat entry names its sender bare in from.handle and its computer in from.computer, so code never parses a label")
+    func handles() async throws {
+        let w = try makeParityWorld()
+        let id = try board(w)
+        let alba = Principal.companion(id: "A1", displayName: "alba", spaceId: w.space.id)
+        _ = try w.state.postToChat(key: id, text: "before sharing", from: alba)
+        let plain = try await w.state.runBridgeMethod("chat.read", principal: w.principal, args: BridgeArgs(["port": id]))
+        #expect(senders(plain) == ["alba"], "an unshared chat's entry has no handle, or a computer")
+
+        w.state.grantRemoteRights([.see, .use, .wakeAgents], to: Self.peer, onPort: id)
+        var heard: [PortChatEntry] = []
+        _ = w.state.notifyBus.subscribe(topic: PortNotify.topic(forPortKey: id)) { json in
+            if let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any], o["kind"] as? String == "chat",
+               let e = PortChatEntry.fromEvent(o["payload"]) { heard.append(e) }
+        }
+        _ = try w.state.postToChat(key: id, text: "now shared", from: alba)
+        _ = try w.state.postToChat(key: id, text: "hello", from: bram())
+        let label = w.state.selfLabel
+        let read = try await w.state.runBridgeMethod("chat.read", principal: w.principal, args: BridgeArgs(["port": id]))
+        #expect(senders(read) == ["alba@\(label)", "alba@\(label)", "bram@gordon11"], "\(senders(read))")
+        // The event as a tile on the other computer reads it: the handle survives the trip.
+        #expect(heard.map { "\($0.sender.handle)@\($0.sender.computer ?? "")" } == ["alba@\(label)", "bram@gordon11"])
+        // A computer whose own name has brackets in it still gives the bare handle.
+        let odd = ChatRouting.labeled(PortChatEntry(seq: 1, at: Date(), text: "", fromId: "A1", fromName: "alba", fromKind: "companion"),
+                                      local: "Gordon's (work) Mac")
+        #expect(odd.sender.handle == "alba" && odd.sender.computer == "Gordon's (work) Mac")
+
+        w.state.presence.received("alba", in: id)
+        let here = try await w.state.runBridgeMethod("presence.list", principal: w.principal, args: BridgeArgs(["port": id]))
+        guard case .object(let o) = here, case .array(let ps)? = o["presence"], case .object(let p)? = ps.first else {
+            Issue.record("no presence"); return
+        }
+        #expect(p["handle"] == .string("alba") && p["computer"] == .string(label) && p["name"] == .string("alba (\(label))"))
+    }
+
     @Test("this machine's label never matches a machine it shares with (NAU-04)")
     func labelNeverCollides() throws {
         let w = try makeParityWorld()
