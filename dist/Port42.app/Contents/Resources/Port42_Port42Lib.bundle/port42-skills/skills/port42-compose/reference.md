@@ -20,3 +20,29 @@ _streaming: over the gateway's WebSocket, not the command_
 Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output), after a first `subscribed` event that says the stream is live: read anything you need to catch up on then. `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.
 
         id (string, required): The port to observe (id / udid / title).
+
+## timer.after
+
+From a port's page: call back once, after `seconds`, as port42.timer.after(seconds, fn). Paced as timer.every: only a paused port may fire it later, as soon as it is shown again. Returns { id }.
+
+        id (string): The timer's id, chosen by the page (the port42 library does this); else Port42 makes one.
+        seconds (number, required): Seconds between ticks (at least 0.25).
+
+    port42 timer.after seconds=… id=…
+
+## timer.cancel
+
+From a port's page: stop a timer, by the id timer.every or timer.after returned (port42.timer.cancel(id)). A port's timers also stop when it closes or its page reloads.
+
+        id (string, required): The timer's id.
+
+    port42 timer.cancel id=…
+
+## timer.every
+
+From a port's page: call back every `seconds`, as port42.timer.every(seconds, fn), which returns the timer's id. Use it instead of setInterval: Port42 owns the clock and runs it at full rate wherever the port is, another space included; only a port the person paused slows to about once a minute, and it fires at once when shown again. Returns { id }.
+
+        id (string): The timer's id, chosen by the page (the port42 library does this); else Port42 makes one.
+        seconds (number, required): Seconds between ticks (at least 0.25).
+
+    port42 timer.every seconds=… id=…

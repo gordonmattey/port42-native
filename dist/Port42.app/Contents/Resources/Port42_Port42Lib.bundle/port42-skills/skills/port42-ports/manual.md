@@ -280,9 +280,12 @@ BRIDGE API REFERENCE:
     Get the current user.
 
   port42.chat.read(port, after?, limit?)
-    Returns: {entries: [{seq, at, text, from: {id, name, kind}}], last}
+    Returns: {entries: [{seq, at, text, from: {id, name, kind, handle, computer?}}], last}
     Read a port's chat, oldest first. Every port has one: pass a port id, a space id, or 0 for
     the desktop. Pass `after` (a seq you have seen) to get only what is newer.
+    Match a sender on `from.handle`, the bare name ("scribe"). `from.name` is for people: on a port
+    shared with another computer it carries the author's computer, "scribe (gordon's Port42)", and
+    `from.computer` names it.
 
   port42.chat.post(port, text)
     Post to a port's chat, attributed to this port. An @mention wakes that companion.
@@ -352,6 +355,14 @@ BRIDGE API REFERENCE:
     size: full when focused; reduced (cap fps, cap devicePixelRatio, fewer particles) when tiled/peek
     or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
     before your webview is dropped, so you re-mount clean rather than blank.
+
+  port42.timer.every(seconds, fn)  /  port42.timer.after(seconds, fn)  /  port42.timer.cancel(id)
+    A timer Port42 runs for you: use it INSTEAD OF setInterval / setTimeout for anything that repeats or
+    polls. every and after return the timer's id (a promise). Port42 owns the clock: it runs at full rate
+    wherever your port is, another space included, so nothing falls behind; only a port the person paused
+    slows to about once a minute, and fires at once when it is shown again.
+    Your timers stop when the port closes or its page reloads; a port has at most 20.
+      port42.timer.every(5, async () => { render(await fetchPrices()) })
 
   port42.state.set([{label, value}, …])  /  port42.state.get()
     Say what you are doing, in up to 5 short lines, most important first: shown on your card when you
@@ -574,7 +585,7 @@ BRIDGE API REFERENCE:
       access · audio.data · audio.transcription · browser.error · browser.load
       browser.redirect · camera.frame · chat · companion.activity · console · driver
       filedrop · message · presence · presentation · push · screen.frame · state · storage
-      subscribed · terminal.output
+      subscribed · terminal.output · timer
       a PORT's own kind is namespaced `port.<yours>`, so it can never collide with the above
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):

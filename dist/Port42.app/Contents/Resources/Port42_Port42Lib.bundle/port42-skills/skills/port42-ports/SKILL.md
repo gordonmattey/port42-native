@@ -130,6 +130,7 @@ remote.setWake tile=<id> on:=true` lets its host's chat wake your companions (bo
   `port42.presentation()` for the state at startup.
 - **Off screen** (running, paused, another space) a port still gets every event, and its timers never
   stop: full rate when running, else about once a second (a long interval may fire late); frames stop.
+  For anything that repeats or polls, use `port42.timer.every`: full rate wherever the port is.
 - **A failed bridge call rejects.** Wrap startup in try/catch so one failure cannot blank the port;
   show failures in the UI.
 - **`port.exec`** runs your JS as a function body: a multi-statement line needs an explicit `return`,

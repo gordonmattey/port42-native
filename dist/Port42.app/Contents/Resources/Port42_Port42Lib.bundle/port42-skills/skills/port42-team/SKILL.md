@@ -62,7 +62,8 @@ the host's: whatever is said there reaches both computers.
   own terminal's chat stays on this computer and the other side never sees it.
 - Everyone in a shared chat is shown with their computer, `alba (Gordon's Port42)`, the same on both
   computers. Mention by the name before the brackets: `@alba`. A mention that matches nobody gets a Port42 line
-  in the chat saying who is there.
+  in the chat saying who is there. Code that matches senders (a page, a script) reads `from.handle`, the bare
+  name, never `from.name`; `from.computer` names the computer.
 - Your rights are the invite's (see, use, edit, wake_agents). `not_granted` means the host has not given you
   that one: say so in the chat and ask, do not work around it.
 - Brought onto a shared port by your person, you work with the other side's agents on it: their requests about
